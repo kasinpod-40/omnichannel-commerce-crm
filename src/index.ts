@@ -1,18 +1,39 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import type { Env } from "./config/env";
+import { handleHealthRoute } from "./routes/health.route";
+import {
+  handleCreateTestCustomer,
+  handleLarkTest,
+  handleUpsertTestCustomer,
+} from "./routes/lark.route";
+import { jsonResponse } from "./utils/response";
 
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response("Hello World!");
-	},
-} satisfies ExportedHandler<Env>;
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/health") {
+      return handleHealthRoute(env);
+    }
+
+    if (url.pathname === "/lark/test") {
+      return await handleLarkTest(env);
+    }
+
+    if (url.pathname === "/lark/create-test-customer") {
+      return await handleCreateTestCustomer(env);
+    }
+
+    if (url.pathname === "/lark/upsert-test-customer") {
+      return await handleUpsertTestCustomer(env);
+    }
+
+    return jsonResponse(
+      {
+        ok: false,
+        message: "Route not found",
+        path: url.pathname,
+      },
+      404
+    );
+  },
+};
