@@ -6,6 +6,7 @@ import {
   handleLarkTest,
   handleUpsertTestCustomer,
 } from "./routes/lark.route";
+import { handlePipelineTest } from "./routes/pipeline.route";
 import { jsonResponse } from "./utils/response";
 
 export default {
@@ -30,6 +31,10 @@ export default {
 
     if (url.pathname === "/conversation/test") {
       return await handleConversationTest(env);
+    }
+
+    if (url.pathname === "/pipeline/test") {
+      return await handlePipelineTest(env);
     }
 
     return jsonResponse(

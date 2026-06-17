@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env";
+import { CUSTOMER_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
     searchLarkRecords,
@@ -18,19 +19,19 @@ export async function createCustomer(
     const now = Date.now();
 
     return await createLarkRecord(env, env.CUSTOMERS_TABLE_ID, {
-        channel: customer.channel,
-        channel_customer_id: customer.channel_customer_id,
-        customer_name: customer.customer_name,
-        phone: customer.phone ?? "",
-        current_stage: customer.current_stage,
-        lead_score: customer.lead_score,
-        hot_lead: customer.hot_lead,
-        ai_summary: customer.ai_summary ?? "",
-        last_message: customer.last_message ?? "",
-        message_count: customer.message_count,
-        sales_owner: customer.sales_owner ?? "Unassigned",
-        created_at: now,
-        updated_at: now,
+        [CUSTOMER_FIELDS.CHANNEL]: customer.channel,
+        [CUSTOMER_FIELDS.CHANNEL_CUSTOMER_ID]: customer.channel_customer_id,
+        [CUSTOMER_FIELDS.CUSTOMER_NAME]: customer.customer_name,
+        [CUSTOMER_FIELDS.PHONE]: customer.phone ?? "",
+        [CUSTOMER_FIELDS.CURRENT_STAGE]: customer.current_stage,
+        [CUSTOMER_FIELDS.LEAD_SCORE]: customer.lead_score,
+        [CUSTOMER_FIELDS.HOT_LEAD]: customer.hot_lead,
+        [CUSTOMER_FIELDS.AI_SUMMARY]: customer.ai_summary ?? "",
+        [CUSTOMER_FIELDS.LAST_MESSAGE]: customer.last_message ?? "",
+        [CUSTOMER_FIELDS.MESSAGE_COUNT]: customer.message_count,
+        [CUSTOMER_FIELDS.SALES_OWNER]: customer.sales_owner ?? "Unassigned",
+        [CUSTOMER_FIELDS.CREATED_AT]: now,
+        [CUSTOMER_FIELDS.UPDATED_AT]: now,
     });
 }
 
@@ -43,12 +44,12 @@ export async function findCustomerByChannelCustomerId(
         conjunction: "and",
         conditions: [
             {
-                field_name: "channel",
+                field_name: CUSTOMER_FIELDS.CHANNEL,
                 operator: "is",
                 value: [channel],
             },
             {
-                field_name: "channel_customer_id",
+                field_name: CUSTOMER_FIELDS.CHANNEL_CUSTOMER_ID,
                 operator: "is",
                 value: [channelCustomerId],
             },
@@ -80,6 +81,6 @@ export async function updateCustomer(
 ): Promise<unknown> {
     return await updateLarkRecord(env, env.CUSTOMERS_TABLE_ID, recordId, {
         ...fields,
-        updated_at: Date.now(),
+        [CUSTOMER_FIELDS.UPDATED_AT]: Date.now(),
     });
 }

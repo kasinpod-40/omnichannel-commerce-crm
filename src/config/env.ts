@@ -8,4 +8,5 @@ export interface Env {
     
     CUSTOMERS_TABLE_ID: string;
     CONVERSATIONS_TABLE_ID: string;
+    PIPELINE_TABLE_ID: string;
 }
