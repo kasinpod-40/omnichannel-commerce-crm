@@ -1,4 +1,5 @@
 import type { Env } from "./config/env";
+import { handleConversationTest } from "./routes/conversation.route";
 import { handleHealthRoute } from "./routes/health.route";
 import {
   handleCreateTestCustomer,
@@ -25,6 +26,10 @@ export default {
 
     if (url.pathname === "/lark/upsert-test-customer") {
       return await handleUpsertTestCustomer(env);
+    }
+
+    if (url.pathname === "/conversation/test") {
+      return await handleConversationTest(env);
     }
 
     return jsonResponse(
