@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { PIPELINE_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
+    getLarkRecord,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
 import type { SalesPipeline } from "./pipeline.types";
@@ -69,4 +70,17 @@ export async function updatePipeline(
     });
 
     return normalizePipelineRecord(result);
+}
+
+export async function getPipelineByRecordId(
+    env: Env,
+    recordId: string
+): Promise<LarkPipelineRecord | null> {
+    const result = await getLarkRecord(env, env.PIPELINE_TABLE_ID, recordId);
+
+    if (!result) {
+        return null;
+    }
+
+    return result as LarkPipelineRecord;
 }

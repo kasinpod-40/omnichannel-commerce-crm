@@ -1,18 +1,23 @@
-export type Channel = "LINE" | "Shopee" | "Lazada" | "TikTok";
+import type { AIIntent } from "../../ai/ai.types";
 
-export type MessageType = "text" | "image" | "sticker" | "file";
+export type Channel =
+    | "LINE"
+    | "Shopee"
+    | "Lazada"
+    | "TikTok";
 
-export type Intent =
-    | "unknown"
-    | "greeting"
-    | "general_inquiry"
-    | "product_info"
-    | "ask_discount"
-    | "payment_request"
-    | "delivery_address"
-    | "lost";
+export type MessageType =
+    | "text"
+    | "image"
+    | "sticker"
+    | "file";
 
-export type ProcessStatus = "processing" | "synced" | "sync_failed";
+export type Intent = AIIntent;
+
+export type ProcessStatus =
+    | "processing"
+    | "synced"
+    | "sync_failed";
 
 export interface Conversation {
     customer_record_id?: string;

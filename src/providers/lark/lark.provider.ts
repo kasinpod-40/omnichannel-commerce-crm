@@ -122,3 +122,29 @@ export async function searchLarkRecords(
 
     return data.data?.items ?? [];
 }
+
+export async function getLarkRecord(
+    env: Env,
+    tableId: string,
+    recordId: string
+): Promise<any> {
+    const token = await getTenantAccessToken(env);
+
+    const response = await fetch(
+        `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
+        {
+            method: "GET",
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        }
+    );
+
+    const data = await response.json<LarkApiResponse<{ record?: any }>>();
+
+    if (data.code !== 0) {
+        throw new Error(`Lark Get Record Error: ${JSON.stringify(data)}`);
+    }
+
+    return data.data?.record;
+}

@@ -4,6 +4,8 @@ export type AIIntent =
     | "interested"
     | "purchase_intent"
     | "ready_to_buy"
+    | "delivery_address"
+    | "payment_slip"
     | "lost";
 
 export type CustomerStage =
@@ -16,8 +18,16 @@ export type CustomerStage =
 
 export interface AIAnalysisResult {
     intent: AIIntent;
+
     customer_stage: CustomerStage;
+
     lead_score: number;
+
     hot_lead: boolean;
+
     ai_summary: string;
+
+    quantity?: number;
+
+    address?: string;
 }

@@ -9,8 +9,13 @@ export const CUSTOMER_FIELDS = {
     AI_SUMMARY: "ai_summary",
     LAST_MESSAGE: "last_message",
     MESSAGE_COUNT: "message_count",
-    ACTIVE_PIPELINE: "active_pipeline",
-    ACTIVE_ORDER: "active_order",
+
+    PIPELINES_HISTORY: "pipelines_history",
+    ORDERS_HISTORY: "orders_history",
+
+    ACTIVE_PIPELINE_ID: "active_pipeline_id",
+    ACTIVE_ORDER_ID: "active_order_id",
+
     SALES_OWNER: "sales_owner",
     CREATED_AT: "created_at",
     UPDATED_AT: "updated_at",
