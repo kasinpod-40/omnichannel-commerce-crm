@@ -1,4 +1,5 @@
 import type { Env } from "./config/env";
+import { handleAITest } from "./routes/ai.route";
 import { handleConversationTest } from "./routes/conversation.route";
 import { handleHealthRoute } from "./routes/health.route";
 import {
@@ -16,6 +17,10 @@ export default {
 
     if (url.pathname === "/health") {
       return handleHealthRoute(env);
+    }
+
+    if (url.pathname === "/ai/test") {
+      return await handleAITest(request);
     }
 
     if (url.pathname === "/lark/test") {
