@@ -12,6 +12,20 @@ export type LarkCustomerRecord = {
     fields: Record<string, unknown>;
 };
 
+function normalizeCustomerRecord(result: unknown): LarkCustomerRecord {
+    const data = result as any;
+
+    if (data?.record?.record_id) {
+        return data.record as LarkCustomerRecord;
+    }
+
+    if (data?.record_id) {
+        return data as LarkCustomerRecord;
+    }
+
+    throw new Error(`Invalid Lark customer record: ${JSON.stringify(result)}`);
+}
+
 export async function createCustomer(
     env: Env,
     customer: Customer
@@ -34,7 +48,7 @@ export async function createCustomer(
         [CUSTOMER_FIELDS.UPDATED_AT]: now,
     });
 
-    return result as LarkCustomerRecord;
+    return normalizeCustomerRecord(result);
 }
 
 export async function findCustomerByChannelCustomerId(
@@ -77,6 +91,8 @@ export async function updateCustomer(
         ai_summary: string;
         last_message: string;
         message_count: number;
+        active_pipeline: string[];
+        active_order: string[];
         sales_owner: string;
         updated_at: number;
     }>
@@ -86,5 +102,5 @@ export async function updateCustomer(
         [CUSTOMER_FIELDS.UPDATED_AT]: Date.now(),
     });
 
-    return result as LarkCustomerRecord;
+    return normalizeCustomerRecord(result);
 }

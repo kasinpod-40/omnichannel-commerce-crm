@@ -6,10 +6,29 @@ import {
 } from "../../providers/lark/lark.provider";
 import type { SalesPipeline } from "./pipeline.types";
 
+export type LarkPipelineRecord = {
+    record_id: string;
+    fields: Record<string, unknown>;
+};
+
+function normalizePipelineRecord(result: unknown): LarkPipelineRecord {
+    const data = result as any;
+
+    if (data?.record?.record_id) {
+        return data.record as LarkPipelineRecord;
+    }
+
+    if (data?.record_id) {
+        return data as LarkPipelineRecord;
+    }
+
+    throw new Error(`Invalid Lark pipeline record: ${JSON.stringify(result)}`);
+}
+
 export async function createPipeline(
     env: Env,
     pipeline: SalesPipeline
-): Promise<unknown> {
+): Promise<LarkPipelineRecord> {
     const fields: Record<string, unknown> = {
         [PIPELINE_FIELDS.STAGE]: pipeline.stage,
         [PIPELINE_FIELDS.STATUS]: pipeline.status,
@@ -20,16 +39,16 @@ export async function createPipeline(
     };
 
     if (pipeline.customer_record_id) {
-        fields[PIPELINE_FIELDS.CUSTOMER] = [
-            pipeline.customer_record_id,
-        ];
+        fields[PIPELINE_FIELDS.CUSTOMER] = [pipeline.customer_record_id];
     }
 
     if (pipeline.closed_at) {
         fields[PIPELINE_FIELDS.CLOSED_AT] = pipeline.closed_at;
     }
 
-    return await createLarkRecord(env, env.PIPELINE_TABLE_ID, fields);
+    const result = await createLarkRecord(env, env.PIPELINE_TABLE_ID, fields);
+
+    return normalizePipelineRecord(result);
 }
 
 export async function updatePipeline(
@@ -44,8 +63,10 @@ export async function updatePipeline(
         closed_at: number;
         order: string[];
     }>
-): Promise<unknown> {
-    return await updateLarkRecord(env, env.PIPELINE_TABLE_ID, recordId, {
+): Promise<LarkPipelineRecord> {
+    const result = await updateLarkRecord(env, env.PIPELINE_TABLE_ID, recordId, {
         ...fields,
     });
+
+    return normalizePipelineRecord(result);
 }

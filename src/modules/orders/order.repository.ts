@@ -3,10 +3,29 @@ import { ORDER_FIELDS } from "../../core/lark-fields";
 import { createLarkRecord } from "../../providers/lark/lark.provider";
 import type { Order } from "./order.types";
 
+export type LarkOrderRecord = {
+    record_id: string;
+    fields: Record<string, unknown>;
+};
+
+function normalizeOrderRecord(result: unknown): LarkOrderRecord {
+    const data = result as any;
+
+    if (data?.record?.record_id) {
+        return data.record as LarkOrderRecord;
+    }
+
+    if (data?.record_id) {
+        return data as LarkOrderRecord;
+    }
+
+    throw new Error(`Invalid Lark order record: ${JSON.stringify(result)}`);
+}
+
 export async function createOrder(
     env: Env,
     order: Order
-): Promise<unknown> {
+): Promise<LarkOrderRecord> {
     const fields: Record<string, unknown> = {
         [ORDER_FIELDS.ORDER_NUMBER]: order.order_number,
         [ORDER_FIELDS.CHANNEL]: order.channel,
@@ -32,5 +51,7 @@ export async function createOrder(
         fields[ORDER_FIELDS.PIPELINE] = [order.pipeline_record_id];
     }
 
-    return await createLarkRecord(env, env.ORDERS_TABLE_ID, fields);
+    const result = await createLarkRecord(env, env.ORDERS_TABLE_ID, fields);
+
+    return normalizeOrderRecord(result);
 }
