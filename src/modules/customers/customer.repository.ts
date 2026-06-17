@@ -15,10 +15,10 @@ export type LarkCustomerRecord = {
 export async function createCustomer(
     env: Env,
     customer: Customer
-): Promise<unknown> {
+): Promise<LarkCustomerRecord> {
     const now = Date.now();
 
-    return await createLarkRecord(env, env.CUSTOMERS_TABLE_ID, {
+    const result = await createLarkRecord(env, env.CUSTOMERS_TABLE_ID, {
         [CUSTOMER_FIELDS.CHANNEL]: customer.channel,
         [CUSTOMER_FIELDS.CHANNEL_CUSTOMER_ID]: customer.channel_customer_id,
         [CUSTOMER_FIELDS.CUSTOMER_NAME]: customer.customer_name,
@@ -33,6 +33,8 @@ export async function createCustomer(
         [CUSTOMER_FIELDS.CREATED_AT]: now,
         [CUSTOMER_FIELDS.UPDATED_AT]: now,
     });
+
+    return result as LarkCustomerRecord;
 }
 
 export async function findCustomerByChannelCustomerId(
@@ -78,9 +80,11 @@ export async function updateCustomer(
         sales_owner: string;
         updated_at: number;
     }>
-): Promise<unknown> {
-    return await updateLarkRecord(env, env.CUSTOMERS_TABLE_ID, recordId, {
+): Promise<LarkCustomerRecord> {
+    const result = await updateLarkRecord(env, env.CUSTOMERS_TABLE_ID, recordId, {
         ...fields,
         [CUSTOMER_FIELDS.UPDATED_AT]: Date.now(),
     });
+
+    return result as LarkCustomerRecord;
 }
