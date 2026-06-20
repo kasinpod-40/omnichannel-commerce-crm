@@ -3,7 +3,10 @@ import {
     CUSTOMER_FIELDS,
     PIPELINE_FIELDS,
 } from "../../core/lark-fields";
-import { getLarkText } from "../../utils/lark-field-value";
+import {
+    getLarkNumber,
+    getLarkText,
+} from "../../utils/lark-field-value";
 import {
     updateCustomer,
     type LarkCustomerRecord,
@@ -14,7 +17,95 @@ import {
     updatePipeline,
     type LarkPipelineRecord,
 } from "./pipeline.repository";
-import type { PipelineStage } from "./pipeline.types";
+import type {
+    PipelineStage,
+    PipelineStatus,
+} from "./pipeline.types";
+
+export type PipelineAuditState = {
+    stage: PipelineStage;
+    status: PipelineStatus;
+    lead_score: number;
+};
+
+export type EnsurePipelineResult = {
+    record: LarkPipelineRecord;
+    created: boolean;
+    updated: boolean;
+    old_state: PipelineAuditState | null;
+    new_state: PipelineAuditState;
+};
+
+export type MarkPipelineLostResult = {
+    record: LarkPipelineRecord;
+    changed: boolean;
+    old_state: PipelineAuditState;
+    new_state: PipelineAuditState;
+};
+
+function normalizePipelineStage(
+    value: unknown
+): PipelineStage {
+    const stage = getLarkText(value, "").trim();
+
+    if (
+        stage === "Interested" ||
+        stage === "Negotiating" ||
+        stage === "Closing" ||
+        stage === "Won" ||
+        stage === "Lost"
+    ) {
+        return stage;
+    }
+
+    return "Interested";
+}
+
+function normalizePipelineStatus(
+    value: unknown
+): PipelineStatus {
+    const status = getLarkText(value, "")
+        .trim()
+        .toLowerCase();
+
+    if (
+        status === "open" ||
+        status === "won" ||
+        status === "lost"
+    ) {
+        return status;
+    }
+
+    return "open";
+}
+
+function getPipelineAuditState(
+    pipeline: LarkPipelineRecord
+): PipelineAuditState {
+    return {
+        stage: normalizePipelineStage(
+            pipeline.fields[PIPELINE_FIELDS.STAGE]
+        ),
+        status: normalizePipelineStatus(
+            pipeline.fields[PIPELINE_FIELDS.STATUS]
+        ),
+        lead_score: getLarkNumber(
+            pipeline.fields[PIPELINE_FIELDS.LEAD_SCORE],
+            0
+        ),
+    };
+}
+
+function hasPipelineStateChanged(
+    oldState: PipelineAuditState,
+    newState: PipelineAuditState
+): boolean {
+    return (
+        oldState.stage !== newState.stage ||
+        oldState.status !== newState.status ||
+        oldState.lead_score !== newState.lead_score
+    );
+}
 
 export async function createOpenPipelineForCustomer(
     env: Env,
@@ -27,14 +118,12 @@ export async function createOpenPipelineForCustomer(
     }
 ): Promise<LarkPipelineRecord> {
     return await createPipeline(env, {
-        customer_record_id:
-            input.customer_record_id,
+        customer_record_id: input.customer_record_id,
         stage: input.stage ?? "Interested",
         status: "open",
         lead_score: input.lead_score ?? 0,
         ai_summary: input.ai_summary ?? "",
-        sales_owner:
-            input.sales_owner ?? "Unassigned",
+        sales_owner: input.sales_owner ?? "Unassigned",
     });
 }
 
@@ -47,10 +136,10 @@ export async function createPipelineIfNeeded(
         ai_summary: string;
         sales_owner?: string;
     }
-): Promise<LarkPipelineRecord> {
+): Promise<EnsurePipelineResult> {
     const activePipelineId = getLarkText(
         customer.fields[
-        CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID
+            CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID
         ],
         ""
     ).trim();
@@ -63,31 +152,55 @@ export async function createPipelineIfNeeded(
             );
 
         if (existingPipeline) {
-            const existingStatus = getLarkText(
-                existingPipeline.fields[
-                PIPELINE_FIELDS.STATUS
-                ],
-                ""
-            ).toLowerCase();
+            const oldState = getPipelineAuditState(
+                existingPipeline
+            );
 
             const isClosed =
-                existingStatus === "won" ||
-                existingStatus === "lost";
+                oldState.status === "won" ||
+                oldState.status === "lost";
 
             if (!isClosed) {
-                return await updatePipeline(
-                    env,
-                    activePipelineId,
-                    {
-                        stage: input.stage,
-                        status: "open",
-                        lead_score: input.lead_score,
-                        ai_summary: input.ai_summary,
-                    }
-                );
+                const newState: PipelineAuditState = {
+                    stage: input.stage,
+                    status: "open",
+                    lead_score: input.lead_score,
+                };
+
+                const updatedPipeline =
+                    await updatePipeline(
+                        env,
+                        activePipelineId,
+                        {
+                            stage: newState.stage,
+                            status: newState.status,
+                            lead_score:
+                                newState.lead_score,
+                            ai_summary:
+                                input.ai_summary,
+                        }
+                    );
+
+                return {
+                    record: updatedPipeline,
+                    created: false,
+                    updated:
+                        hasPipelineStateChanged(
+                            oldState,
+                            newState
+                        ),
+                    old_state: oldState,
+                    new_state: newState,
+                };
             }
         }
     }
+
+    const newState: PipelineAuditState = {
+        stage: input.stage,
+        status: "open",
+        lead_score: input.lead_score,
+    };
 
     const pipeline =
         await createOpenPipelineForCustomer(
@@ -95,8 +208,9 @@ export async function createPipelineIfNeeded(
             {
                 customer_record_id:
                     customer.record_id,
-                stage: input.stage,
-                lead_score: input.lead_score,
+                stage: newState.stage,
+                lead_score:
+                    newState.lead_score,
                 ai_summary: input.ai_summary,
                 sales_owner:
                     input.sales_owner ?? "Unassigned",
@@ -112,16 +226,22 @@ export async function createPipelineIfNeeded(
         }
     );
 
-    return pipeline;
+    return {
+        record: pipeline,
+        created: true,
+        updated: false,
+        old_state: null,
+        new_state: newState,
+    };
 }
 
 export async function markActivePipelineLost(
     env: Env,
     customer: LarkCustomerRecord
-): Promise<LarkPipelineRecord | null> {
+): Promise<MarkPipelineLostResult | null> {
     const activePipelineId = getLarkText(
         customer.fields[
-        CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID
+            CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID
         ],
         ""
     ).trim();
@@ -130,13 +250,54 @@ export async function markActivePipelineLost(
         return null;
     }
 
-    return await updatePipeline(
+    const existingPipeline =
+        await getPipelineByRecordId(
+            env,
+            activePipelineId
+        );
+
+    if (!existingPipeline) {
+        return null;
+    }
+
+    const oldState = getPipelineAuditState(
+        existingPipeline
+    );
+
+    const newState: PipelineAuditState = {
+        stage: "Lost",
+        status: "lost",
+        lead_score: oldState.lead_score,
+    };
+
+    const changed = hasPipelineStateChanged(
+        oldState,
+        newState
+    );
+
+    if (!changed) {
+        return {
+            record: existingPipeline,
+            changed: false,
+            old_state: oldState,
+            new_state: newState,
+        };
+    }
+
+    const lostPipeline = await updatePipeline(
         env,
         activePipelineId,
         {
-            stage: "Lost",
-            status: "lost",
+            stage: newState.stage,
+            status: newState.status,
             closed_at: Date.now(),
         }
     );
+
+    return {
+        record: lostPipeline,
+        changed: true,
+        old_state: oldState,
+        new_state: newState,
+    };
 }

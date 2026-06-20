@@ -78,6 +78,7 @@ export const ACTIVITY_FIELDS = {
 } as const;
 
 export const NOTIFICATION_FIELDS = {
+    EVENT_ID: "event_id",
     NOTIFICATION_TYPE: "notification_type",
     CUSTOMER: "customer",
     MESSAGE: "message",

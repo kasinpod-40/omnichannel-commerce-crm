@@ -10,4 +10,6 @@ export interface Env {
     CONVERSATIONS_TABLE_ID: string;
     PIPELINE_TABLE_ID: string;
     ORDERS_TABLE_ID: string;
+    ACTIVITIES_TABLE_ID: string;
+    NOTIFICATIONS_TABLE_ID: string;
 }

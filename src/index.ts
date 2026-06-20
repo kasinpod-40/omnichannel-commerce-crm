@@ -1,4 +1,5 @@
 import type { Env } from "./config/env";
+import { handleActivityTest } from "./routes/activity.route";
 import { handleAITest } from "./routes/ai.route";
 import { handleConversationTest } from "./routes/conversation.route";
 import { handleHealthRoute } from "./routes/health.route";
@@ -12,6 +13,7 @@ import {
   handleProcessMessageTest,
 } from "./routes/message.route";
 import { handleOrderTest } from "./routes/order.route";
+import { handleNotificationTest } from "./routes/notification.route";
 import { handleVerifyPaymentTest } from "./routes/payment.route";
 import { handlePipelineTest } from "./routes/pipeline.route";
 import { jsonResponse } from "./utils/response";
@@ -39,23 +41,32 @@ export default {
       url.pathname ===
       "/lark/create-test-customer"
     ) {
-      return await handleCreateTestCustomer(env);
+      return await handleCreateTestCustomer(
+        env
+      );
     }
 
     if (
       url.pathname ===
       "/lark/upsert-test-customer"
     ) {
-      return await handleUpsertTestCustomer(env);
+      return await handleUpsertTestCustomer(
+        env
+      );
     }
 
     if (
-      url.pathname === "/conversation/test"
+      url.pathname ===
+      "/conversation/test"
     ) {
-      return await handleConversationTest(env);
+      return await handleConversationTest(
+        env
+      );
     }
 
-    if (url.pathname === "/pipeline/test") {
+    if (
+      url.pathname === "/pipeline/test"
+    ) {
       return await handlePipelineTest(env);
     }
 
@@ -64,21 +75,45 @@ export default {
     }
 
     if (
-      url.pathname === "/message/process-test"
+      url.pathname ===
+      "/message/process-test"
     ) {
-      return await handleProcessMessageTest(env);
+      return await handleProcessMessageTest(
+        request,
+        env
+      );
     }
 
     if (
-      url.pathname === "/message/lost-test"
+      url.pathname ===
+      "/message/lost-test"
     ) {
       return await handleProcessLostTest(env);
     }
 
     if (
-      url.pathname === "/payment/verify-test"
+      url.pathname ===
+      "/payment/verify-test"
     ) {
       return await handleVerifyPaymentTest(
+        request,
+        env
+      );
+    }
+
+    if (
+      url.pathname === "/activity/test"
+    ) {
+      return await handleActivityTest(
+        request,
+        env
+      );
+    }
+
+    if (
+      url.pathname === "/notification/test"
+    ) {
+      return await handleNotificationTest(
         request,
         env
       );

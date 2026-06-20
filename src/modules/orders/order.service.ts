@@ -4,6 +4,7 @@ import {
     ORDER_FIELDS,
 } from "../../core/lark-fields";
 import {
+    getLarkBoolean,
     getLarkNumber,
     getLarkText,
 } from "../../utils/lark-field-value";
@@ -20,15 +21,55 @@ import {
     type LarkOrderRecord,
 } from "./order.repository";
 
+export type EnsureOrderResult = {
+    record: LarkOrderRecord;
+    created: boolean;
+    quantity_changed: boolean;
+    old_quantity: number | null;
+    new_quantity: number | null;
+};
+
+export type AddressUpdateResult = {
+    record: LarkOrderRecord;
+    changed: boolean;
+    old_address: string;
+    new_address: string;
+};
+
+export type PaymentReviewResult = {
+    record: LarkOrderRecord;
+    changed: boolean;
+    old_payment_status: string;
+    new_payment_status: string;
+    old_order_status: string;
+    new_order_status: string;
+    old_payment_verified: boolean;
+    new_payment_verified: boolean;
+};
+
+export type CancelOrderResult = {
+    record: LarkOrderRecord;
+    changed: boolean;
+    old_order_status: string;
+    new_order_status: string;
+    payment_status: string;
+    payment_verified: boolean;
+};
+
+type QuantityUpdateResult = {
+    record: LarkOrderRecord;
+    changed: boolean;
+    old_quantity: number;
+    new_quantity: number;
+};
+
 function generateOrderNumber(): string {
     const now = new Date();
 
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
-
-    const random =
-        Math.floor(Math.random() * 9000) + 1000;
+    const random = Math.floor(Math.random() * 9000) + 1000;
 
     return `ORD-${yyyy}${mm}${dd}-${random}`;
 }
@@ -74,7 +115,9 @@ function isClosedOrder(
     const status = getLarkText(
         order.fields[ORDER_FIELDS.ORDER_STATUS],
         ""
-    ).toLowerCase();
+    )
+        .trim()
+        .toLowerCase();
 
     return (
         status === "completed" ||
@@ -89,18 +132,23 @@ async function updateExistingOrderQuantity(
         quantity?: number;
         message?: string;
     }
-): Promise<LarkOrderRecord> {
-    if (
-        input.quantity === undefined ||
-        input.quantity <= 0
-    ) {
-        return order;
-    }
-
+): Promise<QuantityUpdateResult> {
     const currentQuantity = getLarkNumber(
         order.fields[ORDER_FIELDS.QUANTITY],
         0
     );
+
+    if (
+        input.quantity === undefined ||
+        input.quantity <= 0
+    ) {
+        return {
+            record: order,
+            changed: false,
+            old_quantity: currentQuantity,
+            new_quantity: currentQuantity,
+        };
+    }
 
     const shouldAdd = isAddQuantityMessage(
         input.message
@@ -111,16 +159,28 @@ async function updateExistingOrderQuantity(
         : input.quantity;
 
     if (nextQuantity === currentQuantity) {
-        return order;
+        return {
+            record: order,
+            changed: false,
+            old_quantity: currentQuantity,
+            new_quantity: currentQuantity,
+        };
     }
 
-    return await updateOrder(
+    const updatedOrder = await updateOrder(
         env,
         order.record_id,
         {
             quantity: nextQuantity,
         }
     );
+
+    return {
+        record: updatedOrder,
+        changed: true,
+        old_quantity: currentQuantity,
+        new_quantity: nextQuantity,
+    };
 }
 
 export async function createTestOrderForCustomer(
@@ -132,8 +192,10 @@ export async function createTestOrderForCustomer(
 ): Promise<LarkOrderRecord> {
     return await createOrder(env, {
         order_number: generateOrderNumber(),
-        customer_record_id: input.customer_record_id,
-        pipeline_record_id: input.pipeline_record_id,
+        customer_record_id:
+            input.customer_record_id,
+        pipeline_record_id:
+            input.pipeline_record_id,
         channel: "LINE",
         external_order_id: "",
         customer_name: "LINE Test User",
@@ -159,35 +221,52 @@ export async function createOrderIfReadyToBuy(
         total_amount?: number;
         message?: string;
     }
-): Promise<LarkOrderRecord | null> {
+): Promise<EnsureOrderResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
+        customer.fields[
+        CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+        ],
         ""
     ).trim();
 
     if (activeOrderId) {
-        const existingOrder = await getOrderByRecordId(
-            env,
-            activeOrderId
-        );
+        const existingOrder =
+            await getOrderByRecordId(
+                env,
+                activeOrderId
+            );
 
         if (
             existingOrder &&
             !isClosedOrder(existingOrder)
         ) {
-            return await updateExistingOrderQuantity(
-                env,
-                existingOrder,
-                {
-                    quantity: input.quantity,
-                    message: input.message,
-                }
-            );
+            const quantityResult =
+                await updateExistingOrderQuantity(
+                    env,
+                    existingOrder,
+                    {
+                        quantity: input.quantity,
+                        message: input.message,
+                    }
+                );
+
+            return {
+                record: quantityResult.record,
+                created: false,
+                quantity_changed:
+                    quantityResult.changed,
+                old_quantity:
+                    quantityResult.old_quantity,
+                new_quantity:
+                    quantityResult.new_quantity,
+            };
         }
     }
 
     const customerName = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.CUSTOMER_NAME],
+        customer.fields[
+        CUSTOMER_FIELDS.CUSTOMER_NAME
+        ],
         "Unknown Customer"
     );
 
@@ -197,11 +276,14 @@ export async function createOrderIfReadyToBuy(
     );
 
     const channel = getCustomerChannel(customer);
+    const quantity = input.quantity ?? 1;
 
     const order = await createOrder(env, {
         order_number: generateOrderNumber(),
-        customer_record_id: customer.record_id,
-        pipeline_record_id: pipeline?.record_id,
+        customer_record_id:
+            customer.record_id,
+        pipeline_record_id:
+            pipeline?.record_id,
         channel,
         external_order_id: "",
         customer_name: customerName,
@@ -211,8 +293,9 @@ export async function createOrderIfReadyToBuy(
             input.product_name ??
             input.message ??
             "สินค้าในแชท",
-        quantity: input.quantity ?? 1,
-        total_amount: input.total_amount ?? 0,
+        quantity,
+        total_amount:
+            input.total_amount ?? 0,
         payment_status: "Waiting Payment",
         payment_verified: false,
         order_status: "Waiting Payment",
@@ -227,16 +310,24 @@ export async function createOrderIfReadyToBuy(
         }
     );
 
-    return order;
+    return {
+        record: order,
+        created: true,
+        quantity_changed: false,
+        old_quantity: null,
+        new_quantity: quantity,
+    };
 }
 
 export async function updateActiveOrderAddress(
     env: Env,
     customer: LarkCustomerRecord,
     address: string
-): Promise<LarkOrderRecord | null> {
+): Promise<AddressUpdateResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
+        customer.fields[
+        CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+        ],
         ""
     ).trim();
 
@@ -244,10 +335,11 @@ export async function updateActiveOrderAddress(
         return null;
     }
 
-    const existingOrder = await getOrderByRecordId(
-        env,
-        activeOrderId
-    );
+    const existingOrder =
+        await getOrderByRecordId(
+            env,
+            activeOrderId
+        );
 
     if (
         !existingOrder ||
@@ -256,27 +348,57 @@ export async function updateActiveOrderAddress(
         return null;
     }
 
-    const normalizedAddress = address.trim();
+    const oldAddress = getLarkText(
+        existingOrder.fields[ORDER_FIELDS.ADDRESS],
+        ""
+    ).trim();
 
-    if (!normalizedAddress) {
-        return existingOrder;
+    const newAddress = address
+        .trim()
+        .replace(/\s+/g, " ");
+
+    if (!newAddress) {
+        return {
+            record: existingOrder,
+            changed: false,
+            old_address: oldAddress,
+            new_address: oldAddress,
+        };
     }
 
-    return await updateOrder(
+    if (oldAddress === newAddress) {
+        return {
+            record: existingOrder,
+            changed: false,
+            old_address: oldAddress,
+            new_address: newAddress,
+        };
+    }
+
+    const updatedOrder = await updateOrder(
         env,
         activeOrderId,
         {
-            address: normalizedAddress,
+            address: newAddress,
         }
     );
+
+    return {
+        record: updatedOrder,
+        changed: true,
+        old_address: oldAddress,
+        new_address: newAddress,
+    };
 }
 
 export async function markActiveOrderPaymentReview(
     env: Env,
     customer: LarkCustomerRecord
-): Promise<LarkOrderRecord | null> {
+): Promise<PaymentReviewResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
+        customer.fields[
+        CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+        ],
         ""
     ).trim();
 
@@ -284,10 +406,11 @@ export async function markActiveOrderPaymentReview(
         return null;
     }
 
-    const existingOrder = await getOrderByRecordId(
-        env,
-        activeOrderId
-    );
+    const existingOrder =
+        await getOrderByRecordId(
+            env,
+            activeOrderId
+        );
 
     if (
         !existingOrder ||
@@ -296,23 +419,100 @@ export async function markActiveOrderPaymentReview(
         return null;
     }
 
-    return await updateOrder(
+    const oldPaymentStatus = getLarkText(
+        existingOrder.fields[
+        ORDER_FIELDS.PAYMENT_STATUS
+        ],
+        ""
+    ).trim();
+
+    const oldOrderStatus = getLarkText(
+        existingOrder.fields[
+        ORDER_FIELDS.ORDER_STATUS
+        ],
+        ""
+    ).trim();
+
+    const oldPaymentVerified =
+        getLarkBoolean(
+            existingOrder.fields[
+            ORDER_FIELDS.PAYMENT_VERIFIED
+            ],
+            false
+        );
+
+    const newPaymentStatus =
+        "Waiting Payment";
+
+    const newOrderStatus =
+        "Payment Review";
+
+    const newPaymentVerified = false;
+
+    const changed =
+        oldPaymentStatus !== newPaymentStatus ||
+        oldOrderStatus !== newOrderStatus ||
+        oldPaymentVerified !==
+        newPaymentVerified;
+
+    if (!changed) {
+        return {
+            record: existingOrder,
+            changed: false,
+            old_payment_status:
+                oldPaymentStatus,
+            new_payment_status:
+                newPaymentStatus,
+            old_order_status:
+                oldOrderStatus,
+            new_order_status:
+                newOrderStatus,
+            old_payment_verified:
+                oldPaymentVerified,
+            new_payment_verified:
+                newPaymentVerified,
+        };
+    }
+
+    const updatedOrder = await updateOrder(
         env,
         activeOrderId,
         {
-            payment_status: "Waiting Payment",
-            payment_verified: false,
-            order_status: "Payment Review",
+            payment_status:
+                newPaymentStatus,
+            payment_verified:
+                newPaymentVerified,
+            order_status:
+                newOrderStatus,
         }
     );
+
+    return {
+        record: updatedOrder,
+        changed: true,
+        old_payment_status:
+            oldPaymentStatus,
+        new_payment_status:
+            newPaymentStatus,
+        old_order_status:
+            oldOrderStatus,
+        new_order_status:
+            newOrderStatus,
+        old_payment_verified:
+            oldPaymentVerified,
+        new_payment_verified:
+            newPaymentVerified,
+    };
 }
 
 export async function cancelActiveOrder(
     env: Env,
     customer: LarkCustomerRecord
-): Promise<LarkOrderRecord | null> {
+): Promise<CancelOrderResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
+        customer.fields[
+            CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+        ],
         ""
     ).trim();
 
@@ -320,11 +520,70 @@ export async function cancelActiveOrder(
         return null;
     }
 
-    return await updateOrder(
+    const existingOrder =
+        await getOrderByRecordId(
+            env,
+            activeOrderId
+        );
+
+    if (!existingOrder) {
+        return null;
+    }
+
+    const oldOrderStatus = getLarkText(
+        existingOrder.fields[
+            ORDER_FIELDS.ORDER_STATUS
+        ],
+        ""
+    ).trim();
+
+    const paymentStatus = getLarkText(
+        existingOrder.fields[
+            ORDER_FIELDS.PAYMENT_STATUS
+        ],
+        ""
+    ).trim();
+
+    const paymentVerified = getLarkBoolean(
+        existingOrder.fields[
+            ORDER_FIELDS.PAYMENT_VERIFIED
+        ],
+        false
+    );
+
+    const normalizedOrderStatus =
+        oldOrderStatus.toLowerCase();
+
+    if (
+        normalizedOrderStatus === "cancelled" ||
+        normalizedOrderStatus === "completed"
+    ) {
+        return {
+            record: existingOrder,
+            changed: false,
+            old_order_status: oldOrderStatus,
+            new_order_status: oldOrderStatus,
+            payment_status: paymentStatus,
+            payment_verified: paymentVerified,
+        };
+    }
+
+    const newOrderStatus = "Cancelled";
+
+    const cancelledOrder = await updateOrder(
         env,
         activeOrderId,
         {
-            order_status: "Cancelled",
+            order_status: newOrderStatus,
         }
     );
+
+    return {
+        record: cancelledOrder,
+        changed: true,
+        old_order_status: oldOrderStatus,
+        new_order_status: newOrderStatus,
+        payment_status: paymentStatus,
+        payment_verified: paymentVerified,
+    };
 }
