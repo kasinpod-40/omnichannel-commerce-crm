@@ -13,14 +13,23 @@ export type LarkOrderRecord = {
 };
 
 export type UpdateOrderFields = Partial<{
+    pipeline_record_id: string;
+    customer_name: string;
+    phone: string;
     address: string;
     product_name: string;
+    product_unit: string;
     quantity: number;
     total_amount: number;
     payment_status: Order["payment_status"];
     payment_verified: boolean;
     order_status: Order["order_status"];
     sales_owner: string;
+    slip_amount: number;
+    slip_bank: string;
+    slip_image_url: string;
+    updated_at: number;
+    paid_at: number;
 }>;
 
 function normalizeOrderRecord(result: unknown): LarkOrderRecord {
@@ -50,6 +59,8 @@ export async function createOrder(
     env: Env,
     order: Order
 ): Promise<LarkOrderRecord> {
+    const now = Date.now();
+
     const fields: Record<string, unknown> = {
         [ORDER_FIELDS.ORDER_NUMBER]: order.order_number,
         [ORDER_FIELDS.CHANNEL]: order.channel,
@@ -59,6 +70,7 @@ export async function createOrder(
         [ORDER_FIELDS.PHONE]: order.phone ?? "",
         [ORDER_FIELDS.ADDRESS]: order.address ?? "",
         [ORDER_FIELDS.PRODUCT_NAME]: order.product_name,
+        [ORDER_FIELDS.PRODUCT_UNIT]: order.product_unit ?? "",
         [ORDER_FIELDS.QUANTITY]: order.quantity,
         [ORDER_FIELDS.TOTAL_AMOUNT]: order.total_amount,
         [ORDER_FIELDS.PAYMENT_STATUS]: order.payment_status,
@@ -67,9 +79,21 @@ export async function createOrder(
         [ORDER_FIELDS.ORDER_STATUS]: order.order_status,
         [ORDER_FIELDS.SALES_OWNER]:
             order.sales_owner ?? "Unassigned",
+        [ORDER_FIELDS.SLIP_AMOUNT]:
+            order.slip_amount ?? 0,
+        [ORDER_FIELDS.SLIP_BANK]:
+            order.slip_bank ?? "",
+        [ORDER_FIELDS.SLIP_IMAGE_URL]:
+            order.slip_image_url ?? "",
         [ORDER_FIELDS.CREATED_AT]:
-            order.created_at ?? Date.now(),
+            order.created_at ?? now,
+        [ORDER_FIELDS.UPDATED_AT]:
+            order.updated_at ?? now,
     };
+
+    if (order.paid_at !== undefined) {
+        fields[ORDER_FIELDS.PAID_AT] = order.paid_at;
+    }
 
     if (order.customer_record_id) {
         fields[ORDER_FIELDS.CUSTOMER] = [
@@ -99,6 +123,22 @@ export async function updateOrder(
 ): Promise<LarkOrderRecord> {
     const larkFields: Record<string, unknown> = {};
 
+    if (fields.pipeline_record_id !== undefined) {
+        larkFields[ORDER_FIELDS.PIPELINE] =
+            fields.pipeline_record_id
+                ? [fields.pipeline_record_id]
+                : [];
+    }
+
+    if (fields.customer_name !== undefined) {
+        larkFields[ORDER_FIELDS.CUSTOMER_NAME] =
+            fields.customer_name;
+    }
+
+    if (fields.phone !== undefined) {
+        larkFields[ORDER_FIELDS.PHONE] = fields.phone;
+    }
+
     if (fields.address !== undefined) {
         larkFields[ORDER_FIELDS.ADDRESS] = fields.address;
     }
@@ -106,6 +146,11 @@ export async function updateOrder(
     if (fields.product_name !== undefined) {
         larkFields[ORDER_FIELDS.PRODUCT_NAME] =
             fields.product_name;
+    }
+
+    if (fields.product_unit !== undefined) {
+        larkFields[ORDER_FIELDS.PRODUCT_UNIT] =
+            fields.product_unit;
     }
 
     if (fields.quantity !== undefined) {
@@ -136,6 +181,29 @@ export async function updateOrder(
         larkFields[ORDER_FIELDS.SALES_OWNER] =
             fields.sales_owner;
     }
+
+    if (fields.slip_amount !== undefined) {
+        larkFields[ORDER_FIELDS.SLIP_AMOUNT] =
+            fields.slip_amount;
+    }
+
+    if (fields.slip_bank !== undefined) {
+        larkFields[ORDER_FIELDS.SLIP_BANK] =
+            fields.slip_bank;
+    }
+
+    if (fields.slip_image_url !== undefined) {
+        larkFields[ORDER_FIELDS.SLIP_IMAGE_URL] =
+            fields.slip_image_url;
+    }
+
+    if (fields.paid_at !== undefined) {
+        larkFields[ORDER_FIELDS.PAID_AT] =
+            fields.paid_at;
+    }
+
+    larkFields[ORDER_FIELDS.UPDATED_AT] =
+        fields.updated_at ?? Date.now();
 
     const result = await updateLarkRecord(
         env,

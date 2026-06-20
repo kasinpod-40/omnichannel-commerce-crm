@@ -6,6 +6,8 @@ export type ActivityAction =
     | "ORDER_QUANTITY_UPDATED"
     | "ADDRESS_UPDATED"
     | "PAYMENT_SLIP_RECEIVED"
+    | "PENDING_PAYMENT_SAVED"
+    | "PENDING_PAYMENT_ATTACHED"
     | "PAYMENT_VERIFIED"
     | "SALE_WON"
     | "SALE_LOST"

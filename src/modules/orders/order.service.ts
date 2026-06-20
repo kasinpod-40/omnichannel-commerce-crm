@@ -1,9 +1,11 @@
+import type { QuantityAction } from "../../ai/ai.types";
 import type { Env } from "../../config/env";
 import {
     CUSTOMER_FIELDS,
     ORDER_FIELDS,
 } from "../../core/lark-fields";
 import {
+    getFirstLinkedRecordId,
     getLarkBoolean,
     getLarkNumber,
     getLarkText,
@@ -21,12 +23,30 @@ import {
     type LarkOrderRecord,
 } from "./order.repository";
 
+export type OrderQualificationReason =
+    | "product_order"
+    | "delivery_address"
+    | "payment_slip";
+
+export type OrderStateSnapshot = {
+    pipeline_record_id: string;
+    customer_name: string;
+    phone: string;
+    address: string;
+    product_name: string;
+    product_unit: string;
+    quantity: number;
+    total_amount: number;
+    sales_owner: string;
+};
+
 export type EnsureOrderResult = {
     record: LarkOrderRecord;
     created: boolean;
-    quantity_changed: boolean;
-    old_quantity: number | null;
-    new_quantity: number | null;
+    changed: boolean;
+    qualification_reason: OrderQualificationReason;
+    old_state: OrderStateSnapshot | null;
+    new_state: OrderStateSnapshot;
 };
 
 export type AddressUpdateResult = {
@@ -56,12 +76,7 @@ export type CancelOrderResult = {
     payment_verified: boolean;
 };
 
-type QuantityUpdateResult = {
-    record: LarkOrderRecord;
-    changed: boolean;
-    old_quantity: number;
-    new_quantity: number;
-};
+const UNKNOWN_PRODUCT_NAME = "ยังไม่ระบุสินค้า";
 
 function generateOrderNumber(): string {
     const now = new Date();
@@ -69,9 +84,16 @@ function generateOrderNumber(): string {
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const dd = String(now.getDate()).padStart(2, "0");
-    const random = Math.floor(Math.random() * 9000) + 1000;
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mi = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    const suffix = crypto
+        .randomUUID()
+        .replace(/-/g, "")
+        .slice(0, 6)
+        .toUpperCase();
 
-    return `ORD-${yyyy}${mm}${dd}-${random}`;
+    return `ORD-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${suffix}`;
 }
 
 function getCustomerChannel(
@@ -94,11 +116,40 @@ function getCustomerChannel(
     return "LINE";
 }
 
-function isAddQuantityMessage(
-    message?: string
-): boolean {
-    if (!message) {
+function normalizeText(value: string | undefined): string {
+    return (value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function isMeaningfulProductName(value: string): boolean {
+    const normalized = normalizeText(value).toLowerCase();
+
+    if (!normalized) {
         return false;
+    }
+
+    return ![
+        UNKNOWN_PRODUCT_NAME,
+        "สินค้าในแชท",
+        "สินค้า",
+        "ตัวนี้",
+        "อันนี้",
+        "ชิ้นนี้",
+        "สินค้านี้",
+        "รุ่นนี้",
+        "แบบนี้",
+    ].includes(normalized);
+}
+
+function resolveQuantityAction(
+    quantityAction: QuantityAction | undefined,
+    message?: string
+): QuantityAction {
+    if (quantityAction) {
+        return quantityAction;
+    }
+
+    if (!message) {
+        return "set";
     }
 
     const normalized = message
@@ -106,12 +157,14 @@ function isAddQuantityMessage(
         .toLowerCase()
         .replace(/\s+/g, " ");
 
-    return /(?:เพิ่ม|อีก)\s*\d+/.test(normalized);
+    if (/(?:เพิ่ม|อีก)\s*\d+/.test(normalized)) {
+        return "add";
+    }
+
+    return "set";
 }
 
-function isClosedOrder(
-    order: LarkOrderRecord
-): boolean {
+function isClosedOrder(order: LarkOrderRecord): boolean {
     const status = getLarkText(
         order.fields[ORDER_FIELDS.ORDER_STATUS],
         ""
@@ -119,51 +172,262 @@ function isClosedOrder(
         .trim()
         .toLowerCase();
 
-    return (
-        status === "completed" ||
-        status === "cancelled"
-    );
+    return status === "completed" || status === "cancelled";
 }
 
-async function updateExistingOrderQuantity(
-    env: Env,
-    order: LarkOrderRecord,
+function getOrderState(order: LarkOrderRecord): OrderStateSnapshot {
+    return {
+        pipeline_record_id:
+            getFirstLinkedRecordId(
+                order.fields[ORDER_FIELDS.PIPELINE]
+            ) ?? "",
+        customer_name: getLarkText(
+            order.fields[ORDER_FIELDS.CUSTOMER_NAME],
+            ""
+        ),
+        phone: getLarkText(
+            order.fields[ORDER_FIELDS.PHONE],
+            ""
+        ),
+        address: getLarkText(
+            order.fields[ORDER_FIELDS.ADDRESS],
+            ""
+        ),
+        product_name: getLarkText(
+            order.fields[ORDER_FIELDS.PRODUCT_NAME],
+            ""
+        ),
+        product_unit: getLarkText(
+            order.fields[ORDER_FIELDS.PRODUCT_UNIT],
+            ""
+        ),
+        quantity: getLarkNumber(
+            order.fields[ORDER_FIELDS.QUANTITY],
+            0
+        ),
+        total_amount: getLarkNumber(
+            order.fields[ORDER_FIELDS.TOTAL_AMOUNT],
+            0
+        ),
+        sales_owner: getLarkText(
+            order.fields[ORDER_FIELDS.SALES_OWNER],
+            "Unassigned"
+        ),
+    };
+}
+
+function resolveOrderInput(
+    customer: LarkCustomerRecord,
+    pipeline: LarkPipelineRecord | null,
     input: {
+        product_name?: string;
+        product_unit?: string;
         quantity?: number;
+        quantity_action?: QuantityAction;
+        total_amount?: number;
+        address?: string;
         message?: string;
+        qualification_reason: OrderQualificationReason;
     }
-): Promise<QuantityUpdateResult> {
-    const currentQuantity = getLarkNumber(
-        order.fields[ORDER_FIELDS.QUANTITY],
+): OrderStateSnapshot {
+    const storedProductName = getLarkText(
+        customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME],
+        ""
+    );
+
+    const storedProductUnit = getLarkText(
+        customer.fields[CUSTOMER_FIELDS.PRODUCT_UNIT],
+        ""
+    );
+
+    const storedQuantity = getLarkNumber(
+        customer.fields[CUSTOMER_FIELDS.PRODUCT_QTY],
         0
     );
 
-    if (
-        input.quantity === undefined ||
-        input.quantity <= 0
-    ) {
-        return {
-            record: order,
-            changed: false,
-            old_quantity: currentQuantity,
-            new_quantity: currentQuantity,
-        };
-    }
-
-    const shouldAdd = isAddQuantityMessage(
-        input.message
+    const customerName = getLarkText(
+        customer.fields[CUSTOMER_FIELDS.CUSTOMER_NAME],
+        "Unknown Customer"
     );
 
-    const nextQuantity = shouldAdd
-        ? currentQuantity + input.quantity
-        : input.quantity;
+    const phone = getLarkText(
+        customer.fields[CUSTOMER_FIELDS.PHONE],
+        ""
+    );
 
-    if (nextQuantity === currentQuantity) {
+    const salesOwner = getLarkText(
+        customer.fields[CUSTOMER_FIELDS.SALES_OWNER],
+        "Unassigned"
+    );
+
+    const resolvedProductName = normalizeText(
+        input.product_name
+    ) || normalizeText(storedProductName);
+
+    const resolvedProductUnit = normalizeText(
+        input.product_unit
+    ) || normalizeText(storedProductUnit);
+
+    const resolvedQuantity =
+        input.quantity !== undefined && input.quantity > 0
+            ? input.quantity
+            : storedQuantity;
+
+    return {
+        pipeline_record_id: pipeline?.record_id ?? "",
+        customer_name: customerName,
+        phone,
+        address: normalizeText(input.address),
+        product_name:
+            resolvedProductName || UNKNOWN_PRODUCT_NAME,
+        product_unit: resolvedProductUnit,
+        quantity: Math.max(0, resolvedQuantity),
+        total_amount: Math.max(0, input.total_amount ?? 0),
+        sales_owner: salesOwner || "Unassigned",
+    };
+}
+
+function isQualifiedProductOrder(
+    state: OrderStateSnapshot
+): boolean {
+    return (
+        isMeaningfulProductName(state.product_name) &&
+        state.quantity > 0
+    );
+}
+
+function shouldCreateOrder(
+    reason: OrderQualificationReason,
+    state: OrderStateSnapshot
+): boolean {
+    if (
+        reason === "product_order" ||
+        reason === "payment_slip"
+    ) {
+        /*
+         * สลิปอย่างเดียวไม่ควรสร้าง Order เปล่าที่ไม่มีสินค้า
+         * หากข้อมูลสินค้ายังไม่พอ ให้เก็บเป็น Pending Payment
+         * แล้วนำไปผูกเมื่อ Order ถูกสร้างภายหลัง
+         */
+        return isQualifiedProductOrder(state);
+    }
+
+    // ที่อยู่เป็นหลักฐานว่ากำลังเกิดคำสั่งซื้อจริง
+    // จึงอนุญาตให้สร้าง Order shell แล้วเติมสินค้าในภายหลัง
+    return true;
+}
+
+function statesEqual(
+    left: OrderStateSnapshot,
+    right: OrderStateSnapshot
+): boolean {
+    return (
+        left.pipeline_record_id === right.pipeline_record_id &&
+        left.customer_name === right.customer_name &&
+        left.phone === right.phone &&
+        left.address === right.address &&
+        left.product_name === right.product_name &&
+        left.product_unit === right.product_unit &&
+        left.quantity === right.quantity &&
+        left.total_amount === right.total_amount &&
+        left.sales_owner === right.sales_owner
+    );
+}
+
+function buildNextExistingOrderState(
+    existing: OrderStateSnapshot,
+    resolved: OrderStateSnapshot,
+    input: {
+        quantity?: number;
+        quantity_action?: QuantityAction;
+        message?: string;
+        address?: string;
+    }
+): OrderStateSnapshot {
+    let nextQuantity = existing.quantity;
+
+    if (input.quantity !== undefined && input.quantity > 0) {
+        const quantityAction = resolveQuantityAction(
+            input.quantity_action,
+            input.message
+        );
+
+        if (quantityAction === "add") {
+            nextQuantity = existing.quantity + input.quantity;
+        } else if (quantityAction === "subtract") {
+            // Order ที่ยัง Active ต้องมีอย่างน้อย 1 ชิ้น
+            // หากต้องการยกเลิกทั้งหมด ให้ใช้ Lost/Cancel Flow
+            nextQuantity = Math.max(
+                1,
+                existing.quantity - input.quantity
+            );
+        } else {
+            nextQuantity = input.quantity;
+        }
+    } else if (existing.quantity <= 0 && resolved.quantity > 0) {
+        nextQuantity = resolved.quantity;
+    }
+
+    const nextProductName = isMeaningfulProductName(
+        resolved.product_name
+    )
+        ? resolved.product_name
+        : existing.product_name;
+
+    const nextAddress = normalizeText(input.address)
+        ? normalizeText(input.address)
+        : existing.address;
+
+    return {
+        pipeline_record_id:
+            resolved.pipeline_record_id ||
+            existing.pipeline_record_id,
+        customer_name:
+            resolved.customer_name || existing.customer_name,
+        phone: resolved.phone || existing.phone,
+        address: nextAddress,
+        product_name:
+            nextProductName || UNKNOWN_PRODUCT_NAME,
+        product_unit:
+            resolved.product_unit || existing.product_unit,
+        quantity: nextQuantity,
+        total_amount:
+            resolved.total_amount > 0
+                ? resolved.total_amount
+                : existing.total_amount,
+        sales_owner:
+            resolved.sales_owner || existing.sales_owner,
+    };
+}
+
+async function updateExistingQualifiedOrder(
+    env: Env,
+    customer: LarkCustomerRecord,
+    order: LarkOrderRecord,
+    resolved: OrderStateSnapshot,
+    input: {
+        quantity?: number;
+        quantity_action?: QuantityAction;
+        message?: string;
+        address?: string;
+    },
+    reason: OrderQualificationReason
+): Promise<EnsureOrderResult> {
+    const oldState = getOrderState(order);
+    const newState = buildNextExistingOrderState(
+        oldState,
+        resolved,
+        input
+    );
+
+    if (statesEqual(oldState, newState)) {
         return {
             record: order,
+            created: false,
             changed: false,
-            old_quantity: currentQuantity,
-            new_quantity: currentQuantity,
+            qualification_reason: reason,
+            old_state: oldState,
+            new_state: newState,
         };
     }
 
@@ -171,15 +435,32 @@ async function updateExistingOrderQuantity(
         env,
         order.record_id,
         {
-            quantity: nextQuantity,
+            pipeline_record_id:
+                newState.pipeline_record_id,
+            customer_name: newState.customer_name,
+            phone: newState.phone,
+            address: newState.address,
+            product_name: newState.product_name,
+            product_unit: newState.product_unit,
+            quantity: newState.quantity,
+            total_amount: newState.total_amount,
+            sales_owner: newState.sales_owner,
         }
     );
 
+    await updateCustomer(env, customer.record_id, {
+        product_name: newState.product_name,
+        product_qty: newState.quantity,
+        product_unit: newState.product_unit,
+    });
+
     return {
         record: updatedOrder,
+        created: false,
         changed: true,
-        old_quantity: currentQuantity,
-        new_quantity: nextQuantity,
+        qualification_reason: reason,
+        old_state: oldState,
+        new_state: newState,
     };
 }
 
@@ -192,16 +473,15 @@ export async function createTestOrderForCustomer(
 ): Promise<LarkOrderRecord> {
     return await createOrder(env, {
         order_number: generateOrderNumber(),
-        customer_record_id:
-            input.customer_record_id,
-        pipeline_record_id:
-            input.pipeline_record_id,
+        customer_record_id: input.customer_record_id,
+        pipeline_record_id: input.pipeline_record_id,
         channel: "LINE",
         external_order_id: "",
         customer_name: "LINE Test User",
         phone: "0800000000",
         address: "Test Address",
         product_name: "Test Product",
+        product_unit: "ชิ้น",
         quantity: 1,
         total_amount: 999,
         payment_status: "Waiting Payment",
@@ -216,106 +496,104 @@ export async function createOrderIfReadyToBuy(
     customer: LarkCustomerRecord,
     pipeline: LarkPipelineRecord | null,
     input: {
+        qualification_reason: OrderQualificationReason;
         product_name?: string;
+        product_unit?: string;
         quantity?: number;
+        quantity_action?: QuantityAction;
         total_amount?: number;
+        address?: string;
         message?: string;
     }
 ): Promise<EnsureOrderResult | null> {
+    const resolved = resolveOrderInput(
+        customer,
+        pipeline,
+        input
+    );
+
     const activeOrderId = getLarkText(
-        customer.fields[
-        CUSTOMER_FIELDS.ACTIVE_ORDER_ID
-        ],
+        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
         ""
     ).trim();
 
     if (activeOrderId) {
-        const existingOrder =
-            await getOrderByRecordId(
+        const existingOrder = await getOrderByRecordId(
+            env,
+            activeOrderId
+        );
+
+        if (existingOrder && !isClosedOrder(existingOrder)) {
+            return await updateExistingQualifiedOrder(
                 env,
-                activeOrderId
+                customer,
+                existingOrder,
+                resolved,
+                {
+                    quantity: input.quantity,
+                    quantity_action:
+                        input.quantity_action,
+                    message: input.message,
+                    address: input.address,
+                },
+                input.qualification_reason
             );
-
-        if (
-            existingOrder &&
-            !isClosedOrder(existingOrder)
-        ) {
-            const quantityResult =
-                await updateExistingOrderQuantity(
-                    env,
-                    existingOrder,
-                    {
-                        quantity: input.quantity,
-                        message: input.message,
-                    }
-                );
-
-            return {
-                record: quantityResult.record,
-                created: false,
-                quantity_changed:
-                    quantityResult.changed,
-                old_quantity:
-                    quantityResult.old_quantity,
-                new_quantity:
-                    quantityResult.new_quantity,
-            };
         }
     }
 
-    const customerName = getLarkText(
-        customer.fields[
-        CUSTOMER_FIELDS.CUSTOMER_NAME
-        ],
-        "Unknown Customer"
-    );
+    // "เพิ่มอีก" และ "ลดออก" ต้องอ้างอิง Active Order เดิม
+    // ห้ามใช้ข้อความแก้จำนวนเพื่อสร้าง Order ใหม่โดยไม่มี Order ต้นทาง
+    if (
+        input.quantity_action === "add" ||
+        input.quantity_action === "subtract"
+    ) {
+        return null;
+    }
 
-    const phone = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.PHONE],
-        ""
-    );
-
-    const channel = getCustomerChannel(customer);
-    const quantity = input.quantity ?? 1;
+    if (
+        !shouldCreateOrder(
+            input.qualification_reason,
+            resolved
+        )
+    ) {
+        return null;
+    }
 
     const order = await createOrder(env, {
         order_number: generateOrderNumber(),
-        customer_record_id:
-            customer.record_id,
+        customer_record_id: customer.record_id,
         pipeline_record_id:
-            pipeline?.record_id,
-        channel,
+            resolved.pipeline_record_id || undefined,
+        channel: getCustomerChannel(customer),
         external_order_id: "",
-        customer_name: customerName,
-        phone,
-        address: "",
-        product_name:
-            input.product_name ??
-            input.message ??
-            "สินค้าในแชท",
-        quantity,
-        total_amount:
-            input.total_amount ?? 0,
+        customer_name: resolved.customer_name,
+        phone: resolved.phone,
+        address: resolved.address,
+        product_name: resolved.product_name,
+        product_unit: resolved.product_unit,
+        quantity: resolved.quantity,
+        total_amount: resolved.total_amount,
         payment_status: "Waiting Payment",
         payment_verified: false,
         order_status: "Waiting Payment",
-        sales_owner: "Unassigned",
+        sales_owner: resolved.sales_owner,
     });
 
-    await updateCustomer(
-        env,
-        customer.record_id,
-        {
-            active_order_id: order.record_id,
-        }
-    );
+    await updateCustomer(env, customer.record_id, {
+        active_order_id: order.record_id,
+        product_name: resolved.product_name,
+        product_qty: resolved.quantity,
+        product_unit: resolved.product_unit,
+    });
 
     return {
         record: order,
         created: true,
-        quantity_changed: false,
-        old_quantity: null,
-        new_quantity: quantity,
+        changed: true,
+        qualification_reason:
+            input.qualification_reason,
+        old_state: null,
+        new_state: resolved,
     };
 }
 
@@ -325,9 +603,7 @@ export async function updateActiveOrderAddress(
     address: string
 ): Promise<AddressUpdateResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[
-        CUSTOMER_FIELDS.ACTIVE_ORDER_ID
-        ],
+        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
         ""
     ).trim();
 
@@ -335,16 +611,12 @@ export async function updateActiveOrderAddress(
         return null;
     }
 
-    const existingOrder =
-        await getOrderByRecordId(
-            env,
-            activeOrderId
-        );
+    const existingOrder = await getOrderByRecordId(
+        env,
+        activeOrderId
+    );
 
-    if (
-        !existingOrder ||
-        isClosedOrder(existingOrder)
-    ) {
+    if (!existingOrder || isClosedOrder(existingOrder)) {
         return null;
     }
 
@@ -353,9 +625,7 @@ export async function updateActiveOrderAddress(
         ""
     ).trim();
 
-    const newAddress = address
-        .trim()
-        .replace(/\s+/g, " ");
+    const newAddress = normalizeText(address);
 
     if (!newAddress) {
         return {
@@ -396,9 +666,7 @@ export async function markActiveOrderPaymentReview(
     customer: LarkCustomerRecord
 ): Promise<PaymentReviewResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[
-        CUSTOMER_FIELDS.ACTIVE_ORDER_ID
-        ],
+        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
         ""
     ).trim();
 
@@ -406,71 +674,49 @@ export async function markActiveOrderPaymentReview(
         return null;
     }
 
-    const existingOrder =
-        await getOrderByRecordId(
-            env,
-            activeOrderId
-        );
+    const existingOrder = await getOrderByRecordId(
+        env,
+        activeOrderId
+    );
 
-    if (
-        !existingOrder ||
-        isClosedOrder(existingOrder)
-    ) {
+    if (!existingOrder || isClosedOrder(existingOrder)) {
         return null;
     }
 
     const oldPaymentStatus = getLarkText(
-        existingOrder.fields[
-        ORDER_FIELDS.PAYMENT_STATUS
-        ],
+        existingOrder.fields[ORDER_FIELDS.PAYMENT_STATUS],
         ""
     ).trim();
 
     const oldOrderStatus = getLarkText(
-        existingOrder.fields[
-        ORDER_FIELDS.ORDER_STATUS
-        ],
+        existingOrder.fields[ORDER_FIELDS.ORDER_STATUS],
         ""
     ).trim();
 
-    const oldPaymentVerified =
-        getLarkBoolean(
-            existingOrder.fields[
-            ORDER_FIELDS.PAYMENT_VERIFIED
-            ],
-            false
-        );
+    const oldPaymentVerified = getLarkBoolean(
+        existingOrder.fields[ORDER_FIELDS.PAYMENT_VERIFIED],
+        false
+    );
 
-    const newPaymentStatus =
-        "Waiting Payment";
-
-    const newOrderStatus =
-        "Payment Review";
-
+    const newPaymentStatus = "Payment Review";
+    const newOrderStatus = "Payment Review";
     const newPaymentVerified = false;
 
     const changed =
         oldPaymentStatus !== newPaymentStatus ||
         oldOrderStatus !== newOrderStatus ||
-        oldPaymentVerified !==
-        newPaymentVerified;
+        oldPaymentVerified !== newPaymentVerified;
 
     if (!changed) {
         return {
             record: existingOrder,
             changed: false,
-            old_payment_status:
-                oldPaymentStatus,
-            new_payment_status:
-                newPaymentStatus,
-            old_order_status:
-                oldOrderStatus,
-            new_order_status:
-                newOrderStatus,
-            old_payment_verified:
-                oldPaymentVerified,
-            new_payment_verified:
-                newPaymentVerified,
+            old_payment_status: oldPaymentStatus,
+            new_payment_status: newPaymentStatus,
+            old_order_status: oldOrderStatus,
+            new_order_status: newOrderStatus,
+            old_payment_verified: oldPaymentVerified,
+            new_payment_verified: newPaymentVerified,
         };
     }
 
@@ -478,30 +724,21 @@ export async function markActiveOrderPaymentReview(
         env,
         activeOrderId,
         {
-            payment_status:
-                newPaymentStatus,
-            payment_verified:
-                newPaymentVerified,
-            order_status:
-                newOrderStatus,
+            payment_status: newPaymentStatus,
+            payment_verified: newPaymentVerified,
+            order_status: newOrderStatus,
         }
     );
 
     return {
         record: updatedOrder,
         changed: true,
-        old_payment_status:
-            oldPaymentStatus,
-        new_payment_status:
-            newPaymentStatus,
-        old_order_status:
-            oldOrderStatus,
-        new_order_status:
-            newOrderStatus,
-        old_payment_verified:
-            oldPaymentVerified,
-        new_payment_verified:
-            newPaymentVerified,
+        old_payment_status: oldPaymentStatus,
+        new_payment_status: newPaymentStatus,
+        old_order_status: oldOrderStatus,
+        new_order_status: newOrderStatus,
+        old_payment_verified: oldPaymentVerified,
+        new_payment_verified: newPaymentVerified,
     };
 }
 
@@ -510,9 +747,7 @@ export async function cancelActiveOrder(
     customer: LarkCustomerRecord
 ): Promise<CancelOrderResult | null> {
     const activeOrderId = getLarkText(
-        customer.fields[
-            CUSTOMER_FIELDS.ACTIVE_ORDER_ID
-        ],
+        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
         ""
     ).trim();
 
@@ -520,39 +755,31 @@ export async function cancelActiveOrder(
         return null;
     }
 
-    const existingOrder =
-        await getOrderByRecordId(
-            env,
-            activeOrderId
-        );
+    const existingOrder = await getOrderByRecordId(
+        env,
+        activeOrderId
+    );
 
     if (!existingOrder) {
         return null;
     }
 
     const oldOrderStatus = getLarkText(
-        existingOrder.fields[
-            ORDER_FIELDS.ORDER_STATUS
-        ],
+        existingOrder.fields[ORDER_FIELDS.ORDER_STATUS],
         ""
     ).trim();
 
     const paymentStatus = getLarkText(
-        existingOrder.fields[
-            ORDER_FIELDS.PAYMENT_STATUS
-        ],
+        existingOrder.fields[ORDER_FIELDS.PAYMENT_STATUS],
         ""
     ).trim();
 
     const paymentVerified = getLarkBoolean(
-        existingOrder.fields[
-            ORDER_FIELDS.PAYMENT_VERIFIED
-        ],
+        existingOrder.fields[ORDER_FIELDS.PAYMENT_VERIFIED],
         false
     );
 
-    const normalizedOrderStatus =
-        oldOrderStatus.toLowerCase();
+    const normalizedOrderStatus = oldOrderStatus.toLowerCase();
 
     if (
         normalizedOrderStatus === "cancelled" ||

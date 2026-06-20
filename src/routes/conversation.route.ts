@@ -9,6 +9,7 @@ export async function handleConversationTest(env: Env): Promise<Response> {
         message_type: "text",
         message: "ทดสอบบันทึก conversation จาก Worker",
         intent: "unknown",
+        buyer_intent: "Just Browsing",
         lead_score: 0,
         hot_lead: false,
         ai_summary: "Conversation test record",

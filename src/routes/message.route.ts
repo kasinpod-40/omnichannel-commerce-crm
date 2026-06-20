@@ -1,6 +1,23 @@
 import type { Env } from "../config/env";
+import type { MessageType } from "../modules/conversations/conversation.types";
 import { processIncomingMessage } from "../usecases/process-incoming-message.usecase";
 import { jsonResponse } from "../utils/response";
+
+function parseMessageType(value: string | null): MessageType {
+    return value === "image" ? "image" : "text";
+}
+
+function parseOptionalNumber(value: string | null): number | undefined {
+    if (value === null || value.trim() === "") {
+        return undefined;
+    }
+
+    const parsed = Number(
+        value.replace(/,/g, "").trim()
+    );
+
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 export async function handleProcessMessageTest(
     request: Request,
@@ -31,14 +48,34 @@ export async function handleProcessMessageTest(
         url.searchParams.get("phone")?.trim() ||
         "0800000000";
 
+    const messageType = parseMessageType(
+        url.searchParams.get("message_type")
+    );
+
+    const imageUrl =
+        url.searchParams.get("image_url")?.trim() ||
+        undefined;
+
+    const slipAmount = parseOptionalNumber(
+        url.searchParams.get("slip_amount")
+    );
+
+    const slipBank =
+        url.searchParams.get("slip_bank")?.trim() ||
+        undefined;
+
     const result = await processIncomingMessage(env, {
         channel: "LINE",
         channel_customer_id: channelCustomerId,
         external_message_id: externalMessageId,
-        message_type: "text",
+        message_type: messageType,
         message,
         customer_name: customerName,
         phone,
+        image_url: imageUrl,
+        slip_amount: slipAmount,
+        slip_bank: slipBank,
+        slip_image_url: imageUrl,
     });
 
     return jsonResponse({
@@ -47,7 +84,11 @@ export async function handleProcessMessageTest(
             channel: "LINE",
             channel_customer_id: channelCustomerId,
             external_message_id: externalMessageId,
+            message_type: messageType,
             message,
+            image_url: imageUrl ?? "",
+            slip_amount: slipAmount ?? 0,
+            slip_bank: slipBank ?? "",
         },
         result,
     });

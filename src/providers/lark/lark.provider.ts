@@ -26,7 +26,7 @@ export async function getTenantAccessToken(env: Env): Promise<string> {
         }
     );
 
-    const data = await response.json<LarkTenantTokenResponse>();
+    const data = (await response.json()) as LarkTenantTokenResponse;
 
     if (data.code !== 0 || !data.tenant_access_token) {
         throw new Error(`Lark Auth Error: ${JSON.stringify(data)}`);
@@ -54,7 +54,7 @@ export async function createLarkRecord(
         }
     );
 
-    const data = await response.json<LarkApiResponse>();
+    const data = (await response.json()) as LarkApiResponse;
 
     if (data.code !== 0) {
         throw new Error(`Lark Create Record Error: ${JSON.stringify(data)}`);
@@ -83,7 +83,7 @@ export async function updateLarkRecord(
         }
     );
 
-    const data = await response.json<LarkApiResponse>();
+    const data = (await response.json()) as LarkApiResponse;
 
     if (data.code !== 0) {
         throw new Error(`Lark Update Record Error: ${JSON.stringify(data)}`);
@@ -114,7 +114,7 @@ export async function searchLarkRecords(
         }
     );
 
-    const data = await response.json<LarkApiResponse<{ items?: any[] }>>();
+    const data = (await response.json()) as LarkApiResponse<{ items?: any[] }>;
 
     if (data.code !== 0) {
         throw new Error(`Lark Search Record Error: ${JSON.stringify(data)}`);
@@ -140,7 +140,7 @@ export async function getLarkRecord(
         }
     );
 
-    const data = await response.json<LarkApiResponse<{ record?: any }>>();
+    const data = (await response.json()) as LarkApiResponse<{ record?: any }>;
 
     if (data.code !== 0) {
         throw new Error(`Lark Get Record Error: ${JSON.stringify(data)}`);

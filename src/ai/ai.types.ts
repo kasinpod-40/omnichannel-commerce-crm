@@ -1,12 +1,33 @@
-export type AIIntent =
-    | "unknown"
-    | "just_browsing"
-    | "interested"
-    | "purchase_intent"
-    | "ready_to_buy"
-    | "delivery_address"
+export type ActionIntent =
+    | "greeting"
+    | "general_inquiry"
+    | "ask_price"
+    | "ask_discount"
+    | "product_info"
+    | "product_order"
+    | "payment_request"
     | "payment_slip"
-    | "lost";
+    | "delivery_address"
+    | "delivery_question"
+    | "lost"
+    | "support"
+    | "small_talk"
+    | "image_received"
+    | "unknown";
+
+// Backward-compatible alias for modules that still import AIIntent.
+export type AIIntent = ActionIntent;
+
+export type QuantityAction =
+    | "set"
+    | "add"
+    | "subtract";
+
+export type BuyerIntent =
+    | "Just Browsing"
+    | "Interested"
+    | "Purchase Intent"
+    | "Ready To Buy";
 
 export type CustomerStage =
     | "New Lead"
@@ -17,7 +38,9 @@ export type CustomerStage =
     | "Lost";
 
 export interface AIAnalysisResult {
-    intent: AIIntent;
+    intent: ActionIntent;
+
+    buyer_intent: BuyerIntent;
 
     customer_stage: CustomerStage;
 
@@ -27,7 +50,13 @@ export interface AIAnalysisResult {
 
     ai_summary: string;
 
+    product_name?: string;
+
     quantity?: number;
+
+    quantity_action?: QuantityAction;
+
+    product_unit?: string;
 
     address?: string;
 }

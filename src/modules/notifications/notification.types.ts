@@ -26,6 +26,9 @@ export type NotificationSnapshot = {
     product_name: string;
     quantity: number;
     total_amount: number;
+    slip_amount: number;
+    payment_status?: string;
+    order_status?: string;
 };
 
 export type Notification = {

@@ -93,7 +93,7 @@ const NEXT_ACTIONS: Record<
 > = {
     NEW_LEAD: "ตรวจสอบข้อความและเริ่มติดต่อลูกค้า",
     HOT_LEAD: "รีบติดต่อลูกค้าและเสนอข้อมูลเพื่อปิดการขาย",
-    PAYMENT_REVIEW: "ตรวจสอบสลิปและยอดชำระ",
+    PAYMENT_REVIEW: "ตรวจสอบสลิปและยอดโอน",
     PAYMENT_VERIFIED: "เตรียมดำเนินการตามคำสั่งซื้อ",
     SALE_WON: "เตรียมจัดส่งและติดตามงานจนเสร็จสมบูรณ์",
     SALE_LOST: "ตรวจสอบสาเหตุและบันทึกหมายเหตุสำหรับติดตามภายหลัง",
@@ -273,6 +273,16 @@ function parseNotificationSnapshot(
                 parsed.total_amount,
                 0
             ),
+            slip_amount: normalizeSnapshotNumber(
+                parsed.slip_amount,
+                0
+            ),
+            payment_status: normalizeSnapshotString(
+                parsed.payment_status
+            ),
+            order_status: normalizeSnapshotString(
+                parsed.order_status
+            ),
         };
     } catch {
         return null;
@@ -391,6 +401,18 @@ async function captureNotificationSnapshot(
             order?.fields[ORDER_FIELDS.TOTAL_AMOUNT],
             0
         ),
+        slip_amount: getLarkNumber(
+            order?.fields[ORDER_FIELDS.SLIP_AMOUNT],
+            0
+        ),
+        payment_status: getLarkText(
+            order?.fields[ORDER_FIELDS.PAYMENT_STATUS],
+            ""
+        ).trim(),
+        order_status: getLarkText(
+            order?.fields[ORDER_FIELDS.ORDER_STATUS],
+            ""
+        ).trim(),
     };
 }
 
@@ -452,18 +474,20 @@ function buildNotificationLines(
             );
         }
 
-        const amountLabel =
-            notificationType === "SALE_WON"
-                ? "ยอดขาย"
-                : notificationType === "SALE_LOST"
-                  ? "มูลค่าคำสั่งซื้อ"
-                  : "ยอดชำระ";
-
-        addLine(
-            lines,
-            amountLabel,
-            formatAmount(snapshot.total_amount)
-        );
+        if (
+            notificationType === "PAYMENT_REVIEW" ||
+            notificationType === "PAYMENT_VERIFIED" ||
+            notificationType === "SALE_WON" ||
+            snapshot.slip_amount > 0
+        ) {
+            addLine(
+                lines,
+                "ยอดโอน",
+                snapshot.slip_amount > 0
+                    ? formatAmount(snapshot.slip_amount)
+                    : "ยังอ่านยอดจากสลิปไม่ได้"
+            );
+        }
     }
 
     if (notificationType === "SALE_LOST") {
@@ -476,11 +500,23 @@ function buildNotificationLines(
     }
 
     if (notificationType === "PAYMENT_REVIEW") {
-        addLine(lines, "สถานะ", "รอตรวจสอบสลิป");
+        addLine(
+            lines,
+            "สถานะ",
+            snapshot.order_number
+                ? "รอตรวจสอบสลิป"
+                : "ได้รับสลิปแล้ว รอผูกคำสั่งซื้อ"
+        );
     }
 
     if (notificationType === "PAYMENT_VERIFIED") {
-        addLine(lines, "สถานะ", "ชำระเงินแล้ว");
+        addLine(
+            lines,
+            "สถานะ",
+            snapshot.order_status === "Waiting Address"
+                ? "ชำระเงินแล้ว — รอที่อยู่จัดส่ง"
+                : "ชำระเงินแล้ว"
+        );
     }
 
     if (notificationType === "SALE_WON") {
@@ -539,7 +575,15 @@ function formatNotificationText(
         "",
         ...detailLines,
         "",
-        `สิ่งที่ต้องทำ: ${NEXT_ACTIONS[typeText]}`,
+        `สิ่งที่ต้องทำ: ${
+            typeText === "PAYMENT_REVIEW" &&
+            !snapshot.order_number
+                ? "ตรวจสอบข้อมูลลูกค้าและผูกสลิปกับคำสั่งซื้อ"
+                : typeText === "PAYMENT_VERIFIED" &&
+                    snapshot.order_status === "Waiting Address"
+                  ? "ติดต่อลูกค้าเพื่อขอชื่อ เบอร์โทร และที่อยู่จัดส่ง"
+                  : NEXT_ACTIONS[typeText]
+        }`,
     ]
         .filter((line, index, array) => {
             if (line !== "") {

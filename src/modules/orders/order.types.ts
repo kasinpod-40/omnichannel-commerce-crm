@@ -1,6 +1,11 @@
 import type { Channel } from "../customers/customer.types";
 
-export type PaymentStatus = "Waiting Payment" | "Paid" | "Failed" | "Refunded";
+export type PaymentStatus =
+    | "Waiting Payment"
+    | "Payment Review"
+    | "Paid"
+    | "Failed"
+    | "Refunded";
 
 export type OrderStatus =
     | "Waiting Payment"
@@ -28,6 +33,8 @@ export interface Order {
 
     product_name: string;
 
+    product_unit?: string;
+
     quantity: number;
 
     total_amount: number;
@@ -40,5 +47,15 @@ export interface Order {
 
     sales_owner?: string;
 
+    slip_amount?: number;
+
+    slip_bank?: string;
+
+    slip_image_url?: string;
+
     created_at?: number;
+
+    updated_at?: number;
+
+    paid_at?: number;
 }

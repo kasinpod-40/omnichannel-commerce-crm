@@ -11,20 +11,38 @@ export async function createConversation(
     conversation: Conversation
 ): Promise<unknown> {
     const fields: Record<string, unknown> = {
-        [CONVERSATION_FIELDS.CHANNEL]: conversation.channel,
+        [CONVERSATION_FIELDS.CHANNEL]:
+            conversation.channel,
         [CONVERSATION_FIELDS.EXTERNAL_MESSAGE_ID]:
             conversation.external_message_id,
-        [CONVERSATION_FIELDS.MESSAGE_TYPE]: conversation.message_type,
-        [CONVERSATION_FIELDS.MESSAGE]: conversation.message,
-        [CONVERSATION_FIELDS.IMAGE_URL]: conversation.image_url ?? "",
-        [CONVERSATION_FIELDS.INTENT]: conversation.intent,
-        [CONVERSATION_FIELDS.LEAD_SCORE]: conversation.lead_score,
-        [CONVERSATION_FIELDS.HOT_LEAD]: conversation.hot_lead,
-        [CONVERSATION_FIELDS.AI_SUMMARY]: conversation.ai_summary ?? "",
-        [CONVERSATION_FIELDS.PROCESS_STATUS]: conversation.process_status,
-        [CONVERSATION_FIELDS.ERROR_MESSAGE]: conversation.error_message ?? "",
-        [CONVERSATION_FIELDS.CREATED_AT]: conversation.created_at ?? Date.now(),
+        [CONVERSATION_FIELDS.MESSAGE_TYPE]:
+            conversation.message_type,
+        [CONVERSATION_FIELDS.MESSAGE]:
+            conversation.message,
+        [CONVERSATION_FIELDS.IMAGE_URL]:
+            conversation.image_url ?? "",
+        [CONVERSATION_FIELDS.INTENT]:
+            conversation.intent,
+        [CONVERSATION_FIELDS.BUYER_INTENT]:
+            conversation.buyer_intent,
+        [CONVERSATION_FIELDS.LEAD_SCORE]:
+            conversation.lead_score,
+        [CONVERSATION_FIELDS.HOT_LEAD]:
+            conversation.hot_lead,
+        [CONVERSATION_FIELDS.AI_SUMMARY]:
+            conversation.ai_summary ?? "",
+        [CONVERSATION_FIELDS.PROCESS_STATUS]:
+            conversation.process_status,
+        [CONVERSATION_FIELDS.ERROR_MESSAGE]:
+            conversation.error_message ?? "",
+        [CONVERSATION_FIELDS.CREATED_AT]:
+            conversation.created_at ?? Date.now(),
     };
+
+    if (conversation.image_type) {
+        fields[CONVERSATION_FIELDS.IMAGE_TYPE] =
+            conversation.image_type;
+    }
 
     if (conversation.customer_record_id) {
         fields[CONVERSATION_FIELDS.CUSTOMER] = [
@@ -32,23 +50,32 @@ export async function createConversation(
         ];
     }
 
-    return await createLarkRecord(env, env.CONVERSATIONS_TABLE_ID, fields);
+    return await createLarkRecord(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        fields
+    );
 }
 
 export async function findConversationByExternalMessageId(
     env: Env,
     externalMessageId: string
 ): Promise<unknown | null> {
-    const records = await searchLarkRecords(env, env.CONVERSATIONS_TABLE_ID, {
-        conjunction: "and",
-        conditions: [
-            {
-                field_name: CONVERSATION_FIELDS.EXTERNAL_MESSAGE_ID,
-                operator: "is",
-                value: [externalMessageId],
-            },
-        ],
-    });
+    const records = await searchLarkRecords(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        {
+            conjunction: "and",
+            conditions: [
+                {
+                    field_name:
+                        CONVERSATION_FIELDS.EXTERNAL_MESSAGE_ID,
+                    operator: "is",
+                    value: [externalMessageId],
+                },
+            ],
+        }
+    );
 
     if (records.length === 0) {
         return null;

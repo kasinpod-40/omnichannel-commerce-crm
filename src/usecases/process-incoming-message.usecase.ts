@@ -1,7 +1,10 @@
 import { analyzeMessage } from "../ai/ai.service";
-import type { AIIntent } from "../ai/ai.types";
+import type { AIAnalysisResult } from "../ai/ai.types";
 import type { Env } from "../config/env";
-import { CUSTOMER_FIELDS } from "../core/lark-fields";
+import {
+    CUSTOMER_FIELDS,
+    ORDER_FIELDS,
+} from "../core/lark-fields";
 import {
     recordActivityOnce,
     type RecordActivityResult,
@@ -26,9 +29,20 @@ import {
 import {
     cancelActiveOrder,
     createOrderIfReadyToBuy,
-    markActiveOrderPaymentReview,
     updateActiveOrderAddress,
 } from "../modules/orders/order.service";
+import {
+    getOrderByRecordId,
+    type LarkOrderRecord,
+} from "../modules/orders/order.repository";
+import {
+    applyPaymentEvidenceToOrder,
+    applyPendingPaymentToOrder,
+    completeVerifiedSaleAfterAddress,
+    normalizePaymentEvidence,
+    savePendingPayment,
+    type PaymentEvidenceSnapshot,
+} from "../modules/payments/payment.service";
 import {
     createPipelineIfNeeded,
     markActivePipelineLost,
@@ -37,9 +51,11 @@ import {
     recordAndDispatchNotificationOnce,
     type AutoDispatchNotificationResult,
 } from "../modules/notifications/notification.service";
+import type { NotificationSnapshot } from "../modules/notifications/notification.types";
 import type { PipelineStage } from "../modules/pipeline/pipeline.types";
 import {
     getLarkBoolean,
+    getLarkNumber,
     getLarkText,
 } from "../utils/lark-field-value";
 
@@ -52,19 +68,23 @@ export type ProcessIncomingMessageInput = {
     customer_name?: string;
     phone?: string;
     image_url?: string;
+    slip_amount?: number;
+    slip_bank?: string;
+    slip_image_url?: string;
 };
 
 function getPipelineStage(
-    intent: AIIntent
+    ai: AIAnalysisResult
 ): PipelineStage | null {
-    if (intent === "purchase_intent") {
+    if (ai.intent === "ask_discount") {
         return "Negotiating";
     }
 
     if (
-        intent === "ready_to_buy" ||
-        intent === "delivery_address" ||
-        intent === "payment_slip"
+        ai.intent === "product_order" ||
+        ai.intent === "payment_request" ||
+        ai.intent === "delivery_address" ||
+        ai.intent === "payment_slip"
     ) {
         return "Closing";
     }
@@ -136,6 +156,90 @@ async function reloadCustomerByRecordId(
     return latestCustomer ?? customer;
 }
 
+function buildPaymentReviewSnapshot(
+    customer: LarkCustomerRecord,
+    order: LarkOrderRecord | null,
+    evidence: PaymentEvidenceSnapshot,
+    lastMessage: string
+): NotificationSnapshot {
+    return {
+        version: 1,
+        captured_at: Date.now(),
+        customer_name: getLarkText(
+            customer.fields[
+                CUSTOMER_FIELDS.CUSTOMER_NAME
+            ],
+            "ไม่ทราบชื่อลูกค้า"
+        ),
+        channel: getLarkText(
+            customer.fields[CUSTOMER_FIELDS.CHANNEL],
+            "ไม่ระบุ"
+        ),
+        phone: getLarkText(
+            customer.fields[CUSTOMER_FIELDS.PHONE],
+            ""
+        ),
+        current_stage: getLarkText(
+            customer.fields[
+                CUSTOMER_FIELDS.CURRENT_STAGE
+            ],
+            "Closing"
+        ),
+        lead_score: getLarkNumber(
+            customer.fields[CUSTOMER_FIELDS.LEAD_SCORE],
+            0
+        ),
+        last_message: lastMessage,
+        sales_owner: getLarkText(
+            customer.fields[
+                CUSTOMER_FIELDS.SALES_OWNER
+            ],
+            "Unassigned"
+        ),
+        order_number: getLarkText(
+            order?.fields[ORDER_FIELDS.ORDER_NUMBER],
+            ""
+        ),
+        product_name: getLarkText(
+            order?.fields[ORDER_FIELDS.PRODUCT_NAME],
+            getLarkText(
+                customer.fields[
+                    CUSTOMER_FIELDS.PRODUCT_NAME
+                ],
+                ""
+            )
+        ),
+        quantity: getLarkNumber(
+            order?.fields[ORDER_FIELDS.QUANTITY],
+            getLarkNumber(
+                customer.fields[
+                    CUSTOMER_FIELDS.PRODUCT_QTY
+                ],
+                0
+            )
+        ),
+        total_amount: getLarkNumber(
+            order?.fields[ORDER_FIELDS.TOTAL_AMOUNT],
+            0
+        ),
+        slip_amount:
+            evidence.amount > 0
+                ? evidence.amount
+                : getLarkNumber(
+                      order?.fields[ORDER_FIELDS.SLIP_AMOUNT],
+                      0
+                  ),
+        payment_status: getLarkText(
+            order?.fields[ORDER_FIELDS.PAYMENT_STATUS],
+            ""
+        ),
+        order_status: getLarkText(
+            order?.fields[ORDER_FIELDS.ORDER_STATUS],
+            ""
+        ),
+    };
+}
+
 export async function processIncomingMessage(
     env: Env,
     input: ProcessIncomingMessageInput
@@ -187,6 +291,17 @@ export async function processIncomingMessage(
         input.message
     );
 
+    const paymentEvidence =
+        normalizePaymentEvidence(
+            {
+                amount: input.slip_amount,
+                bank: input.slip_bank,
+                image_url:
+                    input.slip_image_url,
+            },
+            input.image_url
+        );
+
     const upsertedCustomer =
         await upsertCustomer(env, {
             channel: input.channel,
@@ -218,6 +333,7 @@ export async function processIncomingMessage(
             message: input.message,
             image_url: input.image_url,
             intent: ai.intent,
+            buyer_intent: ai.buyer_intent,
             lead_score: ai.lead_score,
             hot_lead: ai.hot_lead,
             ai_summary: ai.ai_summary,
@@ -245,7 +361,19 @@ export async function processIncomingMessage(
                 message: input.message,
                 image_url:
                     input.image_url ?? "",
+                slip_amount:
+                    paymentEvidence.amount,
+                slip_bank:
+                    paymentEvidence.bank,
+                slip_image_url:
+                    paymentEvidence.image_url,
                 intent: ai.intent,
+                buyer_intent: ai.buyer_intent,
+                product_name: ai.product_name ?? "",
+                product_qty: ai.quantity ?? 0,
+                quantity_action:
+                    ai.quantity_action ?? "",
+                product_unit: ai.product_unit ?? "",
                 customer_stage:
                     ai.customer_stage,
                 lead_score: ai.lead_score,
@@ -269,52 +397,14 @@ export async function processIncomingMessage(
             "Unknown Customer"
         );
 
-    if (wasNewCustomer) {
-        const newLeadNotification =
-            await recordAndDispatchNotificationOnce(
-                env,
-                {
-                    event_id:
-                        `NEW_LEAD:${input.channel}:${input.channel_customer_id}`,
-                    notification_type:
-                        "NEW_LEAD",
-                    customer_record_id:
-                        latestCustomer.record_id,
-                    message:
-                        `ลูกค้าใหม่ ${customerName} จาก ${input.channel}: ${input.message}`,
-                    status: "Pending",
-                }
-            );
-
-        notifications.push(
-            newLeadNotification
-        );
-    }
-
-    if (ai.hot_lead && !wasHotLead) {
-        const hotLeadNotification =
-            await recordAndDispatchNotificationOnce(
-                env,
-                {
-                    event_id:
-                        createNotificationEventId(
-                            "HOT_LEAD",
-                            input
-                        ),
-                    notification_type:
-                        "HOT_LEAD",
-                    customer_record_id:
-                        latestCustomer.record_id,
-                    message:
-                        `Hot Lead ${customerName} คะแนน ${ai.lead_score}: ${input.message}`,
-                    status: "Pending",
-                }
-            );
-
-        notifications.push(
-            hotLeadNotification
-        );
-    }
+    /*
+     * CASE 18A.6.1 — Notification Priority
+     *
+     * NEW_LEAD และ HOT_LEAD จะยังไม่ถูกส่งตรงจุดนี้
+     * เพราะ Event เดียวกันอาจสร้าง Notification ที่สำคัญกว่า
+     * เช่น PAYMENT_REVIEW ระบบจะเลือกส่งเพียงรายการที่มี
+     * Priority สูงสุดในตอนท้ายของ Use Case
+     */
 
     latestCustomer =
         await reloadCustomerByRecordId(
@@ -483,7 +573,7 @@ export async function processIncomingMessage(
     let order = null;
 
     const pipelineStage =
-        getPipelineStage(ai.intent);
+        getPipelineStage(ai);
 
     if (pipelineStage) {
         const pipelineResult =
@@ -494,6 +584,12 @@ export async function processIncomingMessage(
                     stage: pipelineStage,
                     lead_score: ai.lead_score,
                     ai_summary: ai.ai_summary,
+                    sales_owner: getLarkText(
+                        latestCustomer.fields[
+                            CUSTOMER_FIELDS.SALES_OWNER
+                        ],
+                        "Unassigned"
+                    ),
                 }
             );
 
@@ -565,111 +661,262 @@ export async function processIncomingMessage(
             );
     }
 
-    if (ai.intent === "ready_to_buy") {
-        const orderResult =
+    /*
+     * CASE 18A.4 — Qualified Order Creation
+     *
+     * product_order:
+     *   สร้าง Order เมื่อมีชื่อสินค้าที่ระบุได้และจำนวนมากกว่า 0
+     *
+     * delivery_address:
+     *   เป็นเหตุการณ์ที่ยืนยันว่ากำลังเกิดคำสั่งซื้อจริง
+     *   จึงสร้าง Order shell ได้ แม้ข้อมูลสินค้ายังไม่ครบ
+     *
+     * payment_slip:
+     *   สร้าง Order ได้เมื่อ Customer มีสินค้าและจำนวนเพียงพอ
+     *   หากยังไม่พอ จะเก็บเป็น Pending Payment แทน
+     *
+     * ถ้ามี Active Order อยู่แล้ว ต้องอัปเดต Order เดิมเท่านั้น
+     */
+    if (
+        ai.intent === "product_order" ||
+        ai.intent === "delivery_address" ||
+        ai.intent === "payment_slip"
+    ) {
+        const activeOrderBeforeEnsure =
+            getLarkText(
+                latestCustomer.fields[
+                    CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+                ],
+                ""
+            ).trim();
+
+        const ensureOrderResult =
             await createOrderIfReadyToBuy(
                 env,
                 latestCustomer,
                 pipeline,
                 {
-                    message: input.message,
+                    qualification_reason:
+                        ai.intent,
+                    product_name:
+                        ai.product_name,
+                    product_unit:
+                        ai.product_unit,
                     quantity:
-                        ai.quantity ?? 1,
+                        ai.quantity,
+                    quantity_action:
+                        ai.quantity_action,
+                    address:
+                        ai.intent ===
+                            "delivery_address" &&
+                        !activeOrderBeforeEnsure
+                            ? ai.address ??
+                              input.message
+                            : undefined,
+                    message: input.message,
                 }
             );
 
-        order =
-            orderResult?.record ?? null;
+        if (ensureOrderResult) {
+            order = ensureOrderResult.record;
 
-        if (
-            orderResult?.created &&
-            order
-        ) {
-            const orderActivity =
-                await recordActivityOnce(env, {
-                    event_id:
-                        createActivityEventId(
-                            "ORDER_CREATED",
-                            input,
-                            order.record_id
-                        ),
-                    customer_record_id:
-                        latestCustomer.record_id,
-                    action: "ORDER_CREATED",
-                    old_value: null,
-                    new_value: {
-                        order_record_id:
-                            order.record_id,
-                        pipeline_record_id:
-                            pipeline?.record_id ??
-                            null,
-                        quantity:
-                            ai.quantity ?? 1,
-                        payment_status:
-                            "Waiting Payment",
-                        order_status:
-                            "Waiting Payment",
-                        external_message_id:
-                            input.external_message_id,
-                    },
-                });
+            if (ensureOrderResult.created) {
+                const orderCreatedActivity =
+                    await recordActivityOnce(
+                        env,
+                        {
+                            event_id:
+                                createActivityEventId(
+                                    "ORDER_CREATED",
+                                    input,
+                                    order.record_id
+                                ),
+                            customer_record_id:
+                                latestCustomer.record_id,
+                            action: "ORDER_CREATED",
+                            old_value: null,
+                            new_value: {
+                                order_record_id:
+                                    order.record_id,
+                                qualification_reason:
+                                    ensureOrderResult.qualification_reason,
+                                ...ensureOrderResult.new_state,
+                                payment_status:
+                                    "Waiting Payment",
+                                payment_verified:
+                                    false,
+                                order_status:
+                                    "Waiting Payment",
+                                external_message_id:
+                                    input.external_message_id,
+                            },
+                        }
+                    );
 
-            businessActivities.push(
-                orderActivity
-            );
+                businessActivities.push(
+                    orderCreatedActivity
+                );
+            } else if (
+                ensureOrderResult.changed &&
+                ensureOrderResult.old_state &&
+                ensureOrderResult.old_state.quantity !==
+                    ensureOrderResult.new_state.quantity
+            ) {
+                const orderUpdatedActivity =
+                    await recordActivityOnce(
+                        env,
+                        {
+                            event_id:
+                                createActivityEventId(
+                                    "ORDER_QUANTITY_UPDATED",
+                                    input,
+                                    order.record_id
+                                ),
+                            customer_record_id:
+                                latestCustomer.record_id,
+                            action:
+                                "ORDER_QUANTITY_UPDATED",
+                            old_value: {
+                                order_record_id:
+                                    order.record_id,
+                                ...ensureOrderResult.old_state,
+                            },
+                            new_value: {
+                                order_record_id:
+                                    order.record_id,
+                                qualification_reason:
+                                    ensureOrderResult.qualification_reason,
+                                ...ensureOrderResult.new_state,
+                                external_message_id:
+                                    input.external_message_id,
+                            },
+                        }
+                    );
+
+                businessActivities.push(
+                    orderUpdatedActivity
+                );
+            }
+
+            latestCustomer =
+                await reloadCustomerByRecordId(
+                    env,
+                    latestCustomer
+                );
         }
+    }
 
-        if (
-            orderResult &&
-            !orderResult.created &&
-            orderResult.quantity_changed &&
-            order
-        ) {
-            const quantityActivity =
+    /*
+     * เมื่อ Order ถูกสร้างหรือค้นพบแล้ว ให้แนบ Pending Slip
+     * ที่เคยพักไว้ใน Customer ทันที แล้วล้าง Pending Fields
+     */
+    if (order) {
+        const pendingPaymentResult =
+            await applyPendingPaymentToOrder(
+                env,
+                latestCustomer,
+                order.record_id
+            );
+
+        if (pendingPaymentResult) {
+            order =
+                (await getOrderByRecordId(
+                    env,
+                    pendingPaymentResult.record.record_id
+                )) ?? pendingPaymentResult.record;
+
+            const pendingAttachedActivity =
                 await recordActivityOnce(env, {
                     event_id:
                         createActivityEventId(
-                            "ORDER_QUANTITY_UPDATED",
+                            "PENDING_PAYMENT_ATTACHED",
                             input,
                             order.record_id
                         ),
                     customer_record_id:
                         latestCustomer.record_id,
                     action:
-                        "ORDER_QUANTITY_UPDATED",
+                        "PENDING_PAYMENT_ATTACHED",
                     old_value: {
                         order_record_id:
                             order.record_id,
-                        quantity:
-                            orderResult.old_quantity,
+                        ...pendingPaymentResult.old_state,
+                        pending_payment: true,
                     },
                     new_value: {
                         order_record_id:
                             order.record_id,
-                        quantity:
-                            orderResult.new_quantity,
+                        ...pendingPaymentResult.new_state,
+                        pending_payment: false,
+                        pending_payment_cleared:
+                            pendingPaymentResult.pending_payment_cleared,
                         external_message_id:
                             input.external_message_id,
-                        message: input.message,
                     },
                 });
 
             businessActivities.push(
-                quantityActivity
+                pendingAttachedActivity
             );
-        }
 
-        latestCustomer =
-            await reloadCustomerByRecordId(
-                env,
-                latestCustomer
-            );
+            latestCustomer =
+                await reloadCustomerByRecordId(
+                    env,
+                    latestCustomer
+                );
+
+            /*
+             * ถ้า Event ปัจจุบันเป็นสลิปใหม่ จะส่ง Notification
+             * ในบล็อก payment_slip ด้านล่างเพียงครั้งเดียว
+             */
+            if (ai.intent !== "payment_slip") {
+                const pendingEvidence = {
+                    amount:
+                        pendingPaymentResult.new_state
+                            .slip_amount,
+                    bank:
+                        pendingPaymentResult.new_state
+                            .slip_bank,
+                    image_url:
+                        pendingPaymentResult.new_state
+                            .slip_image_url,
+                };
+
+                const pendingReviewNotification =
+                    await recordAndDispatchNotificationOnce(
+                        env,
+                        {
+                            event_id:
+                                createNotificationEventId(
+                                    "PAYMENT_REVIEW_PENDING",
+                                    input,
+                                    order.record_id
+                                ),
+                            notification_type:
+                                "PAYMENT_REVIEW",
+                            customer_record_id:
+                                latestCustomer.record_id,
+                            message:
+                                `ระบบนำสลิปที่พักไว้ของ ${customerName} มาผูกกับ Order แล้ว`,
+                            payload:
+                                buildPaymentReviewSnapshot(
+                                    latestCustomer,
+                                    order,
+                                    pendingEvidence,
+                                    "ระบบผูกสลิปที่พักไว้กับคำสั่งซื้อแล้ว"
+                                ),
+                            status: "Pending",
+                        }
+                    );
+
+                notifications.push(
+                    pendingReviewNotification
+                );
+            }
+        }
     }
 
-    if (
-        ai.intent ===
-        "delivery_address"
-    ) {
+    if (ai.intent === "delivery_address") {
         const addressResult =
             await updateActiveOrderAddress(
                 env,
@@ -677,13 +924,9 @@ export async function processIncomingMessage(
                 ai.address ?? input.message
             );
 
-        order =
-            addressResult?.record ?? null;
+        order = addressResult?.record ?? order;
 
-        if (
-            addressResult?.changed &&
-            order
-        ) {
+        if (addressResult?.changed && order) {
             const addressActivity =
                 await recordActivityOnce(env, {
                     event_id:
@@ -721,97 +964,248 @@ export async function processIncomingMessage(
                 env,
                 latestCustomer
             );
+
+        if (order) {
+            const saleCompletion =
+                await completeVerifiedSaleAfterAddress(
+                    env,
+                    order.record_id
+                );
+
+            if (saleCompletion?.sale_completed) {
+                order = saleCompletion.order;
+                pipeline = saleCompletion.pipeline;
+                latestCustomer = saleCompletion.customer;
+
+                const saleWonActivity =
+                    await recordActivityOnce(env, {
+                        event_id:
+                            `SALE_WON:${saleCompletion.pipeline_record_id}`,
+                        customer_record_id:
+                            saleCompletion.customer_record_id,
+                        action: "SALE_WON",
+                        old_value: {
+                            pipeline_record_id:
+                                saleCompletion.pipeline_record_id,
+                            order_record_id:
+                                saleCompletion.order.record_id,
+                            stage:
+                                saleCompletion.old_state.pipeline_stage,
+                            status:
+                                saleCompletion.old_state.pipeline_status,
+                            lead_score:
+                                saleCompletion.old_state.pipeline_lead_score,
+                            order_status:
+                                saleCompletion.old_state.order_status,
+                            address:
+                                saleCompletion.old_state.address,
+                        },
+                        new_value: {
+                            pipeline_record_id:
+                                saleCompletion.pipeline_record_id,
+                            order_record_id:
+                                saleCompletion.order.record_id,
+                            stage:
+                                saleCompletion.new_state.pipeline_stage,
+                            status:
+                                saleCompletion.new_state.pipeline_status,
+                            lead_score:
+                                saleCompletion.new_state.pipeline_lead_score,
+                            order_status:
+                                saleCompletion.new_state.order_status,
+                            address:
+                                saleCompletion.new_state.address,
+                            completed_after_address: true,
+                            state_changed:
+                                saleCompletion.order_changed ||
+                                saleCompletion.pipeline_changed ||
+                                saleCompletion.customer_changed,
+                            external_message_id:
+                                input.external_message_id,
+                        },
+                    });
+
+                businessActivities.push(saleWonActivity);
+
+                const saleWonNotification =
+                    await recordAndDispatchNotificationOnce(
+                        env,
+                        {
+                            event_id:
+                                `SALE_WON:${saleCompletion.pipeline_record_id}`,
+                            notification_type: "SALE_WON",
+                            customer_record_id:
+                                saleCompletion.customer_record_id,
+                            message:
+                                "ได้รับที่อยู่แล้ว ระบบปิดการขายสำเร็จ",
+                            status: "Pending",
+                        }
+                    );
+
+                notifications.push(saleWonNotification);
+            }
+        }
     }
 
-    if (
-        ai.intent === "payment_slip"
-    ) {
-        const paymentReviewResult =
-            await markActiveOrderPaymentReview(
-                env,
-                latestCustomer
-            );
+    if (ai.intent === "payment_slip") {
+        const activeOrderId =
+            order?.record_id ??
+            getLarkText(
+                latestCustomer.fields[
+                    CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+                ],
+                ""
+            ).trim();
 
-        order =
-            paymentReviewResult?.record ??
-            null;
+        if (activeOrderId) {
+            const paymentReviewResult =
+                await applyPaymentEvidenceToOrder(
+                    env,
+                    activeOrderId,
+                    paymentEvidence,
+                    "incoming_slip"
+                );
 
-        if (
-            paymentReviewResult &&
-            order
-        ) {
-            const paymentSlipActivity =
+            order = paymentReviewResult
+                ? (await getOrderByRecordId(
+                      env,
+                      paymentReviewResult.record.record_id
+                  )) ?? paymentReviewResult.record
+                : order;
+
+            if (paymentReviewResult && order) {
+                const paymentSlipActivity =
+                    await recordActivityOnce(env, {
+                        event_id:
+                            createActivityEventId(
+                                "PAYMENT_SLIP_RECEIVED",
+                                input,
+                                order.record_id
+                            ),
+                        customer_record_id:
+                            latestCustomer.record_id,
+                        action:
+                            "PAYMENT_SLIP_RECEIVED",
+                        old_value: {
+                            order_record_id:
+                                order.record_id,
+                            ...paymentReviewResult.old_state,
+                        },
+                        new_value: {
+                            order_record_id:
+                                order.record_id,
+                            ...paymentReviewResult.new_state,
+                            source:
+                                paymentReviewResult.source,
+                            state_changed:
+                                paymentReviewResult.changed,
+                            external_message_id:
+                                input.external_message_id,
+                        },
+                    });
+
+                businessActivities.push(
+                    paymentSlipActivity
+                );
+
+                const paymentReviewNotification =
+                    await recordAndDispatchNotificationOnce(
+                        env,
+                        {
+                            event_id:
+                                createNotificationEventId(
+                                    "PAYMENT_REVIEW",
+                                    input,
+                                    order.record_id
+                                ),
+                            notification_type:
+                                "PAYMENT_REVIEW",
+                            customer_record_id:
+                                latestCustomer.record_id,
+                            message:
+                                `ลูกค้า ${customerName} ส่งสลิป รอตรวจสอบการชำระเงิน`,
+                            payload:
+                                buildPaymentReviewSnapshot(
+                                    latestCustomer,
+                                    order,
+                                    paymentEvidence,
+                                    input.message
+                                ),
+                            status: "Pending",
+                        }
+                    );
+
+                notifications.push(
+                    paymentReviewNotification
+                );
+            }
+        } else {
+            const pendingPaymentResult =
+                await savePendingPayment(
+                    env,
+                    latestCustomer,
+                    paymentEvidence
+                );
+
+            const pendingPaymentActivity =
                 await recordActivityOnce(env, {
                     event_id:
                         createActivityEventId(
-                            "PAYMENT_SLIP_RECEIVED",
-                            input,
-                            order.record_id
+                            "PENDING_PAYMENT_SAVED",
+                            input
                         ),
                     customer_record_id:
                         latestCustomer.record_id,
-                    action:
-                        "PAYMENT_SLIP_RECEIVED",
-                    old_value: {
-                        order_record_id:
-                            order.record_id,
-                        payment_status:
-                            paymentReviewResult
-                                .old_payment_status,
-                        order_status:
-                            paymentReviewResult
-                                .old_order_status,
-                        payment_verified:
-                            paymentReviewResult
-                                .old_payment_verified,
-                    },
+                    action: "PENDING_PAYMENT_SAVED",
+                    old_value:
+                        pendingPaymentResult.old_state,
                     new_value: {
-                        order_record_id:
-                            order.record_id,
-                        payment_status:
-                            paymentReviewResult
-                                .new_payment_status,
-                        order_status:
-                            paymentReviewResult
-                                .new_order_status,
-                        payment_verified:
-                            paymentReviewResult
-                                .new_payment_verified,
+                        ...pendingPaymentResult.new_state,
                         state_changed:
-                            paymentReviewResult.changed,
+                            pendingPaymentResult.changed,
                         external_message_id:
                             input.external_message_id,
-                        image_url:
-                            input.image_url ?? "",
                     },
                 });
 
             businessActivities.push(
-                paymentSlipActivity
+                pendingPaymentActivity
             );
 
-            const paymentReviewNotification =
+            latestCustomer =
+                await reloadCustomerByRecordId(
+                    env,
+                    pendingPaymentResult.record
+                );
+
+            const pendingNotification =
                 await recordAndDispatchNotificationOnce(
                     env,
                     {
                         event_id:
                             createNotificationEventId(
-                                "PAYMENT_REVIEW",
-                                input,
-                                order.record_id
+                                "PAYMENT_REVIEW_PENDING",
+                                input
                             ),
                         notification_type:
                             "PAYMENT_REVIEW",
                         customer_record_id:
                             latestCustomer.record_id,
                         message:
-                            `ลูกค้า ${customerName} ส่งสลิปสำหรับ Order ${order.record_id} รอตรวจสอบ`,
+                            `ลูกค้า ${customerName} ส่งสลิป แต่ยังไม่มี Order สำหรับผูกข้อมูล`,
+                        payload:
+                            buildPaymentReviewSnapshot(
+                                latestCustomer,
+                                null,
+                                paymentEvidence,
+                                input.message
+                            ),
                         status: "Pending",
                     }
                 );
 
             notifications.push(
-                paymentReviewNotification
+                pendingNotification
             );
         }
 
@@ -820,6 +1214,61 @@ export async function processIncomingMessage(
                 env,
                 latestCustomer
             );
+    }
+
+    /*
+     * Priority ภายใน Incoming Message Event เดียวกัน:
+     * PAYMENT_REVIEW / SALE_WON > HOT_LEAD > NEW_LEAD
+     *
+     * Business Notification ที่สร้างไว้ก่อนหน้านี้จะอยู่ใน
+     * notifications แล้ว ถ้ามีรายการดังกล่าวจะไม่ส่ง Lead
+     * Notification ซ้ำให้รบกวนกลุ่ม Lark
+     */
+    if (notifications.length === 0) {
+        if (ai.hot_lead && !wasHotLead) {
+            const hotLeadNotification =
+                await recordAndDispatchNotificationOnce(
+                    env,
+                    {
+                        event_id:
+                            createNotificationEventId(
+                                "HOT_LEAD",
+                                input
+                            ),
+                        notification_type:
+                            "HOT_LEAD",
+                        customer_record_id:
+                            latestCustomer.record_id,
+                        message:
+                            `Hot Lead ${customerName} คะแนน ${ai.lead_score}: ${input.message}`,
+                        status: "Pending",
+                    }
+                );
+
+            notifications.push(
+                hotLeadNotification
+            );
+        } else if (wasNewCustomer) {
+            const newLeadNotification =
+                await recordAndDispatchNotificationOnce(
+                    env,
+                    {
+                        event_id:
+                            `NEW_LEAD:${input.channel}:${input.channel_customer_id}`,
+                        notification_type:
+                            "NEW_LEAD",
+                        customer_record_id:
+                            latestCustomer.record_id,
+                        message:
+                            `ลูกค้าใหม่ ${customerName} จาก ${input.channel}: ${input.message}`,
+                        status: "Pending",
+                    }
+                );
+
+            notifications.push(
+                newLeadNotification
+            );
+        }
     }
 
     latestCustomer =

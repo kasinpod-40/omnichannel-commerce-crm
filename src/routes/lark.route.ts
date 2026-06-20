@@ -22,6 +22,7 @@ export async function handleCreateTestCustomer(env: Env): Promise<Response> {
         customer_name: "Test Customer",
         phone: "0800000000",
         current_stage: "New Lead",
+        buyer_intent: "Just Browsing",
         lead_score: 0,
         hot_lead: false,
         ai_summary: "Created from Customer Repository",

@@ -43,6 +43,17 @@ export type MarkPipelineLostResult = {
     new_state: PipelineAuditState;
 };
 
+const PIPELINE_STAGE_RANK: Record<
+    PipelineStage,
+    number
+> = {
+    Interested: 0,
+    Negotiating: 1,
+    Closing: 2,
+    Won: 3,
+    Lost: 3,
+};
+
 function normalizePipelineStage(
     value: unknown
 ): PipelineStage {
@@ -107,6 +118,20 @@ function hasPipelineStateChanged(
     );
 }
 
+function mergeOpenPipelineStage(
+    existingStage: PipelineStage,
+    incomingStage: PipelineStage
+): PipelineStage {
+    if (
+        PIPELINE_STAGE_RANK[incomingStage] >=
+        PIPELINE_STAGE_RANK[existingStage]
+    ) {
+        return incomingStage;
+    }
+
+    return existingStage;
+}
+
 export async function createOpenPipelineForCustomer(
     env: Env,
     input: {
@@ -162,9 +187,15 @@ export async function createPipelineIfNeeded(
 
             if (!isClosed) {
                 const newState: PipelineAuditState = {
-                    stage: input.stage,
+                    stage: mergeOpenPipelineStage(
+                        oldState.stage,
+                        input.stage
+                    ),
                     status: "open",
-                    lead_score: input.lead_score,
+                    lead_score: Math.max(
+                        oldState.lead_score,
+                        input.lead_score
+                    ),
                 };
 
                 const updatedPipeline =

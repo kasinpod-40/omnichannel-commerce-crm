@@ -1,3 +1,5 @@
+import type { BuyerIntent } from "../../ai/ai.types";
+
 export type CustomerStage =
     | "New Lead"
     | "Interested"
@@ -25,6 +27,8 @@ export interface Customer {
 
     current_stage: CustomerStage;
 
+    buyer_intent: BuyerIntent;
+
     lead_score: number;
 
     hot_lead: boolean;
@@ -34,6 +38,20 @@ export interface Customer {
     last_message?: string;
 
     message_count: number;
+
+    product_name?: string;
+
+    product_qty?: number;
+
+    product_unit?: string;
+
+    pending_payment?: boolean;
+
+    pending_slip_amount?: number;
+
+    pending_slip_bank?: string;
+
+    pending_slip_image_url?: string;
 
     sales_owner?: string;
 

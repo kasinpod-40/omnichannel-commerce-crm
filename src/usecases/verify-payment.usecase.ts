@@ -1,6 +1,5 @@
 import type { Env } from "../config/env";
 import {
-    CUSTOMER_FIELDS,
     ORDER_FIELDS,
     PIPELINE_FIELDS,
 } from "../core/lark-fields";
@@ -10,27 +9,25 @@ import {
 } from "../modules/activities/activity.service";
 import {
     getCustomerByRecordId,
-    updateCustomer,
     type LarkCustomerRecord,
 } from "../modules/customers/customer.repository";
-import {
-    getOrderByRecordId,
-    updateOrder,
-    type LarkOrderRecord,
-} from "../modules/orders/order.repository";
-import {
-    getPipelineByRecordId,
-    updatePipeline,
-    type LarkPipelineRecord,
-} from "../modules/pipeline/pipeline.repository";
 import {
     recordAndDispatchNotificationOnce,
     type AutoDispatchNotificationResult,
 } from "../modules/notifications/notification.service";
 import {
+    getOrderByRecordId,
+    type LarkOrderRecord,
+} from "../modules/orders/order.repository";
+import {
+    applyManualPaymentVerification,
+} from "../modules/payments/payment.service";
+import {
+    getPipelineByRecordId,
+    type LarkPipelineRecord,
+} from "../modules/pipeline/pipeline.repository";
+import {
     getFirstLinkedRecordId,
-    getLarkBoolean,
-    getLarkNumber,
     getLarkText,
 } from "../utils/lark-field-value";
 
@@ -43,6 +40,7 @@ export type VerifyPaymentResult =
         ok: true;
         already_verified: boolean;
         current_sale_closed: boolean;
+        waiting_address: boolean;
         customer: LarkCustomerRecord;
         pipeline: LarkPipelineRecord;
         order: LarkOrderRecord;
@@ -66,8 +64,7 @@ export async function verifyPayment(
     env: Env,
     input: VerifyPaymentInput
 ): Promise<VerifyPaymentResult> {
-    const orderRecordId =
-        input.order_record_id.trim();
+    const orderRecordId = input.order_record_id.trim();
 
     const order = await getOrderByRecordId(
         env,
@@ -82,31 +79,27 @@ export async function verifyPayment(
         };
     }
 
-    const customerRecordId =
-        getFirstLinkedRecordId(
-            order.fields[ORDER_FIELDS.CUSTOMER]
-        );
+    const customerRecordId = getFirstLinkedRecordId(
+        order.fields[ORDER_FIELDS.CUSTOMER]
+    );
 
     if (!customerRecordId) {
         return {
             ok: false,
             code: "ORDER_CUSTOMER_LINK_NOT_FOUND",
-            message:
-                "Order ไม่มี Link ไปยัง Customer",
+            message: "Order ไม่มี Link ไปยัง Customer",
         };
     }
 
-    const pipelineRecordId =
-        getFirstLinkedRecordId(
-            order.fields[ORDER_FIELDS.PIPELINE]
-        );
+    const pipelineRecordId = getFirstLinkedRecordId(
+        order.fields[ORDER_FIELDS.PIPELINE]
+    );
 
     if (!pipelineRecordId) {
         return {
             ok: false,
             code: "ORDER_PIPELINE_LINK_NOT_FOUND",
-            message:
-                "Order ไม่มี Link ไปยัง Sales Pipeline",
+            message: "Order ไม่มี Link ไปยัง Sales Pipeline",
         };
     }
 
@@ -136,53 +129,21 @@ export async function verifyPayment(
         };
     }
 
-    const oldOrderStatus = getLarkText(
+    const orderStatus = getLarkText(
         order.fields[ORDER_FIELDS.ORDER_STATUS],
         ""
-    ).trim();
+    )
+        .trim()
+        .toLowerCase();
 
-    const oldPaymentStatus = getLarkText(
-        order.fields[ORDER_FIELDS.PAYMENT_STATUS],
-        ""
-    ).trim();
-
-    const oldPaymentVerified = getLarkBoolean(
-        order.fields[
-            ORDER_FIELDS.PAYMENT_VERIFIED
-        ],
-        false
-    );
-
-    const oldPipelineStatus = getLarkText(
+    const pipelineStatus = getLarkText(
         pipeline.fields[PIPELINE_FIELDS.STATUS],
         ""
-    ).trim();
+    )
+        .trim()
+        .toLowerCase();
 
-    const oldPipelineStage = getLarkText(
-        pipeline.fields[PIPELINE_FIELDS.STAGE],
-        ""
-    ).trim();
-
-    const oldPipelineLeadScore = getLarkNumber(
-        pipeline.fields[
-            PIPELINE_FIELDS.LEAD_SCORE
-        ],
-        0
-    );
-
-    const normalizedOrderStatus =
-        oldOrderStatus.toLowerCase();
-
-    const normalizedPaymentStatus =
-        oldPaymentStatus.toLowerCase();
-
-    const normalizedPipelineStatus =
-        oldPipelineStatus.toLowerCase();
-
-    const normalizedPipelineStage =
-        oldPipelineStage.toLowerCase();
-
-    if (normalizedOrderStatus === "cancelled") {
+    if (orderStatus === "cancelled") {
         return {
             ok: false,
             code: "ORDER_ALREADY_CANCELLED",
@@ -191,7 +152,7 @@ export async function verifyPayment(
         };
     }
 
-    if (normalizedPipelineStatus === "lost") {
+    if (pipelineStatus === "lost") {
         return {
             ok: false,
             code: "PIPELINE_ALREADY_LOST",
@@ -200,101 +161,59 @@ export async function verifyPayment(
         };
     }
 
-    const alreadyVerified =
-        oldPaymentVerified &&
-        normalizedPaymentStatus === "paid" &&
-        normalizedOrderStatus === "completed" &&
-        normalizedPipelineStatus === "won" &&
-        normalizedPipelineStage === "won";
+    const lifecycle = await applyManualPaymentVerification(
+        env,
+        order,
+        customer,
+        pipeline
+    );
 
-    const orderNeedsUpdate =
-        !oldPaymentVerified ||
-        normalizedPaymentStatus !== "paid" ||
-        normalizedOrderStatus !== "completed";
-
-    const pipelineNeedsUpdate =
-        normalizedPipelineStatus !== "won" ||
-        normalizedPipelineStage !== "won" ||
-        oldPipelineLeadScore !== 100;
-
-    let verifiedOrder = order;
-
-    if (orderNeedsUpdate) {
-        verifiedOrder = await updateOrder(
-            env,
-            orderRecordId,
-            {
-                payment_status: "Paid",
-                payment_verified: true,
-                order_status: "Completed",
-            }
-        );
+    if (!lifecycle) {
+        return {
+            ok: false,
+            code: "ORDER_ALREADY_CANCELLED",
+            message:
+                "ไม่สามารถยืนยันการชำระเงินของ Order นี้ได้",
+        };
     }
-
-    let wonPipeline = pipeline;
-
-    if (pipelineNeedsUpdate) {
-        wonPipeline = await updatePipeline(
-            env,
-            pipelineRecordId,
-            {
-                stage: "Won",
-                status: "won",
-                lead_score: 100,
-                ai_summary:
-                    "Sales ยืนยันการชำระเงินแล้ว ปิดการขายสำเร็จ",
-                closed_at: Date.now(),
-            }
-        );
-    }
-
-    const currentActiveOrderId = getLarkText(
-        customer.fields[
-            CUSTOMER_FIELDS.ACTIVE_ORDER_ID
-        ],
-        ""
-    ).trim();
-
-    const currentActivePipelineId = getLarkText(
-        customer.fields[
-            CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID
-        ],
-        ""
-    ).trim();
-
-    const isCurrentSale =
-        currentActiveOrderId === orderRecordId &&
-        currentActivePipelineId ===
-        pipelineRecordId;
 
     const activities: RecordActivityResult[] = [];
     const notifications: AutoDispatchNotificationResult[] = [];
 
     const paymentVerifiedActivity =
         await recordActivityOnce(env, {
-            event_id:
-                `PAYMENT_VERIFIED:${orderRecordId}`,
-            customer_record_id:
-                customerRecordId,
+            event_id: `PAYMENT_VERIFIED:${orderRecordId}`,
+            customer_record_id: customerRecordId,
             action: "PAYMENT_VERIFIED",
             old_value: {
                 order_record_id: orderRecordId,
                 payment_status:
-                    oldPaymentStatus,
+                    lifecycle.old_state.payment_status,
                 order_status:
-                    oldOrderStatus,
+                    lifecycle.old_state.order_status,
                 payment_verified:
-                    oldPaymentVerified,
+                    lifecycle.old_state.payment_verified,
+                paid_at: lifecycle.old_state.paid_at,
+                address: lifecycle.old_state.address,
             },
             new_value: {
                 order_record_id: orderRecordId,
-                payment_status: "Paid",
-                order_status: "Completed",
-                payment_verified: true,
+                payment_status:
+                    lifecycle.new_state.payment_status,
+                order_status:
+                    lifecycle.new_state.order_status,
+                payment_verified:
+                    lifecycle.new_state.payment_verified,
+                paid_at: lifecycle.new_state.paid_at,
+                address: lifecycle.new_state.address,
+                waiting_address:
+                    lifecycle.waiting_address,
+                sale_completed:
+                    lifecycle.sale_completed,
                 state_changed:
-                    orderNeedsUpdate,
+                    lifecycle.order_changed,
                 already_verified_before_request:
-                    alreadyVerified,
+                    lifecycle.already_verified,
             },
         });
 
@@ -302,112 +221,82 @@ export async function verifyPayment(
 
     const paymentVerifiedNotification =
         await recordAndDispatchNotificationOnce(env, {
-            event_id:
-                `PAYMENT_VERIFIED:${orderRecordId}`,
-            notification_type:
-                "PAYMENT_VERIFIED",
-            customer_record_id:
-                customerRecordId,
-            message:
-                `ยืนยันการชำระเงิน Order ${orderRecordId} เรียบร้อยแล้ว`,
+            event_id: `PAYMENT_VERIFIED:${orderRecordId}`,
+            notification_type: "PAYMENT_VERIFIED",
+            customer_record_id: customerRecordId,
+            message: lifecycle.waiting_address
+                ? "ยืนยันการชำระเงินแล้ว แต่ยังไม่มีที่อยู่จัดส่ง"
+                : "ยืนยันการชำระเงินเรียบร้อยแล้ว",
             status: "Pending",
         });
 
-    notifications.push(
-        paymentVerifiedNotification
-    );
+    notifications.push(paymentVerifiedNotification);
 
-    const saleWonActivity =
-        await recordActivityOnce(env, {
-            event_id:
-                `SALE_WON:${pipelineRecordId}`,
-            customer_record_id:
-                customerRecordId,
-            action: "SALE_WON",
-            old_value: {
-                pipeline_record_id:
-                    pipelineRecordId,
-                stage: oldPipelineStage,
-                status: oldPipelineStatus,
-                lead_score:
-                    oldPipelineLeadScore,
-            },
-            new_value: {
-                pipeline_record_id:
-                    pipelineRecordId,
-                stage: "Won",
-                status: "won",
-                lead_score: 100,
-                state_changed:
-                    pipelineNeedsUpdate,
-                current_sale:
-                    isCurrentSale,
-                already_verified_before_request:
-                    alreadyVerified,
-            },
-        });
+    if (lifecycle.sale_completed) {
+        const saleWonActivity =
+            await recordActivityOnce(env, {
+                event_id: `SALE_WON:${pipelineRecordId}`,
+                customer_record_id: customerRecordId,
+                action: "SALE_WON",
+                old_value: {
+                    pipeline_record_id: pipelineRecordId,
+                    stage:
+                        lifecycle.old_state.pipeline_stage,
+                    status:
+                        lifecycle.old_state.pipeline_status,
+                    lead_score:
+                        lifecycle.old_state.pipeline_lead_score,
+                    order_record_id: orderRecordId,
+                    order_status:
+                        lifecycle.old_state.order_status,
+                },
+                new_value: {
+                    pipeline_record_id: pipelineRecordId,
+                    stage:
+                        lifecycle.new_state.pipeline_stage,
+                    status:
+                        lifecycle.new_state.pipeline_status,
+                    lead_score:
+                        lifecycle.new_state.pipeline_lead_score,
+                    order_record_id: orderRecordId,
+                    order_status:
+                        lifecycle.new_state.order_status,
+                    state_changed:
+                        lifecycle.pipeline_changed ||
+                        lifecycle.order_changed ||
+                        lifecycle.customer_changed,
+                    current_sale:
+                        lifecycle.current_sale,
+                    already_verified_before_request:
+                        lifecycle.already_verified,
+                },
+            });
 
-    activities.push(saleWonActivity);
+        activities.push(saleWonActivity);
 
-    const saleWonNotification =
-        await recordAndDispatchNotificationOnce(env, {
-            event_id:
-                `SALE_WON:${pipelineRecordId}`,
-            notification_type: "SALE_WON",
-            customer_record_id:
-                customerRecordId,
-            message:
-                `ปิดการขายสำเร็จ Pipeline ${pipelineRecordId} จาก Order ${orderRecordId}`,
-            status: "Pending",
-        });
+        const saleWonNotification =
+            await recordAndDispatchNotificationOnce(env, {
+                event_id: `SALE_WON:${pipelineRecordId}`,
+                notification_type: "SALE_WON",
+                customer_record_id: customerRecordId,
+                message:
+                    "ยืนยันการชำระเงินและมีที่อยู่ครบ ปิดการขายสำเร็จ",
+                status: "Pending",
+            });
 
-    notifications.push(
-        saleWonNotification
-    );
-
-    let updatedCustomer = customer;
-
-    if (isCurrentSale) {
-        updatedCustomer = await updateCustomer(
-            env,
-            customerRecordId,
-            {
-                current_stage: "Won",
-                lead_score: 100,
-                hot_lead: false,
-                ai_summary:
-                    "Sales ยืนยันการชำระเงินแล้ว ปิดการขายสำเร็จ",
-                active_pipeline_id: "",
-                active_order_id: "",
-            }
-        );
+        notifications.push(saleWonNotification);
     }
-
-    const finalCustomer =
-        await getCustomerByRecordId(
-            env,
-            customerRecordId
-        ) ?? updatedCustomer;
-
-    const finalPipeline =
-        await getPipelineByRecordId(
-            env,
-            pipelineRecordId
-        ) ?? wonPipeline;
-
-    const finalOrder =
-        await getOrderByRecordId(
-            env,
-            orderRecordId
-        ) ?? verifiedOrder;
 
     return {
         ok: true,
-        already_verified: alreadyVerified,
-        current_sale_closed: isCurrentSale,
-        customer: finalCustomer,
-        pipeline: finalPipeline,
-        order: finalOrder,
+        already_verified: lifecycle.already_verified,
+        current_sale_closed:
+            lifecycle.sale_completed &&
+            lifecycle.current_sale,
+        waiting_address: lifecycle.waiting_address,
+        customer: lifecycle.customer,
+        pipeline: lifecycle.pipeline,
+        order: lifecycle.order,
         activities,
         notifications,
     };

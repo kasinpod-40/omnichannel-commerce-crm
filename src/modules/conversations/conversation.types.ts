@@ -1,4 +1,7 @@
-import type { AIIntent } from "../../ai/ai.types";
+import type {
+    ActionIntent,
+    BuyerIntent,
+} from "../../ai/ai.types";
 
 export type Channel =
     | "LINE"
@@ -12,7 +15,12 @@ export type MessageType =
     | "sticker"
     | "file";
 
-export type Intent = AIIntent;
+export type Intent = ActionIntent;
+
+export type ImageType =
+    | "product_image"
+    | "payment_slip"
+    | "other";
 
 export type ProcessStatus =
     | "processing"
@@ -33,6 +41,10 @@ export interface Conversation {
     image_url?: string;
 
     intent: Intent;
+
+    buyer_intent: BuyerIntent;
+
+    image_type?: ImageType;
 
     lead_score: number;
 

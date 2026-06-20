@@ -1,5 +1,10 @@
-import type { AIAnalysisResult } from "../../ai/ai.types";
+import type {
+    AIAnalysisResult,
+    ActionIntent,
+    BuyerIntent,
+} from "../../ai/ai.types";
 import type { Env } from "../../config/env";
+import { CUSTOMER_FIELDS } from "../../core/lark-fields";
 import {
     getLarkBoolean,
     getLarkNumber,
@@ -8,6 +13,7 @@ import {
 import type {
     Channel,
     Customer,
+    CustomerStage,
 } from "./customer.types";
 import {
     createCustomer,
@@ -24,6 +30,194 @@ export type UpsertCustomerInput = {
     last_message?: string;
     ai?: AIAnalysisResult;
 };
+
+const STAGE_RANK: Record<CustomerStage, number> = {
+    "New Lead": 0,
+    Interested: 1,
+    Negotiating: 2,
+    Closing: 3,
+    Won: 4,
+    Lost: 4,
+};
+
+const BUYER_INTENT_RANK: Record<BuyerIntent, number> = {
+    "Just Browsing": 0,
+    Interested: 1,
+    "Purchase Intent": 2,
+    "Ready To Buy": 3,
+};
+
+function normalizeCustomerStage(
+    value: unknown
+): CustomerStage {
+    const stage = getLarkText(
+        value,
+        "New Lead"
+    );
+
+    if (
+        stage === "New Lead" ||
+        stage === "Interested" ||
+        stage === "Negotiating" ||
+        stage === "Closing" ||
+        stage === "Won" ||
+        stage === "Lost"
+    ) {
+        return stage;
+    }
+
+    return "New Lead";
+}
+
+function normalizeBuyerIntent(
+    value: unknown
+): BuyerIntent {
+    const buyerIntent = getLarkText(
+        value,
+        "Just Browsing"
+    );
+
+    if (
+        buyerIntent === "Just Browsing" ||
+        buyerIntent === "Interested" ||
+        buyerIntent === "Purchase Intent" ||
+        buyerIntent === "Ready To Buy"
+    ) {
+        return buyerIntent;
+    }
+
+    return "Just Browsing";
+}
+
+function isMeaningfulNewCycleIntent(
+    intent: ActionIntent
+): boolean {
+    return (
+        intent === "ask_price" ||
+        intent === "ask_discount" ||
+        intent === "product_info" ||
+        intent === "product_order" ||
+        intent === "payment_request" ||
+        intent === "payment_slip" ||
+        intent === "delivery_address"
+    );
+}
+
+function isStartingNewSalesCycle(
+    existingStage: CustomerStage,
+    ai: AIAnalysisResult
+): boolean {
+    return (
+        (existingStage === "Won" ||
+            existingStage === "Lost") &&
+        isMeaningfulNewCycleIntent(ai.intent)
+    );
+}
+
+function mergeCustomerStage(
+    existingStage: CustomerStage,
+    ai: AIAnalysisResult
+): CustomerStage {
+    if (ai.intent === "lost") {
+        return "Lost";
+    }
+
+    if (
+        existingStage === "Won" ||
+        existingStage === "Lost"
+    ) {
+        if (isMeaningfulNewCycleIntent(ai.intent)) {
+            return ai.customer_stage;
+        }
+
+        return existingStage;
+    }
+
+    if (
+        STAGE_RANK[ai.customer_stage] >=
+        STAGE_RANK[existingStage]
+    ) {
+        return ai.customer_stage;
+    }
+
+    return existingStage;
+}
+
+function mergeBuyerIntent(
+    existingBuyerIntent: BuyerIntent,
+    existingStage: CustomerStage,
+    ai: AIAnalysisResult
+): BuyerIntent {
+    if (ai.intent === "lost") {
+        return "Just Browsing";
+    }
+
+    if (
+        existingStage === "Won" ||
+        existingStage === "Lost"
+    ) {
+        if (isMeaningfulNewCycleIntent(ai.intent)) {
+            return ai.buyer_intent;
+        }
+
+        return existingBuyerIntent;
+    }
+
+    if (
+        BUYER_INTENT_RANK[ai.buyer_intent] >=
+        BUYER_INTENT_RANK[existingBuyerIntent]
+    ) {
+        return ai.buyer_intent;
+    }
+
+    return existingBuyerIntent;
+}
+
+function mergeLeadScore(
+    existingScore: number,
+    existingStage: CustomerStage,
+    ai: AIAnalysisResult
+): number {
+    if (ai.intent === "lost") {
+        return 0;
+    }
+
+    if (isStartingNewSalesCycle(existingStage, ai)) {
+        return ai.lead_score;
+    }
+
+    if (
+        existingStage === "Won" ||
+        existingStage === "Lost"
+    ) {
+        return existingScore;
+    }
+
+    return Math.max(existingScore, ai.lead_score);
+}
+
+function mergeHotLead(
+    existingHotLead: boolean,
+    existingStage: CustomerStage,
+    ai: AIAnalysisResult
+): boolean {
+    if (ai.intent === "lost") {
+        return false;
+    }
+
+    if (isStartingNewSalesCycle(existingStage, ai)) {
+        return ai.hot_lead;
+    }
+
+    if (
+        existingStage === "Won" ||
+        existingStage === "Lost"
+    ) {
+        return existingHotLead;
+    }
+
+    return existingHotLead || ai.hot_lead;
+}
 
 export async function upsertCustomer(
     env: Env,
@@ -42,28 +236,111 @@ export async function upsertCustomer(
             channel_customer_id:
                 input.channel_customer_id,
             customer_name:
-                input.customer_name ?? "Unknown Customer",
+                input.customer_name ??
+                "Unknown Customer",
             phone: input.phone ?? "",
             current_stage:
-                input.ai?.customer_stage ?? "New Lead",
-            lead_score: input.ai?.lead_score ?? 0,
-            hot_lead: input.ai?.hot_lead ?? false,
-            ai_summary: input.ai?.ai_summary ?? "",
-            last_message: input.last_message ?? "",
+                input.ai?.customer_stage ??
+                "New Lead",
+            buyer_intent:
+                input.ai?.buyer_intent ??
+                "Just Browsing",
+            lead_score:
+                input.ai?.lead_score ?? 0,
+            hot_lead:
+                input.ai?.hot_lead ?? false,
+            ai_summary:
+                input.ai?.ai_summary ?? "",
+            last_message:
+                input.last_message ?? "",
             message_count: 1,
+            product_name:
+                input.ai?.product_name ?? "",
+            product_qty:
+                input.ai?.quantity ?? 0,
+            product_unit:
+                input.ai?.product_unit ?? "",
+            pending_payment: false,
+            pending_slip_amount: 0,
+            pending_slip_bank: "",
+            pending_slip_image_url: "",
             sales_owner: "Unassigned",
         };
 
-        return await createCustomer(env, newCustomer);
+        return await createCustomer(
+            env,
+            newCustomer
+        );
     }
 
     const existingFields =
         existingCustomer.fields;
 
-    const existingStage = getLarkText(
-        existingFields.current_stage,
-        "New Lead"
-    ) as Customer["current_stage"];
+    const existingStage =
+        normalizeCustomerStage(
+            existingFields[
+                CUSTOMER_FIELDS.CURRENT_STAGE
+            ]
+        );
+
+    const existingBuyerIntent =
+        normalizeBuyerIntent(
+            existingFields[
+                CUSTOMER_FIELDS.BUYER_INTENT
+            ]
+        );
+
+    const existingLeadScore = getLarkNumber(
+        existingFields[
+            CUSTOMER_FIELDS.LEAD_SCORE
+        ],
+        0
+    );
+
+    const existingHotLead = getLarkBoolean(
+        existingFields[
+            CUSTOMER_FIELDS.HOT_LEAD
+        ],
+        false
+    );
+
+    const startingNewSalesCycle = input.ai
+        ? isStartingNewSalesCycle(
+              existingStage,
+              input.ai
+          )
+        : false;
+
+    const nextStage = input.ai
+        ? mergeCustomerStage(
+              existingStage,
+              input.ai
+          )
+        : existingStage;
+
+    const nextBuyerIntent = input.ai
+        ? mergeBuyerIntent(
+              existingBuyerIntent,
+              existingStage,
+              input.ai
+          )
+        : existingBuyerIntent;
+
+    const nextLeadScore = input.ai
+        ? mergeLeadScore(
+              existingLeadScore,
+              existingStage,
+              input.ai
+          )
+        : existingLeadScore;
+
+    const nextHotLead = input.ai
+        ? mergeHotLead(
+              existingHotLead,
+              existingStage,
+              input.ai
+          )
+        : existingHotLead;
 
     return await updateCustomer(
         env,
@@ -72,39 +349,38 @@ export async function upsertCustomer(
             customer_name:
                 input.customer_name ??
                 getLarkText(
-                    existingFields.customer_name,
+                    existingFields[
+                        CUSTOMER_FIELDS.CUSTOMER_NAME
+                    ],
                     "Unknown Customer"
                 ),
 
             phone:
                 input.phone ??
                 getLarkText(
-                    existingFields.phone,
+                    existingFields[
+                        CUSTOMER_FIELDS.PHONE
+                    ],
                     ""
                 ),
 
-            current_stage:
-                input.ai?.customer_stage ??
-                existingStage,
+            current_stage: nextStage,
+
+            buyer_intent:
+                nextBuyerIntent,
 
             lead_score:
-                input.ai?.lead_score ??
-                getLarkNumber(
-                    existingFields.lead_score,
-                    0
-                ),
+                nextLeadScore,
 
             hot_lead:
-                input.ai?.hot_lead ??
-                getLarkBoolean(
-                    existingFields.hot_lead,
-                    false
-                ),
+                nextHotLead,
 
             ai_summary:
                 input.ai?.ai_summary ??
                 getLarkText(
-                    existingFields.ai_summary,
+                    existingFields[
+                        CUSTOMER_FIELDS.AI_SUMMARY
+                    ],
                     ""
                 ),
 
@@ -113,9 +389,52 @@ export async function upsertCustomer(
 
             message_count:
                 getLarkNumber(
-                    existingFields.message_count,
+                    existingFields[
+                        CUSTOMER_FIELDS.MESSAGE_COUNT
+                    ],
                     0
                 ) + 1,
+
+            product_name: startingNewSalesCycle
+                ? input.ai?.product_name ?? ""
+                : input.ai?.product_name ??
+                  getLarkText(
+                      existingFields[
+                          CUSTOMER_FIELDS.PRODUCT_NAME
+                      ],
+                      ""
+                  ),
+
+            product_qty: startingNewSalesCycle
+                ? input.ai?.quantity ?? 0
+                : input.ai?.quantity ??
+                  getLarkNumber(
+                      existingFields[
+                          CUSTOMER_FIELDS.PRODUCT_QTY
+                      ],
+                      0
+                  ),
+
+            product_unit: startingNewSalesCycle
+                ? input.ai?.product_unit ?? ""
+                : input.ai?.product_unit ??
+                  getLarkText(
+                      existingFields[
+                          CUSTOMER_FIELDS.PRODUCT_UNIT
+                      ],
+                      ""
+                  ),
+
+            ...(startingNewSalesCycle
+                ? {
+                      active_pipeline_id: "",
+                      active_order_id: "",
+                      pending_payment: false,
+                      pending_slip_amount: 0,
+                      pending_slip_bank: "",
+                      pending_slip_image_url: "",
+                  }
+                : {}),
         }
     );
 }
@@ -129,11 +448,23 @@ export async function markCustomerLost(
         customer.record_id,
         {
             current_stage: "Lost",
+            buyer_intent: "Just Browsing",
             lead_score: 0,
             hot_lead: false,
 
             active_pipeline_id: "",
             active_order_id: "",
+
+            product_name: "",
+            product_qty: 0,
+            product_unit: "",
+
+            pending_payment: false,
+            pending_slip_amount: 0,
+            pending_slip_bank: "",
+            pending_slip_image_url: "",
+            ai_summary:
+                "ลูกค้ายกเลิกการซื้อ รอเริ่มการขายใหม่",
         }
     );
 }

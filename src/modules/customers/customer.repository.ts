@@ -1,3 +1,4 @@
+import type { BuyerIntent } from "../../ai/ai.types";
 import type { Env } from "../../config/env";
 import { CUSTOMER_FIELDS } from "../../core/lark-fields";
 import {
@@ -21,11 +22,19 @@ export type UpdateCustomerFields = Partial<{
     customer_name: string;
     phone: string;
     current_stage: CustomerStage;
+    buyer_intent: BuyerIntent;
     lead_score: number;
     hot_lead: boolean;
     ai_summary: string;
     last_message: string;
     message_count: number;
+    product_name: string;
+    product_qty: number;
+    product_unit: string;
+    pending_payment: boolean;
+    pending_slip_amount: number;
+    pending_slip_bank: string;
+    pending_slip_image_url: string;
     active_pipeline_id: string;
     active_order_id: string;
     sales_owner: string;
@@ -75,6 +84,8 @@ export async function createCustomer(
         [CUSTOMER_FIELDS.PHONE]: customer.phone ?? "",
         [CUSTOMER_FIELDS.CURRENT_STAGE]:
             customer.current_stage,
+        [CUSTOMER_FIELDS.BUYER_INTENT]:
+            customer.buyer_intent,
         [CUSTOMER_FIELDS.LEAD_SCORE]:
             customer.lead_score,
         [CUSTOMER_FIELDS.HOT_LEAD]:
@@ -85,6 +96,20 @@ export async function createCustomer(
             customer.last_message ?? "",
         [CUSTOMER_FIELDS.MESSAGE_COUNT]:
             customer.message_count,
+        [CUSTOMER_FIELDS.PRODUCT_NAME]:
+            customer.product_name ?? "",
+        [CUSTOMER_FIELDS.PRODUCT_QTY]:
+            customer.product_qty ?? 0,
+        [CUSTOMER_FIELDS.PRODUCT_UNIT]:
+            customer.product_unit ?? "",
+        [CUSTOMER_FIELDS.PENDING_PAYMENT]:
+            customer.pending_payment ?? false,
+        [CUSTOMER_FIELDS.PENDING_SLIP_AMOUNT]:
+            customer.pending_slip_amount ?? 0,
+        [CUSTOMER_FIELDS.PENDING_SLIP_BANK]:
+            customer.pending_slip_bank ?? "",
+        [CUSTOMER_FIELDS.PENDING_SLIP_IMAGE_URL]:
+            customer.pending_slip_image_url ?? "",
         [CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID]: "",
         [CUSTOMER_FIELDS.ACTIVE_ORDER_ID]: "",
         [CUSTOMER_FIELDS.SALES_OWNER]:
@@ -174,6 +199,11 @@ export async function updateCustomer(
             fields.current_stage;
     }
 
+    if (fields.buyer_intent !== undefined) {
+        larkFields[CUSTOMER_FIELDS.BUYER_INTENT] =
+            fields.buyer_intent;
+    }
+
     if (fields.lead_score !== undefined) {
         larkFields[CUSTOMER_FIELDS.LEAD_SCORE] =
             fields.lead_score;
@@ -197,6 +227,44 @@ export async function updateCustomer(
     if (fields.message_count !== undefined) {
         larkFields[CUSTOMER_FIELDS.MESSAGE_COUNT] =
             fields.message_count;
+    }
+
+    if (fields.product_name !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PRODUCT_NAME] =
+            fields.product_name;
+    }
+
+    if (fields.product_qty !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PRODUCT_QTY] =
+            fields.product_qty;
+    }
+
+    if (fields.product_unit !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PRODUCT_UNIT] =
+            fields.product_unit;
+    }
+
+    if (fields.pending_payment !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PENDING_PAYMENT] =
+            fields.pending_payment;
+    }
+
+    if (fields.pending_slip_amount !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PENDING_SLIP_AMOUNT] =
+            fields.pending_slip_amount;
+    }
+
+    if (fields.pending_slip_bank !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PENDING_SLIP_BANK] =
+            fields.pending_slip_bank;
+    }
+
+    if (
+        fields.pending_slip_image_url !== undefined
+    ) {
+        larkFields[
+            CUSTOMER_FIELDS.PENDING_SLIP_IMAGE_URL
+        ] = fields.pending_slip_image_url;
     }
 
     if (fields.active_pipeline_id !== undefined) {
