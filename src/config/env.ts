@@ -5,7 +5,9 @@ export interface Env {
     LARK_APP_SECRET: string;
 
     LARK_APP_TOKEN: string;
-    
+    LARK_GROUP_WEBHOOK_URL: string;
+    NOTIFICATION_DISPATCH_TOKEN: string;
+
     CUSTOMERS_TABLE_ID: string;
     CONVERSATIONS_TABLE_ID: string;
     PIPELINE_TABLE_ID: string;

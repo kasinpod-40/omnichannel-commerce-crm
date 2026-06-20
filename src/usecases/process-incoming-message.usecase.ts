@@ -34,8 +34,8 @@ import {
     markActivePipelineLost,
 } from "../modules/pipeline/pipeline.service";
 import {
-    recordNotificationOnce,
-    type RecordNotificationResult,
+    recordAndDispatchNotificationOnce,
+    type AutoDispatchNotificationResult,
 } from "../modules/notifications/notification.service";
 import type { PipelineStage } from "../modules/pipeline/pipeline.types";
 import {
@@ -258,7 +258,7 @@ export async function processIncomingMessage(
         RecordActivityResult[] = [];
 
     const notifications:
-        RecordNotificationResult[] = [];
+        AutoDispatchNotificationResult[] = [];
 
     const customerName =
         input.customer_name ??
@@ -271,7 +271,7 @@ export async function processIncomingMessage(
 
     if (wasNewCustomer) {
         const newLeadNotification =
-            await recordNotificationOnce(
+            await recordAndDispatchNotificationOnce(
                 env,
                 {
                     event_id:
@@ -293,7 +293,7 @@ export async function processIncomingMessage(
 
     if (ai.hot_lead && !wasHotLead) {
         const hotLeadNotification =
-            await recordNotificationOnce(
+            await recordAndDispatchNotificationOnce(
                 env,
                 {
                     event_id:
@@ -379,7 +379,7 @@ export async function processIncomingMessage(
             );
 
             const saleLostNotification =
-                await recordNotificationOnce(
+                await recordAndDispatchNotificationOnce(
                     env,
                     {
                         event_id:
@@ -791,7 +791,7 @@ export async function processIncomingMessage(
             );
 
             const paymentReviewNotification =
-                await recordNotificationOnce(
+                await recordAndDispatchNotificationOnce(
                     env,
                     {
                         event_id:

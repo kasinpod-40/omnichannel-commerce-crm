@@ -12,8 +12,12 @@ import {
   handleProcessLostTest,
   handleProcessMessageTest,
 } from "./routes/message.route";
-import { handleOrderTest } from "./routes/order.route";
+import {
+  handleSendNotificationTest,
+  handleSendPendingNotifications,
+} from "./routes/notification-delivery.route";
 import { handleNotificationTest } from "./routes/notification.route";
+import { handleOrderTest } from "./routes/order.route";
 import { handleVerifyPaymentTest } from "./routes/payment.route";
 import { handlePipelineTest } from "./routes/pipeline.route";
 import { jsonResponse } from "./utils/response";
@@ -114,6 +118,26 @@ export default {
       url.pathname === "/notification/test"
     ) {
       return await handleNotificationTest(
+        request,
+        env
+      );
+    }
+
+    if (
+      url.pathname ===
+      "/notification/send-test"
+    ) {
+      return await handleSendNotificationTest(
+        request,
+        env
+      );
+    }
+
+    if (
+      url.pathname ===
+      "/notification/send-pending"
+    ) {
+      return await handleSendPendingNotifications(
         request,
         env
       );

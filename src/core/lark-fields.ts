@@ -82,6 +82,10 @@ export const NOTIFICATION_FIELDS = {
     NOTIFICATION_TYPE: "notification_type",
     CUSTOMER: "customer",
     MESSAGE: "message",
+    PAYLOAD_JSON: "payload_json",
     STATUS: "status",
+    ATTEMPT_COUNT: "attempt_count",
+    ERROR_MESSAGE: "error_message",
     CREATED_AT: "created_at",
+    SENT_AT: "sent_at",
 } as const;

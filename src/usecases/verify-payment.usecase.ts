@@ -24,8 +24,8 @@ import {
     type LarkPipelineRecord,
 } from "../modules/pipeline/pipeline.repository";
 import {
-    recordNotificationOnce,
-    type RecordNotificationResult,
+    recordAndDispatchNotificationOnce,
+    type AutoDispatchNotificationResult,
 } from "../modules/notifications/notification.service";
 import {
     getFirstLinkedRecordId,
@@ -47,7 +47,7 @@ export type VerifyPaymentResult =
         pipeline: LarkPipelineRecord;
         order: LarkOrderRecord;
         activities: RecordActivityResult[];
-        notifications: RecordNotificationResult[];
+        notifications: AutoDispatchNotificationResult[];
     }
     | {
         ok: false;
@@ -268,7 +268,7 @@ export async function verifyPayment(
         pipelineRecordId;
 
     const activities: RecordActivityResult[] = [];
-    const notifications: RecordNotificationResult[] = [];
+    const notifications: AutoDispatchNotificationResult[] = [];
 
     const paymentVerifiedActivity =
         await recordActivityOnce(env, {
@@ -301,7 +301,7 @@ export async function verifyPayment(
     activities.push(paymentVerifiedActivity);
 
     const paymentVerifiedNotification =
-        await recordNotificationOnce(env, {
+        await recordAndDispatchNotificationOnce(env, {
             event_id:
                 `PAYMENT_VERIFIED:${orderRecordId}`,
             notification_type:
@@ -350,7 +350,7 @@ export async function verifyPayment(
     activities.push(saleWonActivity);
 
     const saleWonNotification =
-        await recordNotificationOnce(env, {
+        await recordAndDispatchNotificationOnce(env, {
             event_id:
                 `SALE_WON:${pipelineRecordId}`,
             notification_type: "SALE_WON",
