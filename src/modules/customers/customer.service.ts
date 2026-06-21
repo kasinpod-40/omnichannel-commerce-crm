@@ -10,6 +10,7 @@ import {
     getLarkNumber,
     getLarkText,
 } from "../../utils/lark-field-value";
+import { normalizePhoneNumber } from "../../utils/phone";
 import type {
     Channel,
     Customer,
@@ -31,6 +32,7 @@ export type UpsertCustomerInput = {
     ai?: AIAnalysisResult;
     increment_message_count?: boolean;
     existing_customer?: LarkCustomerRecord | null;
+    force_new_sales_cycle?: boolean;
 };
 
 const STAGE_RANK: Record<CustomerStage, number> = {
@@ -91,7 +93,7 @@ function normalizeBuyerIntent(
     return "Just Browsing";
 }
 
-function isMeaningfulNewCycleIntent(
+export function isMeaningfulNewCycleIntent(
     intent: ActionIntent
 ): boolean {
     return (
@@ -105,14 +107,19 @@ function isMeaningfulNewCycleIntent(
     );
 }
 
-function isStartingNewSalesCycle(
+export function isStartingNewSalesCycle(
     existingStage: CustomerStage,
-    ai: AIAnalysisResult
+    _ai: AIAnalysisResult
 ): boolean {
+    /*
+     * Closed customers must start with a clean sales context on the
+     * very next inbound message, including a simple greeting.
+     * Keeping Won/Lost data until a purchase-intent message caused
+     * stale stage, score, product and quantity to leak into the next cycle.
+     */
     return (
-        (existingStage === "Won" ||
-            existingStage === "Lost") &&
-        isMeaningfulNewCycleIntent(ai.intent)
+        existingStage === "Won" ||
+        existingStage === "Lost"
     );
 }
 
@@ -225,6 +232,10 @@ export async function upsertCustomer(
     env: Env,
     input: UpsertCustomerInput
 ): Promise<LarkCustomerRecord> {
+    const incomingPhone =
+        normalizePhoneNumber(input.phone) ??
+        normalizePhoneNumber(input.ai?.phone);
+
     const existingCustomer =
         input.existing_customer !== undefined
             ? input.existing_customer
@@ -242,7 +253,7 @@ export async function upsertCustomer(
             customer_name:
                 input.customer_name ??
                 "Unknown Customer",
-            phone: input.phone ?? "",
+            phone: incomingPhone ?? "",
             current_stage:
                 input.ai?.customer_stage ??
                 "New Lead",
@@ -309,42 +320,61 @@ export async function upsertCustomer(
         false
     );
 
-    const startingNewSalesCycle = input.ai
-        ? isStartingNewSalesCycle(
-              existingStage,
-              input.ai
-          )
-        : false;
+    /*
+     * A lost/cancel message closes the current sales cycle. It must never be
+     * interpreted as the first message of a new cycle, even when a retry sees
+     * Customer.current_stage = Lost from a previous partial attempt.
+     * Otherwise active IDs are cleared before Pipeline/Order can be closed.
+     */
+    const isLostTransition = input.ai?.intent === "lost";
+
+    const startingNewSalesCycle =
+        !isLostTransition &&
+        (input.force_new_sales_cycle === true ||
+            (input.ai
+                ? isStartingNewSalesCycle(
+                      existingStage,
+                      input.ai
+                  )
+                : false));
 
     const nextStage = input.ai
-        ? mergeCustomerStage(
-              existingStage,
-              input.ai
-          )
+        ? startingNewSalesCycle
+            ? input.ai.customer_stage
+            : mergeCustomerStage(
+                  existingStage,
+                  input.ai
+              )
         : existingStage;
 
     const nextBuyerIntent = input.ai
-        ? mergeBuyerIntent(
-              existingBuyerIntent,
-              existingStage,
-              input.ai
-          )
+        ? startingNewSalesCycle
+            ? input.ai.buyer_intent
+            : mergeBuyerIntent(
+                  existingBuyerIntent,
+                  existingStage,
+                  input.ai
+              )
         : existingBuyerIntent;
 
     const nextLeadScore = input.ai
-        ? mergeLeadScore(
-              existingLeadScore,
-              existingStage,
-              input.ai
-          )
+        ? startingNewSalesCycle
+            ? input.ai.lead_score
+            : mergeLeadScore(
+                  existingLeadScore,
+                  existingStage,
+                  input.ai
+              )
         : existingLeadScore;
 
     const nextHotLead = input.ai
-        ? mergeHotLead(
-              existingHotLead,
-              existingStage,
-              input.ai
-          )
+        ? startingNewSalesCycle
+            ? input.ai.hot_lead
+            : mergeHotLead(
+                  existingHotLead,
+                  existingStage,
+                  input.ai
+              )
         : existingHotLead;
 
     return await updateCustomer(
@@ -361,7 +391,7 @@ export async function upsertCustomer(
                 ),
 
             phone:
-                input.phone ??
+                incomingPhone ??
                 getLarkText(
                     existingFields[
                         CUSTOMER_FIELDS.PHONE

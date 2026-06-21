@@ -3,8 +3,14 @@ import { PIPELINE_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
     getLarkRecord,
+    searchLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
+import {
+    getLarkNumber,
+    getLarkText,
+    getLinkedRecordIds,
+} from "../../utils/lark-field-value";
 import type { SalesPipeline } from "./pipeline.types";
 
 export type LarkPipelineRecord = {
@@ -24,6 +30,78 @@ function normalizePipelineRecord(result: unknown): LarkPipelineRecord {
     }
 
     throw new Error(`Invalid Lark pipeline record: ${JSON.stringify(result)}`);
+}
+
+
+export async function findOpenPipelinesByCustomer(
+    env: Env,
+    customerRecordId: string
+): Promise<LarkPipelineRecord[]> {
+    const records = await searchLarkRecords(
+        env,
+        env.PIPELINE_TABLE_ID,
+        {
+            conjunction: "and",
+            conditions: [
+                {
+                    field_name: PIPELINE_FIELDS.STATUS,
+                    operator: "is",
+                    value: ["open"],
+                },
+            ],
+        }
+    );
+
+    return records
+        .map(normalizePipelineRecord)
+        .filter((pipeline) =>
+            getLinkedRecordIds(
+                pipeline.fields[PIPELINE_FIELDS.CUSTOMER]
+            ).includes(customerRecordId)
+        )
+        .filter(
+            (pipeline) =>
+                getLarkText(
+                    pipeline.fields[PIPELINE_FIELDS.STATUS],
+                    ""
+                )
+                    .trim()
+                    .toLowerCase() === "open"
+        )
+        .sort((left, right) => {
+            const leftCreatedAt = getLarkNumber(
+                left.fields[PIPELINE_FIELDS.CREATED_AT],
+                Number.MAX_SAFE_INTEGER
+            );
+            const rightCreatedAt = getLarkNumber(
+                right.fields[PIPELINE_FIELDS.CREATED_AT],
+                Number.MAX_SAFE_INTEGER
+            );
+
+            if (leftCreatedAt !== rightCreatedAt) {
+                return leftCreatedAt - rightCreatedAt;
+            }
+
+            return left.record_id.localeCompare(right.record_id);
+        });
+}
+
+export async function getPipelinesByRecordIds(
+    env: Env,
+    recordIds: string[]
+): Promise<LarkPipelineRecord[]> {
+    const uniqueRecordIds = [...new Set(recordIds.filter(Boolean))];
+    const records: LarkPipelineRecord[] = [];
+
+    for (const recordId of uniqueRecordIds) {
+        const record = await getPipelineByRecordId(env, recordId);
+
+        if (record) {
+            records.push(record);
+        }
+    }
+
+    return records;
 }
 
 export async function createPipeline(

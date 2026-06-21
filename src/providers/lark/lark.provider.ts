@@ -153,10 +153,19 @@ export async function searchLarkRecords(
     filter: Record<string, unknown>
 ): Promise<any[]> {
     const token = await getTenantAccessToken(env);
+    const records: any[] = [];
+    let pageToken = "";
 
-    const response = await fetch(
-        `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/search`,
-        {
+    for (let page = 0; page < 100; page += 1) {
+        const url = new URL(
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/search`
+        );
+
+        if (pageToken) {
+            url.searchParams.set("page_token", pageToken);
+        }
+
+        const response = await fetch(url.toString(), {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -164,18 +173,34 @@ export async function searchLarkRecords(
             },
             body: JSON.stringify({
                 filter,
-                page_size: 20,
+                page_size: 100,
             }),
+        });
+
+        const data = (await response.json()) as LarkApiResponse<{
+            items?: any[];
+            has_more?: boolean;
+            page_token?: string;
+        }>;
+
+        if (data.code !== 0) {
+            throw new Error(
+                `Lark Search Record Error: ${JSON.stringify(data)}`
+            );
         }
-    );
 
-    const data = (await response.json()) as LarkApiResponse<{ items?: any[] }>;
+        records.push(...(data.data?.items ?? []));
 
-    if (data.code !== 0) {
-        throw new Error(`Lark Search Record Error: ${JSON.stringify(data)}`);
+        if (!data.data?.has_more || !data.data.page_token) {
+            return records;
+        }
+
+        pageToken = data.data.page_token;
     }
 
-    return data.data?.items ?? [];
+    throw new Error(
+        `Lark Search Record Error: pagination exceeded 100 pages for table ${tableId}`
+    );
 }
 
 export async function getLarkRecord(

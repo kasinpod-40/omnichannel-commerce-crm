@@ -29,13 +29,12 @@ import {
     type LarkCustomerRecord,
 } from "../modules/customers/customer.repository";
 import {
-    markCustomerLost,
     upsertCustomer,
 } from "../modules/customers/customer.service";
 import {
-    cancelActiveOrder,
     createOrderIfReadyToBuy,
     updateActiveOrderAddress,
+    updateActiveOrderPhone,
 } from "../modules/orders/order.service";
 import {
     getOrderByRecordId,
@@ -44,15 +43,15 @@ import {
 import {
     applyPaymentEvidenceToOrder,
     applyPendingPaymentToOrder,
-    completeVerifiedSaleAfterAddress,
+    completeVerifiedSaleAfterDeliveryInfo,
     normalizePaymentEvidence,
     savePendingPayment,
     type PaymentEvidenceSnapshot,
 } from "../modules/payments/payment.service";
 import {
     createPipelineIfNeeded,
-    markActivePipelineLost,
 } from "../modules/pipeline/pipeline.service";
+import { finalizeLostSale } from "../modules/sales/lost-sale.service";
 import {
     recordAndDispatchNotificationOnce,
     type AutoDispatchNotificationResult,
@@ -64,6 +63,10 @@ import {
     getLarkNumber,
     getLarkText,
 } from "../utils/lark-field-value";
+import {
+    extractPhoneNumber,
+    normalizePhoneNumber,
+} from "../utils/phone";
 
 export type ProcessIncomingMessageInput = {
     channel: Channel;
@@ -337,6 +340,54 @@ export async function processIncomingMessage(
         }
     );
 
+    const previousCustomerStage = previousCustomer
+        ? getLarkText(
+              previousCustomer.fields[
+                  CUSTOMER_FIELDS.CURRENT_STAGE
+              ],
+              "New Lead"
+          )
+        : "New Lead";
+
+    const previousActiveOrderId = previousCustomer
+        ? getLarkText(
+              previousCustomer.fields[
+                  CUSTOMER_FIELDS.ACTIVE_ORDER_ID
+              ],
+              ""
+          ).trim()
+        : "";
+
+    const previousActivePipelineId = previousCustomer
+        ? getLarkText(
+              previousCustomer.fields[
+                  CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID
+              ],
+              ""
+          ).trim()
+        : "";
+
+    /*
+     * Regression guard: ลูกค้าเดิมที่ปิดรอบขายแล้วต้องเริ่ม Context ใหม่
+     * โดยไม่ยกชื่อสินค้า จำนวน คะแนน หรือ Stage จากรอบเก่ามาใช้ต่อ
+     *
+     * เงื่อนไข Closing + ไม่มี Active IDs รองรับข้อมูลเก่าที่เคยปิดการขาย
+     * ก่อนแก้ Payment Workflow แต่ Customer ไม่ถูกเปลี่ยนเป็น Won
+     */
+    const startingNewSalesCycle =
+        ai.intent !== "lost" &&
+        previousCustomer !== null &&
+        (previousCustomerStage === "Won" ||
+            previousCustomerStage === "Lost" ||
+            (previousCustomerStage === "Closing" &&
+                !previousActiveOrderId &&
+                !previousActivePipelineId));
+
+    const resolvedPhone =
+        normalizePhoneNumber(input.phone) ??
+        normalizePhoneNumber(ai.phone) ??
+        extractPhoneNumber(input.message);
+
     const customerLastMessage =
         input.message_type === "image"
             ? ai.ai_summary
@@ -367,12 +418,14 @@ export async function processIncomingMessage(
                 input.channel_customer_id,
             customer_name:
                 resolvedCustomerName || undefined,
-            phone: input.phone,
+            phone: resolvedPhone,
             last_message: customerLastMessage,
             ai,
             increment_message_count:
                 existingConversation === null,
             existing_customer: previousCustomer,
+            force_new_sales_cycle:
+                startingNewSalesCycle,
         });
 
     let latestCustomer = upsertedCustomer;
@@ -438,23 +491,36 @@ export async function processIncomingMessage(
      */
 
     if (ai.intent === "lost") {
-        const lostPipelineResult =
-            await markActivePipelineLost(
+        /*
+         * Use the full pre-message Customer snapshot for active pointers.
+         * Lark update responses can contain only the fields written by the
+         * upsert, so using `latestCustomer` here may make active IDs appear
+         * empty and skip Pipeline/Order closure.
+         *
+         * finalizeLostSale guarantees this order:
+         * Pipeline Lost -> Order Cancelled -> Customer pointers cleared.
+         */
+        const lostContextCustomer =
+            previousCustomer ??
+            (await reloadCustomerByRecordId(
                 env,
                 latestCustomer
-            );
+            ));
 
-        const cancelledOrderResult =
-            await cancelActiveOrder(
-                env,
-                latestCustomer
-            );
-
-        const lostCustomer =
-            await markCustomerLost(
-                env,
-                latestCustomer
-            );
+        const {
+            pipeline: lostPipelineResult,
+            order: cancelledOrderResult,
+            customer: lostCustomer,
+        } = await finalizeLostSale(
+            env,
+            lostContextCustomer,
+            {
+                active_pipeline_id:
+                    previousActivePipelineId,
+                active_order_id:
+                    previousActiveOrderId,
+            }
+        );
 
         if (
             lostPipelineResult?.changed
@@ -742,6 +808,8 @@ export async function processIncomingMessage(
                               input.message
                             : undefined,
                     message: input.message,
+                    allow_customer_sales_context_fallback:
+                        !startingNewSalesCycle,
                 }
             );
 
@@ -989,7 +1057,52 @@ export async function processIncomingMessage(
                 addressActivity
             );
         }
+    }
 
+    if (resolvedPhone) {
+        const phoneResult =
+            await updateActiveOrderPhone(
+                env,
+                latestCustomer,
+                resolvedPhone
+            );
+
+        order = phoneResult?.record ?? order;
+
+        if (phoneResult?.changed && order) {
+            const phoneActivity =
+                await recordActivityOnce(env, {
+                    event_id:
+                        createActivityEventId(
+                            "PHONE_UPDATED",
+                            input,
+                            order.record_id
+                        ),
+                    customer_record_id:
+                        latestCustomer.record_id,
+                    action: "PHONE_UPDATED",
+                    old_value: {
+                        order_record_id:
+                            order.record_id,
+                        phone: phoneResult.old_phone,
+                    },
+                    new_value: {
+                        order_record_id:
+                            order.record_id,
+                        phone: phoneResult.new_phone,
+                        external_message_id:
+                            input.external_message_id,
+                    },
+                });
+
+            businessActivities.push(phoneActivity);
+        }
+    }
+
+    if (
+        ai.intent === "delivery_address" ||
+        Boolean(resolvedPhone)
+    ) {
         latestCustomer =
             await reloadCustomerByRecordId(
                 env,
@@ -998,7 +1111,7 @@ export async function processIncomingMessage(
 
         if (order) {
             const saleCompletion =
-                await completeVerifiedSaleAfterAddress(
+                await completeVerifiedSaleAfterDeliveryInfo(
                     env,
                     order.record_id
                 );
@@ -1030,6 +1143,8 @@ export async function processIncomingMessage(
                                 saleCompletion.old_state.order_status,
                             address:
                                 saleCompletion.old_state.address,
+                            phone:
+                                saleCompletion.old_state.phone,
                         },
                         new_value: {
                             pipeline_record_id:
@@ -1046,7 +1161,9 @@ export async function processIncomingMessage(
                                 saleCompletion.new_state.order_status,
                             address:
                                 saleCompletion.new_state.address,
-                            completed_after_address: true,
+                            phone:
+                                saleCompletion.new_state.phone,
+                            completed_after_delivery_info: true,
                             state_changed:
                                 saleCompletion.order_changed ||
                                 saleCompletion.pipeline_changed ||
@@ -1068,7 +1185,7 @@ export async function processIncomingMessage(
                             customer_record_id:
                                 saleCompletion.customer_record_id,
                             message:
-                                "ได้รับที่อยู่แล้ว ระบบปิดการขายสำเร็จ",
+                                "ข้อมูลจัดส่งครบแล้ว ระบบปิดการขายสำเร็จ",
                             status: "Pending",
                         }
                     );

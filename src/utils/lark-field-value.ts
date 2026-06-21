@@ -93,6 +93,47 @@ export function getLarkBoolean(
     return fallback;
 }
 
+
+export function getLinkedRecordIds(value: unknown): string[] {
+    const ids = new Set<string>();
+
+    const visit = (candidate: unknown): void => {
+        if (!candidate) {
+            return;
+        }
+
+        if (typeof candidate === "string") {
+            const text = candidate.trim();
+
+            if (text.startsWith("rec")) {
+                ids.add(text);
+            }
+
+            return;
+        }
+
+        if (Array.isArray(candidate)) {
+            candidate.forEach(visit);
+            return;
+        }
+
+        if (!isRecord(candidate)) {
+            return;
+        }
+
+        visit(candidate.record_id);
+        visit(candidate.recordId);
+        visit(candidate.id);
+        visit(candidate.record_ids);
+        visit(candidate.link_record_ids);
+        visit(candidate.link_record_id);
+        visit(candidate.value);
+    };
+
+    visit(value);
+    return [...ids];
+}
+
 export function getFirstLinkedRecordId(
     value: unknown
 ): string | null {

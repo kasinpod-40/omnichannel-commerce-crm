@@ -41,6 +41,7 @@ export type VerifyPaymentResult =
         already_verified: boolean;
         current_sale_closed: boolean;
         waiting_address: boolean;
+        waiting_phone: boolean;
         customer: LarkCustomerRecord;
         pipeline: LarkPipelineRecord;
         order: LarkOrderRecord;
@@ -195,6 +196,7 @@ export async function verifyPayment(
                     lifecycle.old_state.payment_verified,
                 paid_at: lifecycle.old_state.paid_at,
                 address: lifecycle.old_state.address,
+                phone: lifecycle.old_state.phone,
             },
             new_value: {
                 order_record_id: orderRecordId,
@@ -206,8 +208,11 @@ export async function verifyPayment(
                     lifecycle.new_state.payment_verified,
                 paid_at: lifecycle.new_state.paid_at,
                 address: lifecycle.new_state.address,
+                phone: lifecycle.new_state.phone,
                 waiting_address:
                     lifecycle.waiting_address,
+                waiting_phone:
+                    lifecycle.waiting_phone,
                 sale_completed:
                     lifecycle.sale_completed,
                 state_changed:
@@ -224,9 +229,20 @@ export async function verifyPayment(
             event_id: `PAYMENT_VERIFIED:${orderRecordId}`,
             notification_type: "PAYMENT_VERIFIED",
             customer_record_id: customerRecordId,
-            message: lifecycle.waiting_address
-                ? "ยืนยันการชำระเงินแล้ว แต่ยังไม่มีที่อยู่จัดส่ง"
-                : "ยืนยันการชำระเงินเรียบร้อยแล้ว",
+            message:
+                lifecycle.waiting_address ||
+                lifecycle.waiting_phone
+                    ? `ยืนยันการชำระเงินแล้ว แต่ข้อมูลจัดส่งยังไม่ครบ (${[
+                          lifecycle.waiting_address
+                              ? "ที่อยู่"
+                              : "",
+                          lifecycle.waiting_phone
+                              ? "เบอร์โทรศัพท์"
+                              : "",
+                      ]
+                          .filter(Boolean)
+                          .join(" และ ")})`
+                    : "ยืนยันการชำระเงินเรียบร้อยแล้ว",
             status: "Pending",
         });
 
@@ -280,7 +296,7 @@ export async function verifyPayment(
                 notification_type: "SALE_WON",
                 customer_record_id: customerRecordId,
                 message:
-                    "ยืนยันการชำระเงินและมีที่อยู่ครบ ปิดการขายสำเร็จ",
+                    "ยืนยันการชำระเงินและข้อมูลจัดส่งครบ ปิดการขายสำเร็จ",
                 status: "Pending",
             });
 
@@ -294,6 +310,7 @@ export async function verifyPayment(
             lifecycle.sale_completed &&
             lifecycle.current_sale,
         waiting_address: lifecycle.waiting_address,
+        waiting_phone: lifecycle.waiting_phone,
         customer: lifecycle.customer,
         pipeline: lifecycle.pipeline,
         order: lifecycle.order,

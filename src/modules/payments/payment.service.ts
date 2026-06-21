@@ -11,6 +11,7 @@ import {
     getLarkNumber,
     getLarkText,
 } from "../../utils/lark-field-value";
+import { normalizePhoneNumber } from "../../utils/phone";
 import {
     getCustomerByRecordId,
     updateCustomer,
@@ -83,12 +84,17 @@ export type PaymentLifecycleState = {
     payment_verified: boolean;
     paid_at: number;
     address: string;
+    phone: string;
     pipeline_stage: string;
     pipeline_status: string;
     pipeline_lead_score: number;
     customer_stage: string;
     customer_lead_score: number;
     customer_hot_lead: boolean;
+    customer_product_name: string;
+    customer_product_qty: number;
+    customer_product_unit: string;
+    customer_pending_payment: boolean;
     active_order_id: string;
     active_pipeline_id: string;
 };
@@ -103,12 +109,32 @@ export type PaymentLifecycleResult = {
     already_verified: boolean;
     sale_completed: boolean;
     waiting_address: boolean;
+    waiting_phone: boolean;
     order_changed: boolean;
     pipeline_changed: boolean;
     customer_changed: boolean;
     old_state: PaymentLifecycleState;
     new_state: PaymentLifecycleState;
 };
+
+export type MissingDeliveryField = "address" | "phone";
+
+export function getMissingDeliveryFields(
+    address: string | null | undefined,
+    phone: string | null | undefined
+): MissingDeliveryField[] {
+    const missing: MissingDeliveryField[] = [];
+
+    if (!(address ?? "").trim()) {
+        missing.push("address");
+    }
+
+    if (!normalizePhoneNumber(phone)) {
+        missing.push("phone");
+    }
+
+    return missing;
+}
 
 function normalizeAmount(value: number | undefined): number {
     if (!Number.isFinite(value) || (value ?? 0) <= 0) {
@@ -220,6 +246,13 @@ function getPaymentLifecycleState(
             order.fields[ORDER_FIELDS.ADDRESS],
             ""
         ).trim(),
+        phone:
+            normalizePhoneNumber(
+                getLarkText(
+                    order.fields[ORDER_FIELDS.PHONE],
+                    ""
+                )
+            ) ?? "",
         pipeline_stage: getLarkText(
             pipeline.fields[PIPELINE_FIELDS.STAGE],
             ""
@@ -242,6 +275,22 @@ function getPaymentLifecycleState(
         ),
         customer_hot_lead: getLarkBoolean(
             customer.fields[CUSTOMER_FIELDS.HOT_LEAD],
+            false
+        ),
+        customer_product_name: getLarkText(
+            customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME],
+            ""
+        ).trim(),
+        customer_product_qty: getLarkNumber(
+            customer.fields[CUSTOMER_FIELDS.PRODUCT_QTY],
+            0
+        ),
+        customer_product_unit: getLarkText(
+            customer.fields[CUSTOMER_FIELDS.PRODUCT_UNIT],
+            ""
+        ).trim(),
+        customer_pending_payment: getLarkBoolean(
+            customer.fields[CUSTOMER_FIELDS.PENDING_PAYMENT],
             false
         ),
         active_order_id: getLarkText(
@@ -546,13 +595,40 @@ async function applyVerifiedPaymentLifecycle(
         return null;
     }
 
-    const addressPresent = oldState.address.length > 0;
-    const saleCompleted = addressPresent;
+    const missingDeliveryFields =
+        getMissingDeliveryFields(
+            oldState.address,
+            oldState.phone
+        );
+    const addressPresent =
+        !missingDeliveryFields.includes("address");
+    const phonePresent =
+        !missingDeliveryFields.includes("phone");
+    const saleCompleted = addressPresent && phonePresent;
     const waitingAddress = !addressPresent;
+    const waitingPhone = !phonePresent;
+    const missingDeliverySummary = [
+        waitingAddress ? "ที่อยู่" : "",
+        waitingPhone ? "เบอร์โทรศัพท์" : "",
+    ]
+        .filter(Boolean)
+        .join("และ");
     const paidAt = oldState.paid_at || Date.now();
+    const hasDifferentActiveOrder =
+        Boolean(oldState.active_order_id) &&
+        oldState.active_order_id !== order.record_id;
+    const hasDifferentActivePipeline =
+        Boolean(oldState.active_pipeline_id) &&
+        oldState.active_pipeline_id !== pipeline.record_id;
+
+    /*
+     * Order และ Pipeline ที่ส่งเข้า Flow ถูกตรวจ Link กับ Customer แล้ว
+     * จึงถือเป็นรอบขายปัจจุบันได้เมื่อ Customer ไม่มี Active ID อื่นชี้อยู่
+     * รองรับข้อมูลเก่าที่ Active ID หลุดหรือถูกล้างก่อน Workflow ทำงาน
+     */
     const currentSale =
-        oldState.active_order_id === order.record_id &&
-        oldState.active_pipeline_id === pipeline.record_id;
+        !hasDifferentActiveOrder &&
+        !hasDifferentActivePipeline;
 
     const targetOrderStatus = saleCompleted
         ? "Completed"
@@ -607,8 +683,8 @@ async function applyVerifiedPaymentLifecycle(
                 status: targetPipelineStatus,
                 lead_score: targetPipelineLeadScore,
                 ai_summary: saleCompleted
-                    ? "Sales ยืนยันการชำระเงินและมีที่อยู่ครบ ปิดการขายสำเร็จ"
-                    : "Sales ยืนยันการชำระเงินแล้ว รอลูกค้าส่งที่อยู่",
+                    ? "Sales ยืนยันการชำระเงินและข้อมูลจัดส่งครบ ปิดการขายสำเร็จ"
+                    : `Sales ยืนยันการชำระเงินแล้ว รอลูกค้าส่ง${missingDeliverySummary}`,
                 ...(saleCompleted
                     ? { closed_at: Date.now() }
                     : {}),
@@ -625,6 +701,10 @@ async function applyVerifiedPaymentLifecycle(
                 oldState.customer_stage !== "Won" ||
                 oldState.customer_lead_score !== 100 ||
                 oldState.customer_hot_lead !== false ||
+                oldState.customer_product_name !== "" ||
+                oldState.customer_product_qty !== 0 ||
+                oldState.customer_product_unit !== "" ||
+                oldState.customer_pending_payment !== false ||
                 oldState.active_order_id !== "" ||
                 oldState.active_pipeline_id !== "";
 
@@ -638,9 +718,12 @@ async function applyVerifiedPaymentLifecycle(
                         lead_score: 100,
                         hot_lead: false,
                         ai_summary:
-                            "Sales ยืนยันการชำระเงินและมีที่อยู่ครบ ปิดการขายสำเร็จ",
+                            "Sales ยืนยันการชำระเงินและข้อมูลจัดส่งครบ ปิดการขายสำเร็จ",
                         active_pipeline_id: "",
                         active_order_id: "",
+                        product_name: "",
+                        product_qty: 0,
+                        product_unit: "",
                         pending_payment: false,
                         pending_slip_amount: 0,
                         pending_slip_bank: "",
@@ -663,7 +746,7 @@ async function applyVerifiedPaymentLifecycle(
                         buyer_intent: "Ready To Buy",
                         lead_score: 100,
                         ai_summary:
-                            "Sales ยืนยันการชำระเงินแล้ว รอลูกค้าส่งที่อยู่",
+                            `Sales ยืนยันการชำระเงินแล้ว รอลูกค้าส่ง${missingDeliverySummary}`,
                     }
                 );
             }
@@ -704,6 +787,7 @@ async function applyVerifiedPaymentLifecycle(
             normalizedPaymentStatus === "paid",
         sale_completed: saleCompleted,
         waiting_address: waitingAddress,
+        waiting_phone: waitingPhone,
         order_changed: orderChanged,
         pipeline_changed: pipelineChanged,
         customer_changed: customerChanged,
@@ -727,7 +811,7 @@ export async function applyManualPaymentVerification(
     );
 }
 
-export async function completeVerifiedSaleAfterAddress(
+export async function completeVerifiedSaleAfterDeliveryInfo(
     env: Env,
     orderRecordId: string
 ): Promise<PaymentLifecycleResult | null> {
@@ -760,15 +844,6 @@ export async function completeVerifiedSaleAfterAddress(
         return null;
     }
 
-    const address = getLarkText(
-        order.fields[ORDER_FIELDS.ADDRESS],
-        ""
-    ).trim();
-
-    if (!address) {
-        return null;
-    }
-
     return await applyVerifiedPaymentLifecycle(
         env,
         order,
@@ -777,3 +852,7 @@ export async function completeVerifiedSaleAfterAddress(
         true
     );
 }
+
+// Backward-compatible alias for existing imports.
+export const completeVerifiedSaleAfterAddress =
+    completeVerifiedSaleAfterDeliveryInfo;

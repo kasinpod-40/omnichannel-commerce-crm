@@ -29,7 +29,10 @@ import {
 } from "./routes/notification-delivery.route";
 import { handleNotificationTest } from "./routes/notification.route";
 import { handleOrderTest } from "./routes/order.route";
-import { handleVerifyPaymentTest } from "./routes/payment.route";
+import {
+  handlePaymentVerifiedWebhook,
+  handleVerifyPaymentTest,
+} from "./routes/payment.route";
 import { handlePipelineTest } from "./routes/pipeline.route";
 import { jsonResponse } from "./utils/response";
 
@@ -122,6 +125,10 @@ export default {
 
     if (url.pathname === "/webhooks/line") {
       return await handleLineWebhook(request, env);
+    }
+
+    if (url.pathname === "/webhooks/lark/payment-verified") {
+      return await handlePaymentVerifiedWebhook(request, env);
     }
 
     const testResponse = await handleTestRoute(

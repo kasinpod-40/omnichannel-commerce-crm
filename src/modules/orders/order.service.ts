@@ -6,10 +6,12 @@ import {
 } from "../../core/lark-fields";
 import {
     getFirstLinkedRecordId,
+    getLinkedRecordIds,
     getLarkBoolean,
     getLarkNumber,
     getLarkText,
 } from "../../utils/lark-field-value";
+import { normalizePhoneNumber } from "../../utils/phone";
 import {
     updateCustomer,
     type LarkCustomerRecord,
@@ -18,7 +20,9 @@ import type { Channel } from "../customers/customer.types";
 import type { LarkPipelineRecord } from "../pipeline/pipeline.repository";
 import {
     createOrder,
+    findOpenOrdersByCustomer,
     getOrderByRecordId,
+    getOrdersByRecordIds,
     updateOrder,
     type LarkOrderRecord,
 } from "./order.repository";
@@ -54,6 +58,13 @@ export type AddressUpdateResult = {
     changed: boolean;
     old_address: string;
     new_address: string;
+};
+
+export type PhoneUpdateResult = {
+    record: LarkOrderRecord;
+    changed: boolean;
+    old_phone: string;
+    new_phone: string;
 };
 
 export type PaymentReviewResult = {
@@ -228,32 +239,45 @@ function resolveOrderInput(
         address?: string;
         message?: string;
         qualification_reason: OrderQualificationReason;
+        allow_customer_sales_context_fallback?: boolean;
     }
 ): OrderStateSnapshot {
-    const storedProductName = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME],
-        ""
-    );
+    const allowCustomerSalesContextFallback =
+        input.allow_customer_sales_context_fallback !== false;
 
-    const storedProductUnit = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.PRODUCT_UNIT],
-        ""
-    );
+    const storedProductName = allowCustomerSalesContextFallback
+        ? getLarkText(
+              customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME],
+              ""
+          )
+        : "";
 
-    const storedQuantity = getLarkNumber(
-        customer.fields[CUSTOMER_FIELDS.PRODUCT_QTY],
-        0
-    );
+    const storedProductUnit = allowCustomerSalesContextFallback
+        ? getLarkText(
+              customer.fields[CUSTOMER_FIELDS.PRODUCT_UNIT],
+              ""
+          )
+        : "";
+
+    const storedQuantity = allowCustomerSalesContextFallback
+        ? getLarkNumber(
+              customer.fields[CUSTOMER_FIELDS.PRODUCT_QTY],
+              0
+          )
+        : 0;
 
     const customerName = getLarkText(
         customer.fields[CUSTOMER_FIELDS.CUSTOMER_NAME],
         "Unknown Customer"
     );
 
-    const phone = getLarkText(
-        customer.fields[CUSTOMER_FIELDS.PHONE],
-        ""
-    );
+    const phone =
+        normalizePhoneNumber(
+            getLarkText(
+                customer.fields[CUSTOMER_FIELDS.PHONE],
+                ""
+            )
+        ) ?? "";
 
     const salesOwner = getLarkText(
         customer.fields[CUSTOMER_FIELDS.SALES_OWNER],
@@ -505,6 +529,7 @@ export async function createOrderIfReadyToBuy(
         total_amount?: number;
         address?: string;
         message?: string;
+        allow_customer_sales_context_fallback?: boolean;
     }
 ): Promise<EnsureOrderResult | null> {
     const resolved = resolveOrderInput(
@@ -662,6 +687,72 @@ export async function updateActiveOrderAddress(
     };
 }
 
+export async function updateActiveOrderPhone(
+    env: Env,
+    customer: LarkCustomerRecord,
+    phone: string
+): Promise<PhoneUpdateResult | null> {
+    const activeOrderId = getLarkText(
+        customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
+        ""
+    ).trim();
+
+    if (!activeOrderId) {
+        return null;
+    }
+
+    const existingOrder = await getOrderByRecordId(
+        env,
+        activeOrderId
+    );
+
+    if (!existingOrder || isClosedOrder(existingOrder)) {
+        return null;
+    }
+
+    const oldPhone =
+        normalizePhoneNumber(
+            getLarkText(
+                existingOrder.fields[ORDER_FIELDS.PHONE],
+                ""
+            )
+        ) ?? "";
+    const newPhone = normalizePhoneNumber(phone);
+
+    if (!newPhone) {
+        return {
+            record: existingOrder,
+            changed: false,
+            old_phone: oldPhone,
+            new_phone: oldPhone,
+        };
+    }
+
+    if (oldPhone === newPhone) {
+        return {
+            record: existingOrder,
+            changed: false,
+            old_phone: oldPhone,
+            new_phone: newPhone,
+        };
+    }
+
+    const updatedOrder = await updateOrder(
+        env,
+        activeOrderId,
+        {
+            phone: newPhone,
+        }
+    );
+
+    return {
+        record: updatedOrder,
+        changed: true,
+        old_phone: oldPhone,
+        new_phone: newPhone,
+    };
+}
+
 export async function markActiveOrderPaymentReview(
     env: Env,
     customer: LarkCustomerRecord
@@ -745,21 +836,73 @@ export async function markActiveOrderPaymentReview(
 
 export async function cancelActiveOrder(
     env: Env,
-    customer: LarkCustomerRecord
+    customer: LarkCustomerRecord,
+    preferredOrderId?: string
 ): Promise<CancelOrderResult | null> {
-    const activeOrderId = getLarkText(
+    const cachedActiveOrderId = getLarkText(
         customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID],
         ""
     ).trim();
 
-    if (!activeOrderId) {
-        return null;
+    const activeOrderId =
+        preferredOrderId?.trim() ||
+        cachedActiveOrderId;
+
+    let existingOrder: LarkOrderRecord | null = null;
+
+    if (activeOrderId) {
+        existingOrder = await getOrderByRecordId(
+            env,
+            activeOrderId
+        );
     }
 
-    const existingOrder = await getOrderByRecordId(
-        env,
-        activeOrderId
-    );
+    /*
+     * Recover from relation history / table search when the text pointer is
+     * blank or stale. More than one open Order is an invariant violation and
+     * must stop the flow instead of cancelling an arbitrary record.
+     */
+    if (!existingOrder) {
+        const historyOrderIds = getLinkedRecordIds(
+            customer.fields[CUSTOMER_FIELDS.ORDERS_HISTORY]
+        );
+
+        const historyOrders = await getOrdersByRecordIds(
+            env,
+            historyOrderIds
+        );
+
+        const openHistoryOrders = historyOrders.filter(
+            (order) => !isClosedOrder(order)
+        );
+
+        if (openHistoryOrders.length > 1) {
+            throw new Error(
+                `ORDER_INVARIANT_MULTIPLE_OPEN: customer=${customer.record_id}, orders=${openHistoryOrders
+                    .map((order) => order.record_id)
+                    .join(",")}`
+            );
+        }
+
+        existingOrder = openHistoryOrders[0] ?? null;
+    }
+
+    if (!existingOrder) {
+        const openOrders = await findOpenOrdersByCustomer(
+            env,
+            customer.record_id
+        );
+
+        if (openOrders.length > 1) {
+            throw new Error(
+                `ORDER_INVARIANT_MULTIPLE_OPEN: customer=${customer.record_id}, orders=${openOrders
+                    .map((order) => order.record_id)
+                    .join(",")}`
+            );
+        }
+
+        existingOrder = openOrders[0] ?? null;
+    }
 
     if (!existingOrder) {
         return null;
@@ -780,12 +923,16 @@ export async function cancelActiveOrder(
         false
     );
 
-    const normalizedOrderStatus = oldOrderStatus.toLowerCase();
+    const normalizedOrderStatus =
+        oldOrderStatus.toLowerCase();
 
-    if (
-        normalizedOrderStatus === "cancelled" ||
-        normalizedOrderStatus === "completed"
-    ) {
+    if (normalizedOrderStatus === "completed") {
+        throw new Error(
+            `LOST_ORDER_ALREADY_COMPLETED: customer=${customer.record_id}, order=${existingOrder.record_id}`
+        );
+    }
+
+    if (normalizedOrderStatus === "cancelled") {
         return {
             record: existingOrder,
             changed: false,
@@ -800,11 +947,24 @@ export async function cancelActiveOrder(
 
     const cancelledOrder = await updateOrder(
         env,
-        activeOrderId,
+        existingOrder.record_id,
         {
             order_status: newOrderStatus,
         }
     );
+
+    const persistedOrderStatus = getLarkText(
+        cancelledOrder.fields[ORDER_FIELDS.ORDER_STATUS],
+        ""
+    )
+        .trim()
+        .toLowerCase();
+
+    if (persistedOrderStatus !== "cancelled") {
+        throw new Error(
+            `ORDER_CANCEL_UPDATE_NOT_PERSISTED: order=${existingOrder.record_id}`
+        );
+    }
 
     return {
         record: cancelledOrder,

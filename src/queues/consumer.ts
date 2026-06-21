@@ -72,7 +72,6 @@ async function processTextEvent(
         message_type: "text",
         message: event.message.text ?? "",
         customer_name_resolver: customerNameResolver,
-        phone: "",
         occurred_at: event.occurred_at,
         webhook_event_id: event.webhook_event_id,
         is_redelivery: event.is_redelivery,
@@ -95,7 +94,6 @@ async function processStickerEvent(
         message:
             `LINE Sticker package=${packageId} sticker=${stickerId}`,
         customer_name_resolver: customerNameResolver,
-        phone: "",
         occurred_at: event.occurred_at,
         webhook_event_id: event.webhook_event_id,
         is_redelivery: event.is_redelivery,
@@ -156,7 +154,6 @@ async function processImageEvent(
         message_type: "image",
         message: imageAnalysis.summary || "ลูกค้าส่งรูปภาพ",
         customer_name_resolver: customerNameResolver,
-        phone: "",
         image_url: "",
         image_attachment_tokens: attachmentTokens,
         slip_amount: isPaymentSlip

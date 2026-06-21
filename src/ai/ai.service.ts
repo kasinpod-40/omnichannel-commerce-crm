@@ -19,6 +19,10 @@ import {
     analyzeTextWithWorkersAI,
     isWorkersTextAIConfigured,
 } from "./workers-ai";
+import {
+    extractPhoneNumber,
+    normalizePhoneNumber,
+} from "../utils/phone";
 
 const MIN_TEXT_AI_CONFIDENCE = 0.6;
 
@@ -232,6 +236,24 @@ function enforceBusinessSafety(
     };
 }
 
+function attachMessagePhone(
+    result: AIAnalysisResult,
+    message: string
+): AIAnalysisResult {
+    const phone =
+        extractPhoneNumber(message) ??
+        normalizePhoneNumber(result.phone);
+
+    if (!phone) {
+        return result;
+    }
+
+    return {
+        ...result,
+        phone,
+    };
+}
+
 function normalizeTextAIResult(
     rawText: string,
     provider: AIProviderName
@@ -243,6 +265,9 @@ function normalizeTextAIResult(
     const productName = String(raw.product_name ?? "").trim();
     const productUnit = String(raw.product_unit ?? "").trim();
     const address = String(raw.address ?? "").trim();
+    const phone = normalizePhoneNumber(
+        String(raw.phone ?? "")
+    );
     const summary = String(raw.ai_summary ?? "").trim();
 
     const result: AIAnalysisResult = {
@@ -279,6 +304,10 @@ function normalizeTextAIResult(
         result.address = address;
     }
 
+    if (phone) {
+        result.phone = phone;
+    }
+
     return enforceBusinessSafety(result);
 }
 
@@ -297,7 +326,10 @@ export async function analyzeMessage(
     const ruleResult = analyzeByRuleEngine(message);
 
     if (ruleResult.intent !== "unknown") {
-        return withRuleMetadata(ruleResult);
+        return attachMessagePhone(
+            withRuleMetadata(ruleResult),
+            message
+        );
     }
 
     const errors: string[] = [];
@@ -311,7 +343,7 @@ export async function analyzeMessage(
                 result.intent !== "unknown" &&
                 (result.confidence ?? 0) >= MIN_TEXT_AI_CONFIDENCE
             ) {
-                return result;
+                return attachMessagePhone(result, message);
             }
 
             errors.push(
@@ -331,7 +363,7 @@ export async function analyzeMessage(
             const result = normalizeTextAIResult(raw, "gemini");
 
             if ((result.confidence ?? 0) >= MIN_TEXT_AI_CONFIDENCE) {
-                return result;
+                return attachMessagePhone(result, message);
             }
 
             errors.push(
@@ -349,11 +381,14 @@ export async function analyzeMessage(
         console.warn("TEXT_AI_SAFE_FALLBACK", errors.join(" | "));
     }
 
-    return {
-        ...ruleResult,
-        provider: "safe_fallback",
-        confidence: 0,
-    };
+    return attachMessagePhone(
+        {
+            ...ruleResult,
+            provider: "safe_fallback",
+            confidence: 0,
+        },
+        message
+    );
 }
 
 function mapImageAnalysisToAI(

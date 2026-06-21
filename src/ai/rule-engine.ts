@@ -5,6 +5,10 @@ import type {
     CustomerStage,
     QuantityAction,
 } from "./ai.types";
+import {
+    extractPhoneNumber,
+    removePhoneNumbers,
+} from "../utils/phone";
 
 const PRODUCT_UNITS = [
     "ตัว",
@@ -67,7 +71,7 @@ function messageExcerpt(message: string): string {
     return `${normalized.slice(0, 77)}...`;
 }
 
-function createResult(input: {
+type CreateResultInput = {
     intent: ActionIntent;
     buyer_intent: BuyerIntent;
     customer_stage: CustomerStage;
@@ -79,7 +83,12 @@ function createResult(input: {
     quantity_action?: QuantityAction;
     product_unit?: string;
     address?: string;
-}): AIAnalysisResult {
+    phone?: string;
+};
+
+function createBaseResult(
+    input: CreateResultInput
+): AIAnalysisResult {
     return input;
 }
 
@@ -264,16 +273,47 @@ function extractProductName(
 }
 
 function extractAddress(message: string): string {
-    const normalized = message
+    const normalized = removePhoneNumbers(message)
         .trim()
-        .replace(/\s+/g, " ");
+        .replace(/\s+/g, " ")
+        .replace(
+            /(?:เบอร์(?:โทร(?:ศัพท์)?)?|โทร(?:ศัพท์)?|มือถือ|tel(?:ephone)?|phone)\s*[:：=-]?\s*/gi,
+            " "
+        )
+        .replace(/\s+/g, " ")
+        .trim();
 
-    const withoutPrefix = normalized.replace(
-        /^(?:ที่อยู่(?:จัดส่ง)?|ส่งที่|จัดส่งที่)\s*[:：-]?\s*/i,
-        ""
+    const addressPrefix =
+        /(?:ที่อยู่(?:จัดส่ง)?|ส่งที่|จัดส่งที่)\s*[:：-]?\s*/i;
+    const prefixMatch = normalized.match(addressPrefix);
+
+    if (
+        prefixMatch &&
+        prefixMatch.index !== undefined
+    ) {
+        const address = normalized
+            .slice(
+                prefixMatch.index +
+                    prefixMatch[0].length
+            )
+            .trim();
+
+        if (address) {
+            return address;
+        }
+    }
+
+    const houseNumberIndex = normalized.search(
+        /บ้านเลขที่\s*/i
     );
 
-    return withoutPrefix.trim() || normalized;
+    if (houseNumberIndex >= 0) {
+        return normalized
+            .slice(houseNumberIndex)
+            .trim();
+    }
+
+    return normalized;
 }
 
 function isDeliveryAddress(text: string): boolean {
@@ -384,6 +424,18 @@ export function analyzeByRuleEngine(
 ): AIAnalysisResult {
     const text = normalizeText(message);
     const excerpt = messageExcerpt(message);
+    const detectedPhone = extractPhoneNumber(message);
+    const createResult = (
+        input: CreateResultInput
+    ): AIAnalysisResult =>
+        createBaseResult(
+            detectedPhone
+                ? {
+                      ...input,
+                      phone: detectedPhone,
+                  }
+                : input
+        );
     const product = extractProductName(message);
     const quantityResult =
         extractQuantityAndUnit(text);
@@ -676,6 +728,18 @@ export function analyzeByRuleEngine(
             lead_score: 10,
             hot_lead: false,
             ai_summary: `ลูกค้าสอบถามทั่วไป: "${excerpt}"`,
+        });
+    }
+
+    if (detectedPhone) {
+        return createResult({
+            intent: "general_inquiry",
+            buyer_intent: "Just Browsing",
+            customer_stage: "New Lead",
+            lead_score: 10,
+            hot_lead: false,
+            ai_summary:
+                "ลูกค้าแจ้งเบอร์โทรศัพท์สำหรับติดต่อหรือจัดส่ง",
         });
     }
 

@@ -104,7 +104,7 @@ export async function handleProcessMessageTest(
 
     const phone =
         url.searchParams.get("phone")?.trim() ||
-        "0800000000";
+        undefined;
 
     const messageType = parseMessageType(
         url.searchParams.get("message_type")

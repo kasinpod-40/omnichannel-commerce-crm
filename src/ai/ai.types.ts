@@ -70,6 +70,8 @@ export interface AIAnalysisResult {
 
     address?: string;
 
+    phone?: string;
+
     provider?: AIProviderName;
 
     confidence?: number;

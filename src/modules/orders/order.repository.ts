@@ -3,9 +3,15 @@ import { ORDER_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
     getLarkRecord,
+    searchLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
 import { toLarkAttachmentFieldValue } from "../../providers/lark/lark-attachment.provider";
+import {
+    getLarkNumber,
+    getLarkText,
+    getLinkedRecordIds,
+} from "../../utils/lark-field-value";
 import type { Order } from "./order.types";
 
 export type LarkOrderRecord = {
@@ -249,4 +255,106 @@ export async function getOrderByRecordId(
     }
 
     return result as LarkOrderRecord;
+}
+
+
+export async function getOrdersByRecordIds(
+    env: Env,
+    recordIds: string[]
+): Promise<LarkOrderRecord[]> {
+    const uniqueRecordIds = [
+        ...new Set(recordIds.filter(Boolean)),
+    ];
+    const records: LarkOrderRecord[] = [];
+
+    for (const recordId of uniqueRecordIds) {
+        const record = await getOrderByRecordId(
+            env,
+            recordId
+        );
+
+        if (record) {
+            records.push(record);
+        }
+    }
+
+    return records;
+}
+
+export async function findOpenOrdersByCustomer(
+    env: Env,
+    customerRecordId: string
+): Promise<LarkOrderRecord[]> {
+    const openStatuses = [
+        "Waiting Payment",
+        "Payment Review",
+        "Waiting Address",
+    ];
+
+    const records: LarkOrderRecord[] = [];
+
+    for (const status of openStatuses) {
+        const statusRecords = await searchLarkRecords(
+            env,
+            env.ORDERS_TABLE_ID,
+            {
+                conjunction: "and",
+                conditions: [
+                    {
+                        field_name:
+                            ORDER_FIELDS.ORDER_STATUS,
+                        operator: "is",
+                        value: [status],
+                    },
+                ],
+            }
+        );
+
+        records.push(
+            ...statusRecords.map(normalizeOrderRecord)
+        );
+    }
+
+    const unique = new Map<string, LarkOrderRecord>();
+
+    for (const order of records) {
+        const belongsToCustomer =
+            getLinkedRecordIds(
+                order.fields[ORDER_FIELDS.CUSTOMER]
+            ).includes(customerRecordId);
+
+        const status = getLarkText(
+            order.fields[ORDER_FIELDS.ORDER_STATUS],
+            ""
+        )
+            .trim()
+            .toLowerCase();
+
+        if (
+            belongsToCustomer &&
+            status !== "completed" &&
+            status !== "cancelled"
+        ) {
+            unique.set(order.record_id, order);
+        }
+    }
+
+    return [...unique.values()].sort((left, right) => {
+        const leftCreatedAt = getLarkNumber(
+            left.fields[ORDER_FIELDS.CREATED_AT],
+            Number.MAX_SAFE_INTEGER
+        );
+        const rightCreatedAt = getLarkNumber(
+            right.fields[ORDER_FIELDS.CREATED_AT],
+            Number.MAX_SAFE_INTEGER
+        );
+
+        if (leftCreatedAt !== rightCreatedAt) {
+            return leftCreatedAt - rightCreatedAt;
+        }
+
+        return left.record_id.localeCompare(
+            right.record_id
+        );
+    });
 }
