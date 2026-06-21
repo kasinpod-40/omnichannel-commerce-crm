@@ -6,6 +6,7 @@ import {
 } from "../../core/lark-fields";
 import {
     getFirstLinkedRecordId,
+    getLarkAttachmentTokens,
     getLarkBoolean,
     getLarkNumber,
     getLarkText,
@@ -30,12 +31,14 @@ export type PaymentEvidence = {
     amount?: number;
     bank?: string;
     image_url?: string;
+    attachment_tokens?: string[];
 };
 
 export type PaymentEvidenceSnapshot = {
     amount: number;
     bank: string;
     image_url: string;
+    attachment_tokens: string[];
 };
 
 export type PendingPaymentSaveResult = {
@@ -60,6 +63,7 @@ export type PaymentReviewApplyResult = {
         slip_amount: number;
         slip_bank: string;
         slip_image_url: string;
+        slip_attachment_tokens: string[];
     };
     new_state: {
         payment_status: "Payment Review";
@@ -68,6 +72,7 @@ export type PaymentReviewApplyResult = {
         slip_amount: number;
         slip_bank: string;
         slip_image_url: string;
+        slip_attachment_tokens: string[];
     };
     pending_payment_cleared: boolean;
 };
@@ -147,6 +152,11 @@ function getPendingSnapshot(
             ],
             ""
         ).trim(),
+        attachment_tokens: getLarkAttachmentTokens(
+            customer.fields[
+                CUSTOMER_FIELDS.PENDING_SLIP_ATTACHMENT
+            ]
+        ),
     };
 }
 
@@ -178,6 +188,9 @@ function getOrderPaymentSnapshot(
             order.fields[ORDER_FIELDS.SLIP_IMAGE_URL],
             ""
         ).trim(),
+        slip_attachment_tokens: getLarkAttachmentTokens(
+            order.fields[ORDER_FIELDS.SLIP_ATTACHMENT]
+        ),
     };
 }
 
@@ -255,6 +268,13 @@ function mergeEvidence(
     const incomingImageUrl = normalizeText(
         incoming.image_url
     );
+    const incomingAttachmentTokens = [
+        ...new Set(
+            (incoming.attachment_tokens ?? [])
+                .map((token) => token.trim())
+                .filter(Boolean)
+        ),
+    ];
 
     return {
         amount:
@@ -264,6 +284,10 @@ function mergeEvidence(
         bank: incomingBank || current.bank,
         image_url:
             incomingImageUrl || current.image_url,
+        attachment_tokens:
+            incomingAttachmentTokens.length > 0
+                ? incomingAttachmentTokens
+                : current.attachment_tokens,
     };
 }
 
@@ -280,7 +304,9 @@ function paymentStatesEqual(
         oldState.slip_amount === newState.slip_amount &&
         oldState.slip_bank === newState.slip_bank &&
         oldState.slip_image_url ===
-            newState.slip_image_url
+            newState.slip_image_url &&
+        JSON.stringify(oldState.slip_attachment_tokens) ===
+            JSON.stringify(newState.slip_attachment_tokens)
     );
 }
 
@@ -294,6 +320,13 @@ export function normalizePaymentEvidence(
         image_url:
             normalizeText(evidence.image_url) ||
             normalizeText(fallbackImageUrl),
+        attachment_tokens: [
+            ...new Set(
+                (evidence.attachment_tokens ?? [])
+                    .map((token) => token.trim())
+                    .filter(Boolean)
+            ),
+        ],
     };
 }
 
@@ -308,6 +341,7 @@ export async function savePendingPayment(
             amount: oldState.amount,
             bank: oldState.bank,
             image_url: oldState.image_url,
+            attachment_tokens: oldState.attachment_tokens,
         },
         evidence
     );
@@ -321,7 +355,9 @@ export async function savePendingPayment(
         oldState.pending_payment !== true ||
         oldState.amount !== newState.amount ||
         oldState.bank !== newState.bank ||
-        oldState.image_url !== newState.image_url;
+        oldState.image_url !== newState.image_url ||
+        JSON.stringify(oldState.attachment_tokens) !==
+            JSON.stringify(newState.attachment_tokens);
 
     const record = changed
         ? await updateCustomer(env, customer.record_id, {
@@ -330,6 +366,8 @@ export async function savePendingPayment(
               pending_slip_bank: newState.bank,
               pending_slip_image_url:
                   newState.image_url,
+              pending_slip_attachment_tokens:
+                  newState.attachment_tokens,
           })
         : customer;
 
@@ -350,6 +388,7 @@ export async function clearPendingPayment(
         pending_slip_amount: 0,
         pending_slip_bank: "",
         pending_slip_image_url: "",
+        pending_slip_attachment_tokens: [],
     });
 }
 
@@ -388,6 +427,8 @@ export async function applyPaymentEvidenceToOrder(
             amount: oldState.slip_amount,
             bank: oldState.slip_bank,
             image_url: oldState.slip_image_url,
+            attachment_tokens:
+                oldState.slip_attachment_tokens,
         },
         evidence
     );
@@ -399,6 +440,8 @@ export async function applyPaymentEvidenceToOrder(
         slip_amount: merged.amount,
         slip_bank: merged.bank,
         slip_image_url: merged.image_url,
+        slip_attachment_tokens:
+            merged.attachment_tokens,
     };
 
     const changed = !paymentStatesEqual(
@@ -417,6 +460,8 @@ export async function applyPaymentEvidenceToOrder(
               slip_bank: newState.slip_bank,
               slip_image_url:
                   newState.slip_image_url,
+              slip_attachment_tokens:
+                  newState.slip_attachment_tokens,
           })
         : order;
 
@@ -448,6 +493,8 @@ export async function applyPendingPaymentToOrder(
             amount: pending.amount,
             bank: pending.bank,
             image_url: pending.image_url,
+            attachment_tokens:
+                pending.attachment_tokens,
         },
         "pending_payment"
     );
@@ -598,6 +645,7 @@ async function applyVerifiedPaymentLifecycle(
                         pending_slip_amount: 0,
                         pending_slip_bank: "",
                         pending_slip_image_url: "",
+                        pending_slip_attachment_tokens: [],
                     }
                 );
             }

@@ -1,5 +1,9 @@
-import { analyzeMessage } from "../ai/ai.service";
+import { analyzeIncomingContent } from "../ai/ai.service";
 import type { AIAnalysisResult } from "../ai/ai.types";
+import type {
+    ImageAnalysisOverride,
+    ImageAnalysisResult,
+} from "../ai/image-ai.types";
 import type { Env } from "../config/env";
 import {
     CUSTOMER_FIELDS,
@@ -10,9 +14,11 @@ import {
     type RecordActivityResult,
 } from "../modules/activities/activity.service";
 import {
-    isDuplicateMessage,
+    getConversationProcessStatus,
+    markConversationSynced,
     saveConversation,
 } from "../modules/conversations/conversation.service";
+import { findConversationByExternalMessageId } from "../modules/conversations/conversation.repository";
 import type {
     Channel,
     MessageType,
@@ -66,11 +72,19 @@ export type ProcessIncomingMessageInput = {
     message_type: MessageType;
     message: string;
     customer_name?: string;
+    customer_name_resolver?: () => Promise<string | undefined>;
     phone?: string;
     image_url?: string;
+    image_attachment_tokens?: string[];
     slip_amount?: number;
     slip_bank?: string;
     slip_image_url?: string;
+    slip_attachment_tokens?: string[];
+    image_analysis_override?: ImageAnalysisOverride;
+    image_analysis_result?: ImageAnalysisResult;
+    occurred_at?: number;
+    webhook_event_id?: string;
+    is_redelivery?: boolean;
 };
 
 function getPipelineStage(
@@ -78,6 +92,13 @@ function getPipelineStage(
 ): PipelineStage | null {
     if (ai.intent === "ask_discount") {
         return "Negotiating";
+    }
+
+    if (
+        ai.intent === "product_info" &&
+        ai.image_ai?.image_type === "product_image"
+    ) {
+        return "Interested";
     }
 
     if (
@@ -255,16 +276,20 @@ export async function processIncomingMessage(
     notifications?: unknown[];
     ai?: unknown;
 }> {
-    const duplicate =
-        await isDuplicateMessage(
+    const existingConversation =
+        await findConversationByExternalMessageId(
             env,
             input.external_message_id
         );
 
-    if (duplicate) {
+    if (
+        existingConversation &&
+        getConversationProcessStatus(existingConversation) === "synced"
+    ) {
         return {
             ok: true,
             duplicate: true,
+            conversation: existingConversation,
         };
     }
 
@@ -274,6 +299,18 @@ export async function processIncomingMessage(
             input.channel,
             input.channel_customer_id
         );
+
+    let resolvedCustomerName =
+        input.customer_name?.trim() || "";
+
+    if (
+        !resolvedCustomerName &&
+        !previousCustomer &&
+        input.customer_name_resolver
+    ) {
+        resolvedCustomerName =
+            (await input.customer_name_resolver())?.trim() || "";
+    }
 
     const wasNewCustomer =
         previousCustomer === null;
@@ -287,17 +324,38 @@ export async function processIncomingMessage(
         )
         : false;
 
-    const ai = await analyzeMessage(
-        input.message
+    const ai = await analyzeIncomingContent(
+        env,
+        {
+            message_type: input.message_type,
+            message: input.message,
+            image_url: input.image_url,
+            image_analysis_override:
+                input.image_analysis_override,
+            image_analysis_result:
+                input.image_analysis_result,
+        }
     );
+
+    const customerLastMessage =
+        input.message_type === "image"
+            ? ai.ai_summary
+            : input.message;
 
     const paymentEvidence =
         normalizePaymentEvidence(
             {
-                amount: input.slip_amount,
-                bank: input.slip_bank,
+                amount:
+                    input.slip_amount ??
+                    ai.image_ai?.slip_amount,
+                bank:
+                    input.slip_bank ??
+                    ai.image_ai?.slip_bank,
                 image_url:
                     input.slip_image_url,
+                attachment_tokens:
+                    input.slip_attachment_tokens ??
+                    input.image_attachment_tokens,
             },
             input.image_url
         );
@@ -308,18 +366,16 @@ export async function processIncomingMessage(
             channel_customer_id:
                 input.channel_customer_id,
             customer_name:
-                input.customer_name,
+                resolvedCustomerName || undefined,
             phone: input.phone,
-            last_message: input.message,
+            last_message: customerLastMessage,
             ai,
+            increment_message_count:
+                existingConversation === null,
+            existing_customer: previousCustomer,
         });
 
-    let latestCustomer =
-        await findLatestCustomer(
-            env,
-            input,
-            upsertedCustomer
-        );
+    let latestCustomer = upsertedCustomer;
 
     const conversationResult =
         await saveConversation(env, {
@@ -332,55 +388,30 @@ export async function processIncomingMessage(
                 input.message_type,
             message: input.message,
             image_url: input.image_url,
+            image_attachment_tokens:
+                input.image_attachment_tokens,
             intent: ai.intent,
             buyer_intent: ai.buyer_intent,
+            image_type: ai.image_ai?.image_type,
             lead_score: ai.lead_score,
             hot_lead: ai.hot_lead,
             ai_summary: ai.ai_summary,
-            process_status: "synced",
-        });
+            process_status: "processing",
+            error_message:
+                ai.image_ai?.error_message ?? "",
+            created_at:
+                input.occurred_at ?? Date.now(),
+        }, existingConversation);
 
-    const messageActivity =
-        await recordActivityOnce(env, {
-            event_id: createActivityEventId(
-                "MESSAGE_RECEIVED",
-                input
-            ),
-            customer_record_id:
-                latestCustomer.record_id,
-            action: "MESSAGE_RECEIVED",
-            old_value: null,
-            new_value: {
-                channel: input.channel,
-                channel_customer_id:
-                    input.channel_customer_id,
-                external_message_id:
-                    input.external_message_id,
-                message_type:
-                    input.message_type,
-                message: input.message,
-                image_url:
-                    input.image_url ?? "",
-                slip_amount:
-                    paymentEvidence.amount,
-                slip_bank:
-                    paymentEvidence.bank,
-                slip_image_url:
-                    paymentEvidence.image_url,
-                intent: ai.intent,
-                buyer_intent: ai.buyer_intent,
-                product_name: ai.product_name ?? "",
-                product_qty: ai.quantity ?? 0,
-                quantity_action:
-                    ai.quantity_action ?? "",
-                product_unit: ai.product_unit ?? "",
-                customer_stage:
-                    ai.customer_stage,
-                lead_score: ai.lead_score,
-                hot_lead: ai.hot_lead,
-                ai_summary: ai.ai_summary,
-            },
-        });
+    if (conversationResult.duplicate) {
+        return {
+            ok: true,
+            duplicate: true,
+            customer: latestCustomer,
+            conversation: conversationResult.result,
+            ai,
+        };
+    }
 
     const businessActivities:
         RecordActivityResult[] = [];
@@ -389,7 +420,7 @@ export async function processIncomingMessage(
         AutoDispatchNotificationResult[] = [];
 
     const customerName =
-        input.customer_name ??
+        resolvedCustomerName ||
         getLarkText(
             latestCustomer.fields[
                 CUSTOMER_FIELDS.CUSTOMER_NAME
@@ -405,12 +436,6 @@ export async function processIncomingMessage(
      * เช่น PAYMENT_REVIEW ระบบจะเลือกส่งเพียงรายการที่มี
      * Priority สูงสุดในตอนท้ายของ Use Case
      */
-
-    latestCustomer =
-        await reloadCustomerByRecordId(
-            env,
-            latestCustomer
-        );
 
     if (ai.intent === "lost") {
         const lostPipelineResult =
@@ -547,21 +572,24 @@ export async function processIncomingMessage(
                 lostCustomer
             );
 
+        const syncedConversation =
+            await markConversationSynced(
+                env,
+                conversationResult.result.record_id
+            );
+
         return {
             ok: true,
-            duplicate:
-                conversationResult.duplicate,
+            duplicate: false,
             customer: reloadedLostCustomer,
-            conversation:
-                conversationResult.result ??
-                null,
+            conversation: syncedConversation,
             pipeline:
                 lostPipelineResult?.record ??
                 null,
             order:
                 cancelledOrderResult?.record ??
                 null,
-            activity: messageActivity,
+            activity: null,
             business_activities:
                 businessActivities,
             notifications,
@@ -880,6 +908,9 @@ export async function processIncomingMessage(
                     image_url:
                         pendingPaymentResult.new_state
                             .slip_image_url,
+                    attachment_tokens:
+                        pendingPaymentResult.new_state
+                            .slip_attachment_tokens,
                 };
 
                 const pendingReviewNotification =
@@ -1129,7 +1160,7 @@ export async function processIncomingMessage(
                                     latestCustomer,
                                     order,
                                     paymentEvidence,
-                                    input.message
+                                    customerLastMessage
                                 ),
                             status: "Pending",
                         }
@@ -1198,7 +1229,7 @@ export async function processIncomingMessage(
                                 latestCustomer,
                                 null,
                                 paymentEvidence,
-                                input.message
+                                customerLastMessage
                             ),
                         status: "Pending",
                     }
@@ -1240,7 +1271,7 @@ export async function processIncomingMessage(
                         customer_record_id:
                             latestCustomer.record_id,
                         message:
-                            `Hot Lead ${customerName} คะแนน ${ai.lead_score}: ${input.message}`,
+                            `Hot Lead ${customerName} คะแนน ${ai.lead_score}: ${customerLastMessage}`,
                         status: "Pending",
                     }
                 );
@@ -1248,7 +1279,10 @@ export async function processIncomingMessage(
             notifications.push(
                 hotLeadNotification
             );
-        } else if (wasNewCustomer) {
+        } else if (
+            wasNewCustomer &&
+            ai.intent !== "image_received"
+        ) {
             const newLeadNotification =
                 await recordAndDispatchNotificationOnce(
                     env,
@@ -1260,7 +1294,7 @@ export async function processIncomingMessage(
                         customer_record_id:
                             latestCustomer.record_id,
                         message:
-                            `ลูกค้าใหม่ ${customerName} จาก ${input.channel}: ${input.message}`,
+                            `ลูกค้าใหม่ ${customerName} จาก ${input.channel}: ${customerLastMessage}`,
                         status: "Pending",
                     }
                 );
@@ -1277,17 +1311,20 @@ export async function processIncomingMessage(
             latestCustomer
         );
 
+    const syncedConversation =
+        await markConversationSynced(
+            env,
+            conversationResult.result.record_id
+        );
+
     return {
         ok: true,
-        duplicate:
-            conversationResult.duplicate,
+        duplicate: false,
         customer: latestCustomer,
-        conversation:
-            conversationResult.result ??
-            null,
+        conversation: syncedConversation,
         pipeline,
         order,
-        activity: messageActivity,
+        activity: null,
         business_activities:
             businessActivities,
         notifications,

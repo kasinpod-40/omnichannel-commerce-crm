@@ -1,3 +1,7 @@
+import type {
+    ImageAnalysisResult,
+} from "./image-ai.types";
+
 export type ActionIntent =
     | "greeting"
     | "general_inquiry"
@@ -37,6 +41,12 @@ export type CustomerStage =
     | "Won"
     | "Lost";
 
+export type AIProviderName =
+    | "rule_engine"
+    | "workers_ai"
+    | "gemini"
+    | "safe_fallback";
+
 export interface AIAnalysisResult {
     intent: ActionIntent;
 
@@ -59,4 +69,10 @@ export interface AIAnalysisResult {
     product_unit?: string;
 
     address?: string;
+
+    provider?: AIProviderName;
+
+    confidence?: number;
+
+    image_ai?: ImageAnalysisResult;
 }

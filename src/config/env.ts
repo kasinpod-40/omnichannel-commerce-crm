@@ -1,3 +1,16 @@
+import type {
+    LineEventQueueMessage,
+    QueueProducerBinding,
+} from "../queues/line-event.types";
+import type { NotificationQueueMessage } from "../queues/notification-event.types";
+
+export interface WorkersAIBinding {
+    run(
+        model: string,
+        inputs: unknown
+    ): Promise<unknown>;
+}
+
 export interface Env {
     ENVIRONMENT: string;
 
@@ -14,4 +27,21 @@ export interface Env {
     ORDERS_TABLE_ID: string;
     ACTIVITIES_TABLE_ID: string;
     NOTIFICATIONS_TABLE_ID: string;
+
+    AI?: WorkersAIBinding;
+    WORKERS_TEXT_MODEL?: string;
+
+    // Kept only for backward compatibility with the unused legacy image provider.
+    WORKERS_IMAGE_MODEL?: string;
+
+    GEMINI_API_KEY?: string;
+    GEMINI_TEXT_MODEL?: string;
+    GEMINI_IMAGE_MODEL?: string;
+
+    LINE_CHANNEL_SECRET: string;
+    LINE_CHANNEL_ACCESS_TOKEN: string;
+    LINE_EVENTS_QUEUE: QueueProducerBinding<LineEventQueueMessage>;
+    NOTIFICATION_QUEUE: QueueProducerBinding<NotificationQueueMessage>;
+
+    ENABLE_TEST_ROUTES?: string;
 }

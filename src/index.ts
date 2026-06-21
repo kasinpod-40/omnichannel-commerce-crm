@@ -1,6 +1,16 @@
 import type { Env } from "./config/env";
+import { handleLineQueueBatch } from "./queues/consumer";
+import { handleNotificationQueueBatch } from "./queues/notification-consumer";
+import type {
+  LineEventQueueMessage,
+  QueueBatchLike,
+} from "./queues/line-event.types";
+import type { NotificationQueueMessage } from "./queues/notification-event.types";
 import { handleActivityTest } from "./routes/activity.route";
-import { handleAITest } from "./routes/ai.route";
+import {
+  handleAITest,
+  handleImageAITest,
+} from "./routes/ai.route";
 import { handleConversationTest } from "./routes/conversation.route";
 import { handleHealthRoute } from "./routes/health.route";
 import {
@@ -8,6 +18,7 @@ import {
   handleLarkTest,
   handleUpsertTestCustomer,
 } from "./routes/lark.route";
+import { handleLineWebhook } from "./routes/line.route";
 import {
   handleProcessLostTest,
   handleProcessMessageTest,
@@ -22,6 +33,82 @@ import { handleVerifyPaymentTest } from "./routes/payment.route";
 import { handlePipelineTest } from "./routes/pipeline.route";
 import { jsonResponse } from "./utils/response";
 
+function testRoutesEnabled(env: Env): boolean {
+  return env.ENABLE_TEST_ROUTES?.trim().toLowerCase() === "true";
+}
+
+async function handleTestRoute(
+  request: Request,
+  env: Env,
+  pathname: string
+): Promise<Response | null> {
+  if (!testRoutesEnabled(env)) {
+    return null;
+  }
+
+  if (pathname === "/ai/test") {
+    return await handleAITest(request, env);
+  }
+
+  if (pathname === "/ai/image-test") {
+    return await handleImageAITest(request, env);
+  }
+
+  if (pathname === "/lark/test") {
+    return await handleLarkTest(env);
+  }
+
+  if (pathname === "/lark/create-test-customer") {
+    return await handleCreateTestCustomer(env);
+  }
+
+  if (pathname === "/lark/upsert-test-customer") {
+    return await handleUpsertTestCustomer(env);
+  }
+
+  if (pathname === "/conversation/test") {
+    return await handleConversationTest(env);
+  }
+
+  if (pathname === "/pipeline/test") {
+    return await handlePipelineTest(env);
+  }
+
+  if (pathname === "/order/test") {
+    return await handleOrderTest(env);
+  }
+
+  if (pathname === "/message/process-test") {
+    return await handleProcessMessageTest(request, env);
+  }
+
+  if (pathname === "/message/lost-test") {
+    return await handleProcessLostTest(env);
+  }
+
+  if (pathname === "/payment/verify-test") {
+    return await handleVerifyPaymentTest(request, env);
+  }
+
+  if (pathname === "/activity/test") {
+    return await handleActivityTest(request, env);
+  }
+
+  if (pathname === "/notification/test") {
+    return await handleNotificationTest(request, env);
+  }
+
+  if (pathname === "/notification/send-test") {
+    return await handleSendNotificationTest(request, env);
+  }
+
+  if (pathname === "/notification/send-pending") {
+    return await handleSendPendingNotifications(request, env);
+  }
+
+  return null;
+}
+
 export default {
   async fetch(
     request: Request,
@@ -33,114 +120,18 @@ export default {
       return handleHealthRoute(env);
     }
 
-    if (url.pathname === "/ai/test") {
-      return await handleAITest(request);
+    if (url.pathname === "/webhooks/line") {
+      return await handleLineWebhook(request, env);
     }
 
-    if (url.pathname === "/lark/test") {
-      return await handleLarkTest(env);
-    }
+    const testResponse = await handleTestRoute(
+      request,
+      env,
+      url.pathname
+    );
 
-    if (
-      url.pathname ===
-      "/lark/create-test-customer"
-    ) {
-      return await handleCreateTestCustomer(
-        env
-      );
-    }
-
-    if (
-      url.pathname ===
-      "/lark/upsert-test-customer"
-    ) {
-      return await handleUpsertTestCustomer(
-        env
-      );
-    }
-
-    if (
-      url.pathname ===
-      "/conversation/test"
-    ) {
-      return await handleConversationTest(
-        env
-      );
-    }
-
-    if (
-      url.pathname === "/pipeline/test"
-    ) {
-      return await handlePipelineTest(env);
-    }
-
-    if (url.pathname === "/order/test") {
-      return await handleOrderTest(env);
-    }
-
-    if (
-      url.pathname ===
-      "/message/process-test"
-    ) {
-      return await handleProcessMessageTest(
-        request,
-        env
-      );
-    }
-
-    if (
-      url.pathname ===
-      "/message/lost-test"
-    ) {
-      return await handleProcessLostTest(env);
-    }
-
-    if (
-      url.pathname ===
-      "/payment/verify-test"
-    ) {
-      return await handleVerifyPaymentTest(
-        request,
-        env
-      );
-    }
-
-    if (
-      url.pathname === "/activity/test"
-    ) {
-      return await handleActivityTest(
-        request,
-        env
-      );
-    }
-
-    if (
-      url.pathname === "/notification/test"
-    ) {
-      return await handleNotificationTest(
-        request,
-        env
-      );
-    }
-
-    if (
-      url.pathname ===
-      "/notification/send-test"
-    ) {
-      return await handleSendNotificationTest(
-        request,
-        env
-      );
-    }
-
-    if (
-      url.pathname ===
-      "/notification/send-pending"
-    ) {
-      return await handleSendPendingNotifications(
-        request,
-        env
-      );
+    if (testResponse) {
+      return testResponse;
     }
 
     return jsonResponse(
@@ -150,6 +141,24 @@ export default {
         path: url.pathname,
       },
       404
+    );
+  },
+
+  async queue(
+    batch: QueueBatchLike<unknown>,
+    env: Env
+  ): Promise<void> {
+    if (batch.queue === "crm-notifications") {
+      await handleNotificationQueueBatch(
+        batch as QueueBatchLike<NotificationQueueMessage>,
+        env
+      );
+      return;
+    }
+
+    await handleLineQueueBatch(
+      batch as QueueBatchLike<LineEventQueueMessage>,
+      env
     );
   },
 };

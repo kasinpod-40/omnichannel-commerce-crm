@@ -29,6 +29,8 @@ export type UpsertCustomerInput = {
     phone?: string;
     last_message?: string;
     ai?: AIAnalysisResult;
+    increment_message_count?: boolean;
+    existing_customer?: LarkCustomerRecord | null;
 };
 
 const STAGE_RANK: Record<CustomerStage, number> = {
@@ -224,11 +226,13 @@ export async function upsertCustomer(
     input: UpsertCustomerInput
 ): Promise<LarkCustomerRecord> {
     const existingCustomer =
-        await findCustomerByChannelCustomerId(
-            env,
-            input.channel,
-            input.channel_customer_id
-        );
+        input.existing_customer !== undefined
+            ? input.existing_customer
+            : await findCustomerByChannelCustomerId(
+                  env,
+                  input.channel,
+                  input.channel_customer_id
+              );
 
     if (!existingCustomer) {
         const newCustomer: Customer = {
@@ -264,6 +268,7 @@ export async function upsertCustomer(
             pending_slip_amount: 0,
             pending_slip_bank: "",
             pending_slip_image_url: "",
+            pending_slip_attachment_tokens: [],
             sales_owner: "Unassigned",
         };
 
@@ -393,7 +398,10 @@ export async function upsertCustomer(
                         CUSTOMER_FIELDS.MESSAGE_COUNT
                     ],
                     0
-                ) + 1,
+                ) +
+                (input.increment_message_count === false
+                    ? 0
+                    : 1),
 
             product_name: startingNewSalesCycle
                 ? input.ai?.product_name ?? ""
@@ -433,6 +441,7 @@ export async function upsertCustomer(
                       pending_slip_amount: 0,
                       pending_slip_bank: "",
                       pending_slip_image_url: "",
+                      pending_slip_attachment_tokens: [],
                   }
                 : {}),
         }
@@ -463,6 +472,7 @@ export async function markCustomerLost(
             pending_slip_amount: 0,
             pending_slip_bank: "",
             pending_slip_image_url: "",
+            pending_slip_attachment_tokens: [],
             ai_summary:
                 "ลูกค้ายกเลิกการซื้อ รอเริ่มการขายใหม่",
         }

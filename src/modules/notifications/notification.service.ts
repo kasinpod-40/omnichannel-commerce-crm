@@ -6,6 +6,7 @@ import {
     PIPELINE_FIELDS,
 } from "../../core/lark-fields";
 import { sendLarkGroupText } from "../../providers/lark/lark-group-webhook.provider";
+import { enqueueNotificationDelivery } from "../../queues/notification-producer";
 import {
     getFirstLinkedRecordId,
     getLarkNumber,
@@ -632,19 +633,9 @@ export async function recordNotificationOnce(
         status: notification.status ?? "Pending",
     };
 
-    const payload =
-        normalizedNotification.payload ??
-        (await captureNotificationSnapshot(
-            env,
-            normalizedNotification
-        ));
-
     const created = await createNotification(
         env,
-        {
-            ...normalizedNotification,
-            payload,
-        }
+        normalizedNotification
     );
 
     return {
@@ -663,22 +654,23 @@ export async function recordAndDispatchNotificationOnce(
     );
 
     try {
-        const delivery =
-            await sendNotificationByRecordId(
-                env,
-                recorded.record.record_id
-            );
+        await enqueueNotificationDelivery(env, {
+            schema_version: 1,
+            notification_record_id:
+                recorded.record.record_id,
+            event_id: notification.event_id,
+            created_at: Date.now(),
+        });
 
         return {
             ...recorded,
-            delivery,
+            delivery: null,
         };
     } catch (error) {
         /*
-         * การส่ง Notification ต้องไม่ทำให้ Flow CRM หลักล้ม
-         * หากเกิดข้อผิดพลาดที่ไม่คาดคิด Record จะยังอยู่ใน
-         * Pending/Failed เพื่อให้ /notification/send-pending
-         * หรือระบบ Retry ในอนาคตส่งซ้ำได้
+         * Record ยังถูกเก็บเป็น Pending แม้ Queue ส่งไม่สำเร็จ
+         * จึงสามารถใช้ /notification/send-pending ส่งซ้ำได้
+         * โดยไม่ทำให้ CRM หลักล้มตาม Notification
          */
         return {
             ...recorded,
@@ -686,6 +678,64 @@ export async function recordAndDispatchNotificationOnce(
             dispatch_error: getErrorMessage(error),
         };
     }
+}
+
+async function hydrateNotificationForDelivery(
+    env: Env,
+    record: LarkNotificationRecord
+): Promise<LarkNotificationRecord> {
+    if (parseNotificationSnapshot(record)) {
+        return record;
+    }
+
+    const typeText = getLarkText(
+        record.fields[
+            NOTIFICATION_FIELDS.NOTIFICATION_TYPE
+        ],
+        ""
+    ).trim();
+
+    if (!isNotificationType(typeText)) {
+        return record;
+    }
+
+    const customerRecordId =
+        getFirstLinkedRecordId(
+            record.fields[NOTIFICATION_FIELDS.CUSTOMER]
+        ) ?? "";
+
+    if (!customerRecordId) {
+        return record;
+    }
+
+    const snapshot = await captureNotificationSnapshot(
+        env,
+        {
+            event_id: getLarkText(
+                record.fields[NOTIFICATION_FIELDS.EVENT_ID],
+                ""
+            ),
+            notification_type: typeText,
+            customer_record_id: customerRecordId,
+            message: getLarkText(
+                record.fields[NOTIFICATION_FIELDS.MESSAGE],
+                ""
+            ),
+            status: getLarkText(
+                record.fields[NOTIFICATION_FIELDS.STATUS],
+                "Pending"
+            ) as NotificationStatus,
+        }
+    );
+
+    return {
+        ...record,
+        fields: {
+            ...record.fields,
+            [NOTIFICATION_FIELDS.PAYLOAD_JSON]:
+                JSON.stringify(snapshot),
+        },
+    };
 }
 
 export async function sendNotificationByRecordId(
@@ -749,7 +799,14 @@ export async function sendNotificationByRecordId(
     }
 
     const nextAttemptCount = previousAttempts + 1;
-    const text = formatNotificationText(notification);
+    const hydratedNotification =
+        await hydrateNotificationForDelivery(
+            env,
+            notification
+        );
+    const text = formatNotificationText(
+        hydratedNotification
+    );
 
     try {
         const webhookResult =

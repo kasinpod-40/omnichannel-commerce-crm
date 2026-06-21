@@ -53,6 +53,8 @@ export interface Customer {
 
     pending_slip_image_url?: string;
 
+    pending_slip_attachment_tokens?: string[];
+
     sales_owner?: string;
 
     created_at?: number;

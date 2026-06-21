@@ -5,6 +5,7 @@ import {
     getLarkRecord,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
+import { toLarkAttachmentFieldValue } from "../../providers/lark/lark-attachment.provider";
 import type { Order } from "./order.types";
 
 export type LarkOrderRecord = {
@@ -28,6 +29,7 @@ export type UpdateOrderFields = Partial<{
     slip_amount: number;
     slip_bank: string;
     slip_image_url: string;
+    slip_attachment_tokens: string[];
     updated_at: number;
     paid_at: number;
 }>;
@@ -90,6 +92,16 @@ export async function createOrder(
         [ORDER_FIELDS.UPDATED_AT]:
             order.updated_at ?? now,
     };
+
+    if (
+        order.slip_attachment_tokens &&
+        order.slip_attachment_tokens.length > 0
+    ) {
+        fields[ORDER_FIELDS.SLIP_ATTACHMENT] =
+            toLarkAttachmentFieldValue(
+                order.slip_attachment_tokens
+            );
+    }
 
     if (order.paid_at !== undefined) {
         fields[ORDER_FIELDS.PAID_AT] = order.paid_at;
@@ -195,6 +207,13 @@ export async function updateOrder(
     if (fields.slip_image_url !== undefined) {
         larkFields[ORDER_FIELDS.SLIP_IMAGE_URL] =
             fields.slip_image_url;
+    }
+
+    if (fields.slip_attachment_tokens !== undefined) {
+        larkFields[ORDER_FIELDS.SLIP_ATTACHMENT] =
+            toLarkAttachmentFieldValue(
+                fields.slip_attachment_tokens
+            );
     }
 
     if (fields.paid_at !== undefined) {

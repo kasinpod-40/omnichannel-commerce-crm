@@ -53,6 +53,8 @@ export interface Order {
 
     slip_image_url?: string;
 
+    slip_attachment_tokens?: string[];
+
     created_at?: number;
 
     updated_at?: number;

@@ -300,16 +300,17 @@ function shouldCreateOrder(
     reason: OrderQualificationReason,
     state: OrderStateSnapshot
 ): boolean {
-    if (
-        reason === "product_order" ||
-        reason === "payment_slip"
-    ) {
-        /*
-         * สลิปอย่างเดียวไม่ควรสร้าง Order เปล่าที่ไม่มีสินค้า
-         * หากข้อมูลสินค้ายังไม่พอ ให้เก็บเป็น Pending Payment
-         * แล้วนำไปผูกเมื่อ Order ถูกสร้างภายหลัง
-         */
+    if (reason === "product_order") {
         return isQualifiedProductOrder(state);
+    }
+
+    if (reason === "payment_slip") {
+        /*
+         * ถ้ารู้ชื่อสินค้าแล้ว ให้สร้าง Order shell ได้แม้จำนวนยังเป็น 0
+         * เพื่อให้ Sales เห็นสลิปใน Order Center และเติมจำนวนภายหลัง
+         * แต่ถ้ายังไม่รู้สินค้าเลย ให้พักสลิปไว้ที่ Customer ก่อน
+         */
+        return isMeaningfulProductName(state.product_name);
     }
 
     // ที่อยู่เป็นหลักฐานว่ากำลังเกิดคำสั่งซื้อจริง

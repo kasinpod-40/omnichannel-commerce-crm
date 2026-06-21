@@ -13,7 +13,33 @@ type LarkApiResponse<T = unknown> = {
     data?: T;
 };
 
-export async function getTenantAccessToken(env: Env): Promise<string> {
+type CachedTenantToken = {
+    cache_key: string;
+    token: string;
+    expires_at: number;
+};
+
+let cachedTenantToken: CachedTenantToken | null = null;
+let tenantTokenRequest: Promise<string> | null = null;
+
+function createTokenCacheKey(env: Env): string {
+    return `${env.LARK_APP_ID}:${env.LARK_APP_TOKEN}`;
+}
+
+function isCachedTokenUsable(
+    cached: CachedTenantToken | null,
+    cacheKey: string
+): cached is CachedTenantToken {
+    if (!cached || cached.cache_key !== cacheKey) {
+        return false;
+    }
+
+    // เว้นระยะ 60 วินาทีก่อนหมดอายุ เพื่อลดความเสี่ยงที่ Token
+    // หมดอายุระหว่างกำลังเรียก Lark API
+    return cached.expires_at - Date.now() > 60_000;
+}
+
+async function requestTenantAccessToken(env: Env): Promise<string> {
     const response = await fetch(
         "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal",
         {
@@ -32,7 +58,36 @@ export async function getTenantAccessToken(env: Env): Promise<string> {
         throw new Error(`Lark Auth Error: ${JSON.stringify(data)}`);
     }
 
+    const expireSeconds = Math.max(data.expire ?? 7_200, 120);
+
+    cachedTenantToken = {
+        cache_key: createTokenCacheKey(env),
+        token: data.tenant_access_token,
+        expires_at: Date.now() + expireSeconds * 1_000,
+    };
+
     return data.tenant_access_token;
+}
+
+export async function getTenantAccessToken(env: Env): Promise<string> {
+    const cacheKey = createTokenCacheKey(env);
+
+    if (isCachedTokenUsable(cachedTenantToken, cacheKey)) {
+        return cachedTenantToken.token;
+    }
+
+    if (!tenantTokenRequest) {
+        tenantTokenRequest = requestTenantAccessToken(env).finally(() => {
+            tenantTokenRequest = null;
+        });
+    }
+
+    return await tenantTokenRequest;
+}
+
+export function clearTenantAccessTokenCache(): void {
+    cachedTenantToken = null;
+    tenantTokenRequest = null;
 }
 
 export async function createLarkRecord(

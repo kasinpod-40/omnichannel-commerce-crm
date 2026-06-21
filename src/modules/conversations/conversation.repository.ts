@@ -3,26 +3,60 @@ import { CONVERSATION_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
     searchLarkRecords,
+    updateLarkRecord,
 } from "../../providers/lark/lark.provider";
-import type { Conversation } from "./conversation.types";
+import { toLarkAttachmentFieldValue } from "../../providers/lark/lark-attachment.provider";
+import type {
+    Conversation,
+    ProcessStatus,
+} from "./conversation.types";
 
-export async function createConversation(
-    env: Env,
+export type LarkConversationRecord = {
+    record_id: string;
+    fields: Record<string, unknown>;
+};
+
+function normalizeConversationRecord(
+    result: unknown
+): LarkConversationRecord {
+    const data = result as {
+        record?: LarkConversationRecord;
+        record_id?: string;
+        id?: string;
+        fields?: Record<string, unknown>;
+    };
+
+    if (data.record?.record_id) {
+        return data.record;
+    }
+
+    const recordId = data.record_id ?? data.id;
+
+    if (recordId) {
+        return {
+            record_id: recordId,
+            fields: data.fields ?? {},
+        };
+    }
+
+    throw new Error(
+        `Invalid Lark conversation record: ${JSON.stringify(result)}`
+    );
+}
+
+function buildConversationFields(
     conversation: Conversation
-): Promise<unknown> {
+): Record<string, unknown> {
     const fields: Record<string, unknown> = {
-        [CONVERSATION_FIELDS.CHANNEL]:
-            conversation.channel,
+        [CONVERSATION_FIELDS.CHANNEL]: conversation.channel,
         [CONVERSATION_FIELDS.EXTERNAL_MESSAGE_ID]:
             conversation.external_message_id,
         [CONVERSATION_FIELDS.MESSAGE_TYPE]:
             conversation.message_type,
-        [CONVERSATION_FIELDS.MESSAGE]:
-            conversation.message,
+        [CONVERSATION_FIELDS.MESSAGE]: conversation.message,
         [CONVERSATION_FIELDS.IMAGE_URL]:
             conversation.image_url ?? "",
-        [CONVERSATION_FIELDS.INTENT]:
-            conversation.intent,
+        [CONVERSATION_FIELDS.INTENT]: conversation.intent,
         [CONVERSATION_FIELDS.BUYER_INTENT]:
             conversation.buyer_intent,
         [CONVERSATION_FIELDS.LEAD_SCORE]:
@@ -44,23 +78,76 @@ export async function createConversation(
             conversation.image_type;
     }
 
+    if (
+        conversation.image_attachment_tokens &&
+        conversation.image_attachment_tokens.length > 0
+    ) {
+        fields[CONVERSATION_FIELDS.IMAGE_ATTACHMENT] =
+            toLarkAttachmentFieldValue(
+                conversation.image_attachment_tokens
+            );
+    }
+
     if (conversation.customer_record_id) {
         fields[CONVERSATION_FIELDS.CUSTOMER] = [
             conversation.customer_record_id,
         ];
     }
 
-    return await createLarkRecord(
+    return fields;
+}
+
+export async function createConversation(
+    env: Env,
+    conversation: Conversation
+): Promise<LarkConversationRecord> {
+    const result = await createLarkRecord(
         env,
         env.CONVERSATIONS_TABLE_ID,
-        fields
+        buildConversationFields(conversation)
     );
+
+    return normalizeConversationRecord(result);
+}
+
+export async function updateConversation(
+    env: Env,
+    recordId: string,
+    conversation: Conversation
+): Promise<LarkConversationRecord> {
+    const result = await updateLarkRecord(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        recordId,
+        buildConversationFields(conversation)
+    );
+
+    return normalizeConversationRecord(result);
+}
+
+export async function updateConversationProcessStatus(
+    env: Env,
+    recordId: string,
+    status: ProcessStatus,
+    errorMessage = ""
+): Promise<LarkConversationRecord> {
+    const result = await updateLarkRecord(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        recordId,
+        {
+            [CONVERSATION_FIELDS.PROCESS_STATUS]: status,
+            [CONVERSATION_FIELDS.ERROR_MESSAGE]: errorMessage,
+        }
+    );
+
+    return normalizeConversationRecord(result);
 }
 
 export async function findConversationByExternalMessageId(
     env: Env,
     externalMessageId: string
-): Promise<unknown | null> {
+): Promise<LarkConversationRecord | null> {
     const records = await searchLarkRecords(
         env,
         env.CONVERSATIONS_TABLE_ID,
@@ -81,5 +168,5 @@ export async function findConversationByExternalMessageId(
         return null;
     }
 
-    return records[0];
+    return normalizeConversationRecord(records[0]);
 }

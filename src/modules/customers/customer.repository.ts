@@ -7,6 +7,7 @@ import {
     searchLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
+import { toLarkAttachmentFieldValue } from "../../providers/lark/lark-attachment.provider";
 import type {
     Channel,
     Customer,
@@ -35,6 +36,7 @@ export type UpdateCustomerFields = Partial<{
     pending_slip_amount: number;
     pending_slip_bank: string;
     pending_slip_image_url: string;
+    pending_slip_attachment_tokens: string[];
     active_pipeline_id: string;
     active_order_id: string;
     sales_owner: string;
@@ -117,6 +119,16 @@ export async function createCustomer(
         [CUSTOMER_FIELDS.CREATED_AT]: now,
         [CUSTOMER_FIELDS.UPDATED_AT]: now,
     };
+
+    if (
+        customer.pending_slip_attachment_tokens &&
+        customer.pending_slip_attachment_tokens.length > 0
+    ) {
+        fields[CUSTOMER_FIELDS.PENDING_SLIP_ATTACHMENT] =
+            toLarkAttachmentFieldValue(
+                customer.pending_slip_attachment_tokens
+            );
+    }
 
     const result = await createLarkRecord(
         env,
@@ -265,6 +277,16 @@ export async function updateCustomer(
         larkFields[
             CUSTOMER_FIELDS.PENDING_SLIP_IMAGE_URL
         ] = fields.pending_slip_image_url;
+    }
+
+    if (
+        fields.pending_slip_attachment_tokens !== undefined
+    ) {
+        larkFields[
+            CUSTOMER_FIELDS.PENDING_SLIP_ATTACHMENT
+        ] = toLarkAttachmentFieldValue(
+            fields.pending_slip_attachment_tokens
+        );
     }
 
     if (fields.active_pipeline_id !== undefined) {

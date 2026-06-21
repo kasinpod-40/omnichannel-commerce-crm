@@ -1,14 +1,51 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "omnichannel-commerce-crm",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-06-16",
-	"vars": {
-		"ENVIRONMENT": "development",
-	},
-	"observability": {
-		"enabled": true,
-	},
-	"upload_source_maps": true,
-	"compatibility_flags": [ "nodejs_compat" ]
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "omnichannel-commerce-crm",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "ENABLE_TEST_ROUTES": "false",
+    "WORKERS_TEXT_MODEL": "@cf/zai-org/glm-4.7-flash",
+    "GEMINI_TEXT_MODEL": "gemini-2.5-flash",
+    "GEMINI_IMAGE_MODEL": "gemini-2.5-flash"
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "LINE_EVENTS_QUEUE",
+        "queue": "crm-line-events"
+      },
+      {
+        "binding": "NOTIFICATION_QUEUE",
+        "queue": "crm-notifications"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "crm-line-events",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_concurrency": 1,
+        "max_retries": 5,
+        "dead_letter_queue": "crm-line-events-dlq"
+      },
+      {
+        "queue": "crm-notifications",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_concurrency": 1,
+        "max_retries": 5,
+        "dead_letter_queue": "crm-notifications-dlq"
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true
 }

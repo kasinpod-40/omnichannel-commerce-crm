@@ -25,36 +25,23 @@ export type ImageType =
 export type ProcessStatus =
     | "processing"
     | "synced"
-    | "sync_failed";
+    | "failed";
 
 export interface Conversation {
     customer_record_id?: string;
-
     channel: Channel;
-
     external_message_id: string;
-
     message_type: MessageType;
-
     message: string;
-
     image_url?: string;
-
+    image_attachment_tokens?: string[];
     intent: Intent;
-
     buyer_intent: BuyerIntent;
-
     image_type?: ImageType;
-
     lead_score: number;
-
     hot_lead: boolean;
-
     ai_summary?: string;
-
     process_status: ProcessStatus;
-
     error_message?: string;
-
     created_at?: number;
 }

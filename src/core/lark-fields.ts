@@ -19,6 +19,7 @@ export const CUSTOMER_FIELDS = {
     PENDING_SLIP_AMOUNT: "pending_slip_amount",
     PENDING_SLIP_BANK: "pending_slip_bank",
     PENDING_SLIP_IMAGE_URL: "pending_slip_image_url",
+    PENDING_SLIP_ATTACHMENT: "pending_slip_attachment",
 
     PIPELINES_HISTORY: "pipelines_history",
     ORDERS_HISTORY: "orders_history",
@@ -38,6 +39,7 @@ export const CONVERSATION_FIELDS = {
     MESSAGE_TYPE: "message_type",
     MESSAGE: "message",
     IMAGE_URL: "image_url",
+    IMAGE_ATTACHMENT: "image_attachment",
     INTENT: "intent",
     BUYER_INTENT: "buyer_intent",
     IMAGE_TYPE: "image_type",
@@ -81,6 +83,7 @@ export const ORDER_FIELDS = {
     SLIP_AMOUNT: "slip_amount",
     SLIP_BANK: "slip_bank",
     SLIP_IMAGE_URL: "slip_image_url",
+    SLIP_ATTACHMENT: "slip_attachment",
     CREATED_AT: "created_at",
     UPDATED_AT: "updated_at",
     PAID_AT: "paid_at",

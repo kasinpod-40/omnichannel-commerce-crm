@@ -164,3 +164,37 @@ export function getFirstLinkedRecordId(
 
     return null;
 }
+
+export function getLarkAttachmentTokens(
+    value: unknown
+): string[] {
+    const tokens: string[] = [];
+
+    const visit = (candidate: unknown): void => {
+        if (!candidate) {
+            return;
+        }
+
+        if (Array.isArray(candidate)) {
+            candidate.forEach(visit);
+            return;
+        }
+
+        if (!isRecord(candidate)) {
+            return;
+        }
+
+        if (typeof candidate.file_token === "string") {
+            tokens.push(candidate.file_token);
+        }
+
+        if (Array.isArray(candidate.value)) {
+            candidate.value.forEach(visit);
+        }
+    };
+
+    visit(value);
+
+    return [...new Set(tokens.map((token) => token.trim()))]
+        .filter(Boolean);
+}
