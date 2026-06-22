@@ -13,8 +13,10 @@ import {
     recordActivityOnce,
     type RecordActivityResult,
 } from "../modules/activities/activity.service";
+import { findActivityByEventId } from "../modules/activities/activity.repository";
 import {
     getConversationProcessStatus,
+    linkConversationToCustomer,
     markConversationSynced,
     saveConversation,
 } from "../modules/conversations/conversation.service";
@@ -420,29 +422,17 @@ export async function processIncomingMessage(
             input.image_url
         );
 
-    const upsertedCustomer =
-        await upsertCustomer(env, {
-            channel: input.channel,
-            channel_customer_id:
-                input.channel_customer_id,
-            customer_name:
-                resolvedCustomerName || undefined,
-            phone: resolvedPhone,
-            last_message: customerLastMessage,
-            ai,
-            increment_message_count:
-                existingConversation === null,
-            existing_customer: previousCustomer,
-            force_new_sales_cycle:
-                startingNewSalesCycle,
-        });
-
-    let latestCustomer = upsertedCustomer;
-
+    /*
+     * Resume-safe ordering:
+     * create/resume the Conversation before applying Customer/Pipeline/Order
+     * side effects. If a later Lark call fails, Queue retry finds the same
+     * processing/failed Conversation and does not increment message_count a
+     * second time.
+     */
     const conversationResult =
         await saveConversation(env, {
             customer_record_id:
-                latestCustomer.record_id,
+                previousCustomer?.record_id,
             channel: input.channel,
             external_message_id:
                 input.external_message_id,
@@ -469,11 +459,47 @@ export async function processIncomingMessage(
         return {
             ok: true,
             duplicate: true,
-            customer: latestCustomer,
+            customer: previousCustomer ?? undefined,
             conversation: conversationResult.result,
             ai,
         };
     }
+
+    const upsertedCustomer =
+        await upsertCustomer(env, {
+            channel: input.channel,
+            channel_customer_id:
+                input.channel_customer_id,
+            customer_name:
+                resolvedCustomerName || undefined,
+            phone: resolvedPhone,
+            last_message: customerLastMessage,
+            ai,
+            increment_message_count:
+                !conversationResult.resumed,
+            existing_customer: previousCustomer,
+            force_new_sales_cycle:
+                startingNewSalesCycle,
+        });
+
+    let latestCustomer = upsertedCustomer;
+
+    await linkConversationToCustomer(
+        env,
+        conversationResult.result.record_id,
+        latestCustomer.record_id
+    );
+
+    const shouldSendNewLeadNotification =
+        wasNewCustomer ||
+        (conversationResult.resumed &&
+            previousCustomer !== null &&
+            getLarkNumber(
+                previousCustomer.fields[
+                    CUSTOMER_FIELDS.MESSAGE_COUNT
+                ],
+                0
+            ) <= 1);
 
     const businessActivities:
         RecordActivityResult[] = [];
@@ -793,36 +819,68 @@ export async function processIncomingMessage(
                 ""
             ).trim();
 
-        const ensureOrderResult =
-            await createOrderIfReadyToBuy(
-                env,
-                latestCustomer,
-                pipeline,
-                {
-                    qualification_reason:
-                        ai.intent,
-                    product_name:
-                        ai.product_name,
-                    product_size:
-                        ai.product_size,
-                    product_unit:
-                        ai.product_unit,
-                    quantity:
-                        ai.quantity,
-                    quantity_action:
-                        ai.quantity_action,
-                    address:
-                        ai.intent ===
-                            "delivery_address" &&
-                        !activeOrderBeforeEnsure
-                            ? ai.address ??
-                              input.message
-                            : undefined,
-                    message: input.message,
-                    allow_customer_sales_context_fallback:
-                        !startingNewSalesCycle,
-                }
+        const quantityMutationEventId =
+            activeOrderBeforeEnsure
+                ? createActivityEventId(
+                      "ORDER_QUANTITY_UPDATED",
+                      input,
+                      activeOrderBeforeEnsure
+                  )
+                : "";
+
+        const quantityMutationAlreadyApplied =
+            conversationResult.resumed &&
+            Boolean(quantityMutationEventId) &&
+            (ai.quantity_action === "add" ||
+                ai.quantity_action === "subtract") &&
+            Boolean(
+                await findActivityByEventId(
+                    env,
+                    quantityMutationEventId
+                )
             );
+
+        const ensureOrderResult =
+            quantityMutationAlreadyApplied
+                ? null
+                : await createOrderIfReadyToBuy(
+                      env,
+                      latestCustomer,
+                      pipeline,
+                      {
+                          qualification_reason:
+                              ai.intent,
+                          product_name:
+                              ai.product_name,
+                          product_size:
+                              ai.product_size,
+                          product_unit:
+                              ai.product_unit,
+                          quantity:
+                              ai.quantity,
+                          quantity_action:
+                              ai.quantity_action,
+                          address:
+                              ai.intent ===
+                                  "delivery_address" &&
+                              !activeOrderBeforeEnsure
+                                  ? ai.address ??
+                                    input.message
+                                  : undefined,
+                          message: input.message,
+                          allow_customer_sales_context_fallback:
+                              !startingNewSalesCycle,
+                      }
+                  );
+
+        if (quantityMutationAlreadyApplied) {
+            order = activeOrderBeforeEnsure
+                ? await getOrderByRecordId(
+                      env,
+                      activeOrderBeforeEnsure
+                  )
+                : null;
+        }
 
         if (ensureOrderResult) {
             order = ensureOrderResult.record;
@@ -1408,7 +1466,7 @@ export async function processIncomingMessage(
                 hotLeadNotification
             );
         } else if (
-            wasNewCustomer &&
+            shouldSendNewLeadNotification &&
             ai.intent !== "image_received"
         ) {
             const newLeadNotification =

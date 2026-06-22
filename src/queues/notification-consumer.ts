@@ -2,6 +2,7 @@ import type { Env } from "../config/env";
 import { sendNotificationByRecordId } from "../modules/notifications/notification.service";
 import type { QueueBatchLike } from "./line-event.types";
 import type { NotificationQueueMessage } from "./notification-event.types";
+import { classifyOperationalError } from "../utils/errors";
 
 export async function handleNotificationQueueBatch(
     batch: QueueBatchLike<NotificationQueueMessage>,
@@ -23,20 +24,30 @@ export async function handleNotificationQueueBatch(
 
             message.ack();
         } catch (error) {
+            const classification =
+                classifyOperationalError(error);
+
             console.error(
-                "NOTIFICATION_QUEUE_PROCESSING_FAILED",
+                classification.retryable
+                    ? "NOTIFICATION_QUEUE_TRANSIENT_FAILURE"
+                    : "NOTIFICATION_QUEUE_PERMANENT_FAILURE",
                 {
                     queue_message_id: message.id,
                     attempts: message.attempts,
                     notification_record_id:
                         message.body?.notification_record_id,
                     event_id: message.body?.event_id,
-                    error:
-                        error instanceof Error
-                            ? error.message
-                            : String(error),
+                    code: classification.code,
+                    retryable: classification.retryable,
+                    status: classification.status,
+                    error: classification.message,
                 }
             );
+
+            if (!classification.retryable) {
+                message.ack();
+                continue;
+            }
 
             message.retry({
                 delaySeconds: Math.min(

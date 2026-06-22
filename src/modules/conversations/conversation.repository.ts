@@ -144,6 +144,26 @@ export async function updateConversationProcessStatus(
     return normalizeConversationRecord(result);
 }
 
+
+export async function updateConversationCustomer(
+    env: Env,
+    recordId: string,
+    customerRecordId: string
+): Promise<LarkConversationRecord> {
+    const result = await updateLarkRecord(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        recordId,
+        {
+            [CONVERSATION_FIELDS.CUSTOMER]: customerRecordId
+                ? [customerRecordId]
+                : [],
+        }
+    );
+
+    return normalizeConversationRecord(result);
+}
+
 export async function findConversationByExternalMessageId(
     env: Env,
     externalMessageId: string

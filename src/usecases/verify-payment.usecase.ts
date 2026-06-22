@@ -195,6 +195,10 @@ export async function verifyPayment(
                 payment_verified:
                     lifecycle.old_state.payment_verified,
                 paid_at: lifecycle.old_state.paid_at,
+                total_amount:
+                    lifecycle.old_state.total_amount,
+                slip_amount:
+                    lifecycle.old_state.slip_amount,
                 address: lifecycle.old_state.address,
                 phone: lifecycle.old_state.phone,
             },
@@ -207,6 +211,10 @@ export async function verifyPayment(
                 payment_verified:
                     lifecycle.new_state.payment_verified,
                 paid_at: lifecycle.new_state.paid_at,
+                total_amount:
+                    lifecycle.new_state.total_amount,
+                slip_amount:
+                    lifecycle.new_state.slip_amount,
                 address: lifecycle.new_state.address,
                 phone: lifecycle.new_state.phone,
                 waiting_address:

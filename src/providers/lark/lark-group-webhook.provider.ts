@@ -1,4 +1,9 @@
 import type { Env } from "../../config/env";
+import {
+    classifyOperationalError,
+    createHttpOperationalError,
+    OperationalError,
+} from "../../utils/errors";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -65,18 +70,33 @@ export async function sendLarkGroupText(
         );
     }
 
-    const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            msg_type: "text",
-            content: {
-                text,
+    let response: Response;
+
+    try {
+        response = await fetch(webhookUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
             },
-        }),
-    });
+            body: JSON.stringify({
+                msg_type: "text",
+                content: {
+                    text,
+                },
+            }),
+        });
+    } catch (error) {
+        throw new OperationalError(
+            "LARK_GROUP_WEBHOOK_NETWORK_ERROR",
+            `Lark Group Webhook network error: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+            {
+                retryable: true,
+                cause: error,
+            }
+        );
+    }
 
     const rawBody = await response.text();
     let responseData: unknown = rawBody;
@@ -90,8 +110,11 @@ export async function sendLarkGroupText(
     }
 
     if (!response.ok) {
-        throw new Error(
-            `Lark Group Webhook HTTP ${response.status}: ${rawBody}`
+        throw createHttpOperationalError(
+            "Lark Group Webhook",
+            "send",
+            response.status,
+            rawBody.slice(0, 1000)
         );
     }
 
@@ -100,10 +123,19 @@ export async function sendLarkGroupText(
     if (code !== null && code !== 0) {
         const message = getResponseMessage(responseData);
 
-        throw new Error(
+        const errorMessage =
             `Lark Group Webhook Error ${code}${
                 message ? `: ${message}` : ""
-            }`
+            }`;
+        const classification =
+            classifyOperationalError(errorMessage);
+
+        throw new OperationalError(
+            `LARK_GROUP_WEBHOOK_${code}`,
+            errorMessage,
+            {
+                retryable: classification.retryable,
+            }
         );
     }
 

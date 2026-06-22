@@ -5,6 +5,7 @@ import {
     createConversation,
     findConversationByExternalMessageId,
     updateConversation,
+    updateConversationCustomer,
     updateConversationProcessStatus,
     type LarkConversationRecord,
 } from "./conversation.repository";
@@ -158,5 +159,17 @@ export async function markConversationFailedByExternalMessageId(
         env,
         existing.record_id,
         error
+    );
+}
+
+export async function linkConversationToCustomer(
+    env: Env,
+    recordId: string,
+    customerRecordId: string
+): Promise<LarkConversationRecord> {
+    return await updateConversationCustomer(
+        env,
+        recordId,
+        customerRecordId
     );
 }

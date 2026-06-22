@@ -5,6 +5,10 @@ import type {
     LoadedImage,
 } from "../../ai/image-ai.types";
 import type { Env } from "../../config/env";
+import {
+    createHttpOperationalError,
+    OperationalError,
+} from "../../utils/errors";
 
 const IMAGE_ANALYSIS_JSON_SCHEMA = {
     type: "object",
@@ -187,9 +191,12 @@ implements ImageAIProvider {
             this.env.GEMINI_IMAGE_MODEL?.trim() ||
             "gemini-2.5-flash";
 
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-            {
+        let response: Response;
+
+        try {
+            response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+                {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -226,14 +233,36 @@ implements ImageAIProvider {
                         },
                     },
                 }),
-            }
-        );
+                }
+            );
+        } catch (error) {
+            throw new OperationalError(
+                "GEMINI_IMAGE_NETWORK_ERROR",
+                `Gemini image analysis network error: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+                {
+                    retryable: true,
+                    cause: error,
+                }
+            );
+        }
 
-        const body: unknown = await response.json();
+        const bodyText = await response.text();
+        let body: unknown = {};
+
+        try {
+            body = bodyText ? JSON.parse(bodyText) : {};
+        } catch {
+            body = { raw: bodyText.slice(0, 1000) };
+        }
 
         if (!response.ok) {
-            throw new Error(
-                `Gemini image analysis failed: ${response.status} ${JSON.stringify(body).slice(0, 1000)}`
+            throw createHttpOperationalError(
+                "Gemini",
+                "image analysis",
+                response.status,
+                JSON.stringify(body).slice(0, 1000)
             );
         }
 

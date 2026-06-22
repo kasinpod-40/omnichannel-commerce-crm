@@ -12,6 +12,10 @@ import type {
     LineEventQueueMessage,
     QueueBatchLike,
 } from "./line-event.types";
+import {
+    classifyOperationalError,
+    OperationalError,
+} from "../utils/errors";
 
 function extensionFromMimeType(mimeType: string): string {
     const normalized = mimeType.toLowerCase();
@@ -214,17 +218,46 @@ export async function handleLineQueueBatch(
 ): Promise<void> {
     for (const message of batch.messages) {
         try {
+            const testFailureMode =
+                message.body.test_failure_mode;
+            const failUntilAttempt = Math.max(
+                0,
+                Math.trunc(
+                    message.body.test_fail_until_attempt ?? 0
+                )
+            );
+            const shouldInjectFailure =
+                testFailureMode &&
+                (failUntilAttempt === 0 ||
+                    message.attempts <= failUntilAttempt);
+
+            if (shouldInjectFailure) {
+                throw new OperationalError(
+                    testFailureMode === "transient"
+                        ? "TEST_TRANSIENT_FAILURE"
+                        : "TEST_PERMANENT_FAILURE",
+                    `Injected ${testFailureMode} Queue failure at attempt ${message.attempts}`,
+                    {
+                        retryable:
+                            testFailureMode === "transient",
+                    }
+                );
+            }
+
             await processLineQueueEvent(
                 env,
                 message.body
             );
             message.ack();
         } catch (error) {
+            const classification =
+                classifyOperationalError(error);
+
             try {
                 await markConversationFailedByExternalMessageId(
                     env,
                     message.body.message.id,
-                    error
+                    `${classification.code}: ${classification.message}`
                 );
             } catch (statusError) {
                 console.warn(
@@ -236,7 +269,9 @@ export async function handleLineQueueBatch(
             }
 
             console.error(
-                "LINE_QUEUE_PROCESSING_FAILED",
+                classification.retryable
+                    ? "LINE_QUEUE_TRANSIENT_FAILURE"
+                    : "LINE_QUEUE_PERMANENT_FAILURE",
                 {
                     queue_message_id: message.id,
                     attempts: message.attempts,
@@ -244,12 +279,17 @@ export async function handleLineQueueBatch(
                         message.body?.message?.id,
                     webhook_event_id:
                         message.body?.webhook_event_id,
-                    error:
-                        error instanceof Error
-                            ? error.message
-                            : String(error),
+                    code: classification.code,
+                    retryable: classification.retryable,
+                    status: classification.status,
+                    error: classification.message,
                 }
             );
+
+            if (!classification.retryable) {
+                message.ack();
+                continue;
+            }
 
             message.retry({
                 delaySeconds: Math.min(

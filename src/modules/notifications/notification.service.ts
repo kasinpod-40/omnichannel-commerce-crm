@@ -664,6 +664,23 @@ export async function recordAndDispatchNotificationOnce(
         notification
     );
 
+    const existingStatus = getLarkText(
+        recorded.record.fields[
+            NOTIFICATION_FIELDS.STATUS
+        ],
+        "Pending"
+    ).trim();
+
+    if (
+        recorded.duplicate &&
+        existingStatus === "Sent"
+    ) {
+        return {
+            ...recorded,
+            delivery: null,
+        };
+    }
+
     try {
         await enqueueNotificationDelivery(env, {
             schema_version: 1,

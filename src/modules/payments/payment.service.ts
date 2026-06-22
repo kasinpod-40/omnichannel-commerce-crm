@@ -83,6 +83,8 @@ export type PaymentLifecycleState = {
     order_status: string;
     payment_verified: boolean;
     paid_at: number;
+    total_amount: number;
+    slip_amount: number;
     address: string;
     phone: string;
     pipeline_stage: string;
@@ -143,6 +145,19 @@ function normalizeAmount(value: number | undefined): number {
     }
 
     return Number(value);
+}
+
+export function resolveVerifiedTotalAmount(
+    currentTotalAmount: number,
+    slipAmount: number
+): number {
+    const normalizedSlipAmount = normalizeAmount(slipAmount);
+
+    if (normalizedSlipAmount > 0) {
+        return normalizedSlipAmount;
+    }
+
+    return Math.max(0, Number(currentTotalAmount) || 0);
 }
 
 function normalizeText(value: string | undefined): string {
@@ -241,6 +256,14 @@ function getPaymentLifecycleState(
         ),
         paid_at: getLarkNumber(
             order.fields[ORDER_FIELDS.PAID_AT],
+            0
+        ),
+        total_amount: getLarkNumber(
+            order.fields[ORDER_FIELDS.TOTAL_AMOUNT],
+            0
+        ),
+        slip_amount: getLarkNumber(
+            order.fields[ORDER_FIELDS.SLIP_AMOUNT],
             0
         ),
         address: getLarkText(
@@ -638,12 +661,18 @@ async function applyVerifiedPaymentLifecycle(
     const targetOrderStatus = saleCompleted
         ? "Completed"
         : "Waiting Address";
+    const targetTotalAmount =
+        resolveVerifiedTotalAmount(
+            oldState.total_amount,
+            oldState.slip_amount
+        );
 
     const orderChanged =
         normalizedPaymentStatus !== "paid" ||
         oldState.payment_verified !== true ||
         oldState.order_status !== targetOrderStatus ||
-        oldState.paid_at !== paidAt;
+        oldState.paid_at !== paidAt ||
+        oldState.total_amount !== targetTotalAmount;
 
     let nextOrder = order;
 
@@ -656,6 +685,10 @@ async function applyVerifiedPaymentLifecycle(
                 payment_verified: true,
                 order_status: targetOrderStatus,
                 paid_at: paidAt,
+                ...(targetTotalAmount > 0 &&
+                oldState.total_amount !== targetTotalAmount
+                    ? { total_amount: targetTotalAmount }
+                    : {}),
             }
         );
     }

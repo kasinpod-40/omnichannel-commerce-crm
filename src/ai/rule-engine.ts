@@ -5,6 +5,7 @@ import type {
     CustomerStage,
     QuantityAction,
 } from "./ai.types";
+import { cleanDeliveryAddress } from "../utils/address";
 import {
     extractPhoneNumber,
     removePhoneNumbers,
@@ -434,7 +435,7 @@ function extractAddress(message: string): string {
             .trim();
 
         if (address) {
-            return address;
+            return cleanDeliveryAddress(address);
         }
     }
 
@@ -443,12 +444,12 @@ function extractAddress(message: string): string {
     );
 
     if (houseNumberIndex >= 0) {
-        return normalized
-            .slice(houseNumberIndex)
-            .trim();
+        return cleanDeliveryAddress(
+            normalized.slice(houseNumberIndex)
+        );
     }
 
-    return normalized;
+    return cleanDeliveryAddress(normalized);
 }
 
 function isDeliveryAddress(text: string): boolean {

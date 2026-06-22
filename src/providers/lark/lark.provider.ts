@@ -1,4 +1,9 @@
 import type { Env } from "../../config/env";
+import {
+    classifyOperationalError,
+    createHttpOperationalError,
+    OperationalError,
+} from "../../utils/errors";
 
 type LarkTenantTokenResponse = {
     code: number;
@@ -34,13 +39,90 @@ function isCachedTokenUsable(
         return false;
     }
 
-    // เว้นระยะ 60 วินาทีก่อนหมดอายุ เพื่อลดความเสี่ยงที่ Token
-    // หมดอายุระหว่างกำลังเรียก Lark API
     return cached.expires_at - Date.now() > 60_000;
 }
 
+function safeJsonParse<T>(text: string): T {
+    try {
+        return JSON.parse(text) as T;
+    } catch (error) {
+        throw new OperationalError(
+            "LARK_INVALID_JSON_RESPONSE",
+            `Lark returned invalid JSON: ${text.slice(0, 1000)}`,
+            {
+                retryable: true,
+                cause: error,
+            }
+        );
+    }
+}
+
+async function requestLarkJson<T>(
+    url: string,
+    init: RequestInit,
+    operation: string
+): Promise<T> {
+    let response: Response;
+
+    try {
+        response = await fetch(url, init);
+    } catch (error) {
+        throw new OperationalError(
+            "LARK_NETWORK_ERROR",
+            `Lark ${operation} network error: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+            {
+                retryable: true,
+                cause: error,
+            }
+        );
+    }
+
+    const bodyText = await response.text();
+
+    if (!response.ok) {
+        throw createHttpOperationalError(
+            "Lark",
+            operation,
+            response.status,
+            bodyText.slice(0, 1000)
+        );
+    }
+
+    return safeJsonParse<T>(bodyText || "{}");
+}
+
+function createLarkCodeError(
+    operation: string,
+    data: LarkApiResponse
+): OperationalError {
+    const message = `Lark ${operation} Error: ${JSON.stringify(data)}`;
+    const classification = classifyOperationalError(message);
+
+    return new OperationalError(
+        `LARK_API_${data.code}`,
+        message,
+        {
+            retryable: classification.retryable,
+        }
+    );
+}
+
+function isRecordNotFound(data: LarkApiResponse): boolean {
+    const normalized = `${data.code} ${data.msg}`.toLowerCase();
+
+    return (
+        normalized.includes("recordnotfound") ||
+        normalized.includes("record not found") ||
+        normalized.includes("record does not exist") ||
+        normalized.includes("record not exist") ||
+        normalized.includes("1254043")
+    );
+}
+
 async function requestTenantAccessToken(env: Env): Promise<string> {
-    const response = await fetch(
+    const data = await requestLarkJson<LarkTenantTokenResponse>(
         "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal",
         {
             method: "POST",
@@ -49,13 +131,12 @@ async function requestTenantAccessToken(env: Env): Promise<string> {
                 app_id: env.LARK_APP_ID,
                 app_secret: env.LARK_APP_SECRET,
             }),
-        }
+        },
+        "auth"
     );
 
-    const data = (await response.json()) as LarkTenantTokenResponse;
-
     if (data.code !== 0 || !data.tenant_access_token) {
-        throw new Error(`Lark Auth Error: ${JSON.stringify(data)}`);
+        throw createLarkCodeError("Auth", data);
     }
 
     const expireSeconds = Math.max(data.expire ?? 7_200, 120);
@@ -96,8 +177,7 @@ export async function createLarkRecord(
     fields: Record<string, unknown>
 ): Promise<unknown> {
     const token = await getTenantAccessToken(env);
-
-    const response = await fetch(
+    const data = await requestLarkJson<LarkApiResponse>(
         `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records`,
         {
             method: "POST",
@@ -106,13 +186,12 @@ export async function createLarkRecord(
                 Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({ fields }),
-        }
+        },
+        "create record"
     );
 
-    const data = (await response.json()) as LarkApiResponse;
-
     if (data.code !== 0) {
-        throw new Error(`Lark Create Record Error: ${JSON.stringify(data)}`);
+        throw createLarkCodeError("Create Record", data);
     }
 
     return data.data;
@@ -125,8 +204,7 @@ export async function updateLarkRecord(
     fields: Record<string, unknown>
 ): Promise<unknown> {
     const token = await getTenantAccessToken(env);
-
-    const response = await fetch(
+    const data = await requestLarkJson<LarkApiResponse>(
         `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
         {
             method: "PUT",
@@ -135,13 +213,12 @@ export async function updateLarkRecord(
                 Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({ fields }),
-        }
+        },
+        "update record"
     );
 
-    const data = (await response.json()) as LarkApiResponse;
-
     if (data.code !== 0) {
-        throw new Error(`Lark Update Record Error: ${JSON.stringify(data)}`);
+        throw createLarkCodeError("Update Record", data);
     }
 
     return data.data;
@@ -165,28 +242,30 @@ export async function searchLarkRecords(
             url.searchParams.set("page_token", pageToken);
         }
 
-        const response = await fetch(url.toString(), {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+        const data = await requestLarkJson<
+            LarkApiResponse<{
+                items?: any[];
+                has_more?: boolean;
+                page_token?: string;
+            }>
+        >(
+            url.toString(),
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                    filter,
+                    page_size: 100,
+                }),
             },
-            body: JSON.stringify({
-                filter,
-                page_size: 100,
-            }),
-        });
-
-        const data = (await response.json()) as LarkApiResponse<{
-            items?: any[];
-            has_more?: boolean;
-            page_token?: string;
-        }>;
+            "search record"
+        );
 
         if (data.code !== 0) {
-            throw new Error(
-                `Lark Search Record Error: ${JSON.stringify(data)}`
-            );
+            throw createLarkCodeError("Search Record", data);
         }
 
         records.push(...(data.data?.items ?? []));
@@ -198,8 +277,12 @@ export async function searchLarkRecords(
         pageToken = data.data.page_token;
     }
 
-    throw new Error(
-        `Lark Search Record Error: pagination exceeded 100 pages for table ${tableId}`
+    throw new OperationalError(
+        "LARK_PAGINATION_LIMIT",
+        `Lark search pagination exceeded 100 pages for table ${tableId}`,
+        {
+            retryable: false,
+        }
     );
 }
 
@@ -209,22 +292,39 @@ export async function getLarkRecord(
     recordId: string
 ): Promise<any> {
     const token = await getTenantAccessToken(env);
+    let data: LarkApiResponse<{ record?: any }>;
 
-    const response = await fetch(
-        `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
-        {
-            method: "GET",
-            headers: {
-                Authorization: `Bearer ${token}`,
+    try {
+        data = await requestLarkJson<
+            LarkApiResponse<{ record?: any }>
+        >(
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
+            {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
             },
+            "get record"
+        );
+    } catch (error) {
+        if (
+            error instanceof OperationalError &&
+            error.status === 404
+        ) {
+            return null;
         }
-    );
 
-    const data = (await response.json()) as LarkApiResponse<{ record?: any }>;
-
-    if (data.code !== 0) {
-        throw new Error(`Lark Get Record Error: ${JSON.stringify(data)}`);
+        throw error;
     }
 
-    return data.data?.record;
+    if (data.code !== 0) {
+        if (isRecordNotFound(data)) {
+            return null;
+        }
+
+        throw createLarkCodeError("Get Record", data);
+    }
+
+    return data.data?.record ?? null;
 }

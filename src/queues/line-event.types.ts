@@ -16,6 +16,8 @@ export interface LineEventQueueMessage {
     user_id: string;
     group_id?: string;
     room_id?: string;
+    test_failure_mode?: "transient" | "permanent";
+    test_fail_until_attempt?: number;
     message: {
         id: string;
         type: LineQueueMessageType;

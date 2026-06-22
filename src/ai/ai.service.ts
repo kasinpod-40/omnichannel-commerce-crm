@@ -24,6 +24,7 @@ import {
     normalizePhoneNumber,
 } from "../utils/phone";
 import { normalizeProductSize } from "../utils/product-size";
+import { classifyOperationalError } from "../utils/errors";
 
 const MIN_TEXT_AI_CONFIDENCE = 0.6;
 
@@ -339,10 +340,13 @@ export async function analyzeMessage(
     }
 
     const errors: string[] = [];
+    const retryableErrors: unknown[] = [];
+    let providerResponded = false;
 
     if (isWorkersTextAIConfigured(env)) {
         try {
             const raw = await analyzeTextWithWorkersAI(env, message);
+            providerResponded = true;
             const result = normalizeTextAIResult(raw, "workers_ai");
 
             if (
@@ -356,16 +360,26 @@ export async function analyzeMessage(
                 `workers_ai: low confidence or unknown (${result.confidence ?? 0})`
             );
         } catch (error) {
-            const messageText =
-                error instanceof Error ? error.message : String(error);
-            errors.push(`workers_ai: ${messageText}`);
-            console.warn("TEXT_AI_WORKERS_AI_FAILED", messageText);
+            const classification = classifyOperationalError(error);
+            errors.push(`workers_ai: ${classification.message}`);
+
+            if (classification.retryable) {
+                retryableErrors.push(error);
+            }
+
+            console.warn("TEXT_AI_WORKERS_AI_FAILED", {
+                code: classification.code,
+                retryable: classification.retryable,
+                status: classification.status,
+                message: classification.message,
+            });
         }
     }
 
     if (isGeminiTextAIConfigured(env)) {
         try {
             const raw = await analyzeTextWithGemini(env, message);
+            providerResponded = true;
             const result = normalizeTextAIResult(raw, "gemini");
 
             if ((result.confidence ?? 0) >= MIN_TEXT_AI_CONFIDENCE) {
@@ -376,11 +390,31 @@ export async function analyzeMessage(
                 `gemini: low confidence (${result.confidence ?? 0})`
             );
         } catch (error) {
-            const messageText =
-                error instanceof Error ? error.message : String(error);
-            errors.push(`gemini: ${messageText}`);
-            console.warn("TEXT_AI_GEMINI_FAILED", messageText);
+            const classification = classifyOperationalError(error);
+            errors.push(`gemini: ${classification.message}`);
+
+            if (classification.retryable) {
+                retryableErrors.push(error);
+            }
+
+            console.warn("TEXT_AI_GEMINI_FAILED", {
+                code: classification.code,
+                retryable: classification.retryable,
+                status: classification.status,
+                message: classification.message,
+            });
         }
+    }
+
+    /*
+     * If every configured provider failed before returning a usable response
+     * and at least one failure is transient, bubble the transient error to the
+     * Queue. This prevents a temporary 429/503 from being acknowledged as an
+     * "unknown" customer message. A low-confidence provider response is still
+     * allowed to fall back safely because the provider itself was available.
+     */
+    if (!providerResponded && retryableErrors.length > 0) {
+        throw retryableErrors.at(-1);
     }
 
     if (errors.length > 0) {

@@ -1,6 +1,10 @@
 import type { Env } from "./config/env";
 import { handleLineQueueBatch } from "./queues/consumer";
 import { handleNotificationQueueBatch } from "./queues/notification-consumer";
+import {
+  handleLineDlqBatch,
+  handleNotificationDlqBatch,
+} from "./queues/dlq-consumer";
 import type {
   LineEventQueueMessage,
   QueueBatchLike,
@@ -13,6 +17,7 @@ import {
 } from "./routes/ai.route";
 import { handleConversationTest } from "./routes/conversation.route";
 import { handleHealthRoute } from "./routes/health.route";
+import { handleCustomerIntegrity } from "./routes/integrity.route";
 import {
   handleCreateTestCustomer,
   handleLarkTest,
@@ -34,6 +39,7 @@ import {
   handleVerifyPaymentTest,
 } from "./routes/payment.route";
 import { handlePipelineTest } from "./routes/pipeline.route";
+import { handleQueueFailureTest } from "./routes/queue-test.route";
 import { jsonResponse } from "./utils/response";
 
 function testRoutesEnabled(env: Env): boolean {
@@ -109,6 +115,10 @@ async function handleTestRoute(
     return await handleSendPendingNotifications(request, env);
   }
 
+  if (pathname === "/queue/failure-test") {
+    return await handleQueueFailureTest(request, env);
+  }
+
   return null;
 }
 
@@ -129,6 +139,10 @@ export default {
 
     if (url.pathname === "/webhooks/lark/payment-verified") {
       return await handlePaymentVerifiedWebhook(request, env);
+    }
+
+    if (url.pathname === "/admin/integrity/customer") {
+      return await handleCustomerIntegrity(request, env);
     }
 
     const testResponse = await handleTestRoute(
@@ -155,6 +169,22 @@ export default {
     batch: QueueBatchLike<unknown>,
     env: Env
   ): Promise<void> {
+    if (batch.queue === "crm-line-events-dlq") {
+      await handleLineDlqBatch(
+        batch as QueueBatchLike<LineEventQueueMessage>,
+        env
+      );
+      return;
+    }
+
+    if (batch.queue === "crm-notifications-dlq") {
+      await handleNotificationDlqBatch(
+        batch as QueueBatchLike<NotificationQueueMessage>,
+        env
+      );
+      return;
+    }
+
     if (batch.queue === "crm-notifications") {
       await handleNotificationQueueBatch(
         batch as QueueBatchLike<NotificationQueueMessage>,

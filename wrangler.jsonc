@@ -3,7 +3,9 @@
   "name": "omnichannel-commerce-crm",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-16",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "vars": {
     "ENVIRONMENT": "production",
     "ENABLE_TEST_ROUTES": "false",
@@ -41,6 +43,20 @@
         "max_concurrency": 1,
         "max_retries": 5,
         "dead_letter_queue": "crm-notifications-dlq"
+      },
+      {
+        "queue": "crm-line-events-dlq",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_concurrency": 1,
+        "max_retries": 0
+      },
+      {
+        "queue": "crm-notifications-dlq",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_concurrency": 1,
+        "max_retries": 0
       }
     ]
   },

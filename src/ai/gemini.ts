@@ -1,5 +1,9 @@
 import type { Env } from "../config/env";
 import {
+    createHttpOperationalError,
+    OperationalError,
+} from "../utils/errors";
+import {
     buildTextAIUserPrompt,
     TEXT_AI_SYSTEM_PROMPT,
 } from "./text-ai.prompt";
@@ -71,46 +75,71 @@ export async function analyzeTextWithGemini(
         env.GEMINI_IMAGE_MODEL?.trim() ||
         "gemini-2.5-flash";
 
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "x-goog-api-key": apiKey,
-            },
-            body: JSON.stringify({
-                systemInstruction: {
-                    parts: [
-                        {
-                            text: TEXT_AI_SYSTEM_PROMPT,
-                        },
-                    ],
+    let response: Response;
+
+    try {
+        response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": apiKey,
                 },
-                contents: [
-                    {
-                        role: "user",
+                body: JSON.stringify({
+                    systemInstruction: {
                         parts: [
                             {
-                                text: buildTextAIUserPrompt(message),
+                                text: TEXT_AI_SYSTEM_PROMPT,
                             },
                         ],
                     },
-                ],
-                generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 600,
-                    responseMimeType: "application/json",
-                },
-            }),
-        }
-    );
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                {
+                                    text: buildTextAIUserPrompt(message),
+                                },
+                            ],
+                        },
+                    ],
+                    generationConfig: {
+                        temperature: 0.1,
+                        maxOutputTokens: 600,
+                        responseMimeType: "application/json",
+                    },
+                }),
+            }
+        );
+    } catch (error) {
+        throw new OperationalError(
+            "GEMINI_TEXT_NETWORK_ERROR",
+            `Gemini text analysis network error: ${
+                error instanceof Error ? error.message : String(error)
+            }`,
+            {
+                retryable: true,
+                cause: error,
+            }
+        );
+    }
 
-    const body: unknown = await response.json();
+    const bodyText = await response.text();
+    let body: unknown = {};
+
+    try {
+        body = bodyText ? JSON.parse(bodyText) : {};
+    } catch {
+        body = { raw: bodyText.slice(0, 500) };
+    }
 
     if (!response.ok) {
-        throw new Error(
-            `Gemini text analysis failed: ${response.status} ${JSON.stringify(body).slice(0, 500)}`
+        throw createHttpOperationalError(
+            "Gemini",
+            "text analysis",
+            response.status,
+            JSON.stringify(body).slice(0, 500)
         );
     }
 

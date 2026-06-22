@@ -1,4 +1,5 @@
 import { normalizeProductSize } from "../utils/product-size";
+import { classifyOperationalError } from "../utils/errors";
 import type { Env } from "../config/env";
 import { GeminiImageAIProvider } from "../providers/ai/gemini-image-ai.provider";
 import type {
@@ -336,16 +337,24 @@ async function analyzeLoadedImage(
             const rawResult = await provider.analyze(image);
             return normalizeProviderResult(rawResult);
         } catch (error) {
-            const message =
-                error instanceof Error
-                    ? error.message
-                    : String(error);
+            const classification =
+                classifyOperationalError(error);
+            const message = classification.message;
 
             errors.push(`${provider.name}: ${message}`);
             console.warn(
                 `IMAGE_AI_${provider.name.toUpperCase()}_FAILED`,
-                message
+                {
+                    code: classification.code,
+                    retryable: classification.retryable,
+                    status: classification.status,
+                    message,
+                }
             );
+
+            if (classification.retryable) {
+                throw error;
+            }
         }
     }
 
@@ -370,10 +379,15 @@ export async function analyzeImageBytes(
         );
         return await analyzeLoadedImage(env, image);
     } catch (error) {
+        const classification =
+            classifyOperationalError(error);
+
+        if (classification.retryable) {
+            throw error;
+        }
+
         return safeFallback([
-            error instanceof Error
-                ? error.message
-                : String(error),
+            classification.message,
         ]);
     }
 }
@@ -391,10 +405,15 @@ export async function analyzeImage(
         const image = await loadImage(imageUrl);
         return await analyzeLoadedImage(env, image);
     } catch (error) {
+        const classification =
+            classifyOperationalError(error);
+
+        if (classification.retryable) {
+            throw error;
+        }
+
         return safeFallback([
-            error instanceof Error
-                ? error.message
-                : String(error),
+            classification.message,
         ]);
     }
 }

@@ -12,6 +12,7 @@ import {
     getLarkText,
 } from "../../utils/lark-field-value";
 import { normalizePhoneNumber } from "../../utils/phone";
+import { cleanDeliveryAddress } from "../../utils/address";
 import {
     updateCustomer,
     type LarkCustomerRecord,
@@ -325,7 +326,7 @@ function resolveOrderInput(
         pipeline_record_id: pipeline?.record_id ?? "",
         customer_name: customerName,
         phone,
-        address: normalizeText(input.address),
+        address: cleanDeliveryAddress(input.address),
         product_name:
             resolvedProductName || UNKNOWN_PRODUCT_NAME,
         product_size: resolvedProductSize,
@@ -425,8 +426,11 @@ function buildNextExistingOrderState(
         ? resolved.product_name
         : existing.product_name;
 
-    const nextAddress = normalizeText(input.address)
-        ? normalizeText(input.address)
+    const cleanedInputAddress = cleanDeliveryAddress(
+        input.address
+    );
+    const nextAddress = cleanedInputAddress
+        ? cleanedInputAddress
         : existing.address;
 
     return {
@@ -685,7 +689,7 @@ export async function updateActiveOrderAddress(
         ""
     ).trim();
 
-    const newAddress = normalizeText(address);
+    const newAddress = cleanDeliveryAddress(address);
 
     if (!newAddress) {
         return {
