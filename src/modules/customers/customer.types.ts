@@ -41,6 +41,8 @@ export interface Customer {
 
     product_name?: string;
 
+    product_size?: string;
+
     product_qty?: number;
 
     product_unit?: string;

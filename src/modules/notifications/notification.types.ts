@@ -24,6 +24,7 @@ export type NotificationSnapshot = {
     sales_owner: string;
     order_number: string;
     product_name: string;
+    product_size?: string;
     quantity: number;
     total_amount: number;
     slip_amount: number;

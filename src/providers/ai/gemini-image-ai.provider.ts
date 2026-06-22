@@ -22,7 +22,12 @@ const IMAGE_ANALYSIS_JSON_SCHEMA = {
         product_name: {
             type: "string",
             description:
-                "ชื่อและรายละเอียดสินค้าที่มองเห็นจริง ถ้าไม่ใช่รูปสินค้าให้เป็นค่าว่าง",
+                "ชื่อและรายละเอียดสินค้าหลักที่มองเห็นจริง โดยไม่ใช้ไซส์แทนชื่อสินค้า",
+        },
+        product_size: {
+            type: "string",
+            description:
+                "ไซส์หรือขนาดที่มองเห็นจริง เช่น S, XL, 38 หรือ Free Size ถ้าไม่เห็นให้เป็นค่าว่าง",
         },
         slip_amount: {
             type: "number",
@@ -51,6 +56,7 @@ const IMAGE_ANALYSIS_JSON_SCHEMA = {
     required: [
         "image_type",
         "product_name",
+        "product_size",
         "slip_amount",
         "slip_bank",
         "confidence",
@@ -60,6 +66,7 @@ const IMAGE_ANALYSIS_JSON_SCHEMA = {
     propertyOrdering: [
         "image_type",
         "product_name",
+        "product_size",
         "slip_amount",
         "slip_bank",
         "confidence",

@@ -92,6 +92,7 @@ export type PaymentLifecycleState = {
     customer_lead_score: number;
     customer_hot_lead: boolean;
     customer_product_name: string;
+    customer_product_size: string;
     customer_product_qty: number;
     customer_product_unit: string;
     customer_pending_payment: boolean;
@@ -279,6 +280,10 @@ function getPaymentLifecycleState(
         ),
         customer_product_name: getLarkText(
             customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME],
+            ""
+        ).trim(),
+        customer_product_size: getLarkText(
+            customer.fields[CUSTOMER_FIELDS.PRODUCT_SIZE],
             ""
         ).trim(),
         customer_product_qty: getLarkNumber(
@@ -702,6 +707,7 @@ async function applyVerifiedPaymentLifecycle(
                 oldState.customer_lead_score !== 100 ||
                 oldState.customer_hot_lead !== false ||
                 oldState.customer_product_name !== "" ||
+                oldState.customer_product_size !== "" ||
                 oldState.customer_product_qty !== 0 ||
                 oldState.customer_product_unit !== "" ||
                 oldState.customer_pending_payment !== false ||
@@ -722,6 +728,7 @@ async function applyVerifiedPaymentLifecycle(
                         active_pipeline_id: "",
                         active_order_id: "",
                         product_name: "",
+                        product_size: "",
                         product_qty: 0,
                         product_unit: "",
                         pending_payment: false,

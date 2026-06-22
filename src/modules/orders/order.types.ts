@@ -33,6 +33,8 @@ export interface Order {
 
     product_name: string;
 
+    product_size?: string;
+
     product_unit?: string;
 
     quantity: number;

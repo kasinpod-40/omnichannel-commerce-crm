@@ -62,6 +62,8 @@ export interface AIAnalysisResult {
 
     product_name?: string;
 
+    product_size?: string;
+
     quantity?: number;
 
     quantity_action?: QuantityAction;

@@ -30,6 +30,7 @@ export type UpdateCustomerFields = Partial<{
     last_message: string;
     message_count: number;
     product_name: string;
+    product_size: string;
     product_qty: number;
     product_unit: string;
     pending_payment: boolean;
@@ -100,6 +101,8 @@ export async function createCustomer(
             customer.message_count,
         [CUSTOMER_FIELDS.PRODUCT_NAME]:
             customer.product_name ?? "",
+        [CUSTOMER_FIELDS.PRODUCT_SIZE]:
+            customer.product_size ?? "",
         [CUSTOMER_FIELDS.PRODUCT_QTY]:
             customer.product_qty ?? 0,
         [CUSTOMER_FIELDS.PRODUCT_UNIT]:
@@ -244,6 +247,11 @@ export async function updateCustomer(
     if (fields.product_name !== undefined) {
         larkFields[CUSTOMER_FIELDS.PRODUCT_NAME] =
             fields.product_name;
+    }
+
+    if (fields.product_size !== undefined) {
+        larkFields[CUSTOMER_FIELDS.PRODUCT_SIZE] =
+            fields.product_size;
     }
 
     if (fields.product_qty !== undefined) {

@@ -233,6 +233,15 @@ function buildPaymentReviewSnapshot(
                 ""
             )
         ),
+        product_size: getLarkText(
+            order?.fields[ORDER_FIELDS.PRODUCT_SIZE],
+            getLarkText(
+                customer.fields[
+                    CUSTOMER_FIELDS.PRODUCT_SIZE
+                ],
+                ""
+            )
+        ),
         quantity: getLarkNumber(
             order?.fields[ORDER_FIELDS.QUANTITY],
             getLarkNumber(
@@ -794,6 +803,8 @@ export async function processIncomingMessage(
                         ai.intent,
                     product_name:
                         ai.product_name,
+                    product_size:
+                        ai.product_size,
                     product_unit:
                         ai.product_unit,
                     quantity:

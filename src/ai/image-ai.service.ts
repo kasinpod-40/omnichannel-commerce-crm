@@ -1,3 +1,4 @@
+import { normalizeProductSize } from "../utils/product-size";
 import type { Env } from "../config/env";
 import { GeminiImageAIProvider } from "../providers/ai/gemini-image-ai.provider";
 import type {
@@ -127,6 +128,7 @@ function normalizeProviderResult(
     const confidence = clampConfidence(raw.confidence);
     let imageType = normalizeImageType(raw.image_type);
     let productName = String(raw.product_name ?? "").trim();
+    let productSize = normalizeProductSize(raw.product_size) ?? "";
     let slipAmount = toNumber(raw.slip_amount);
     let slipBank = String(raw.slip_bank ?? "").trim();
 
@@ -140,6 +142,7 @@ function normalizeProviderResult(
 
     if (imageType !== "product_image") {
         productName = "";
+        productSize = "";
     }
 
     if (imageType !== "payment_slip") {
@@ -157,6 +160,7 @@ function normalizeProviderResult(
     return {
         image_type: imageType,
         product_name: productName,
+        product_size: productSize,
         slip_amount: slipAmount,
         slip_bank: slipBank,
         confidence,
@@ -178,6 +182,8 @@ function normalizeOverride(
     );
     let productName =
         override.product_name?.trim() || "";
+    let productSize =
+        normalizeProductSize(override.product_size) ?? "";
     let slipAmount = toNumber(
         override.slip_amount
     );
@@ -194,6 +200,7 @@ function normalizeOverride(
 
     if (imageType !== "product_image") {
         productName = "";
+        productSize = "";
     }
 
     if (imageType !== "payment_slip") {
@@ -204,6 +211,7 @@ function normalizeOverride(
     return {
         image_type: imageType,
         product_name: productName,
+        product_size: productSize,
         slip_amount: slipAmount,
         slip_bank: slipBank,
         confidence,
@@ -299,6 +307,7 @@ function safeFallback(
     return {
         image_type: "other",
         product_name: "",
+        product_size: "",
         slip_amount: 0,
         slip_bank: "",
         confidence: 0,

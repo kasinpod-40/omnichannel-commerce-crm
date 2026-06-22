@@ -266,6 +266,9 @@ function parseNotificationSnapshot(
             product_name: normalizeSnapshotString(
                 parsed.product_name
             ),
+            product_size: normalizeSnapshotString(
+                parsed.product_size
+            ),
             quantity: normalizeSnapshotNumber(
                 parsed.quantity,
                 0
@@ -394,6 +397,10 @@ async function captureNotificationSnapshot(
             order?.fields[ORDER_FIELDS.PRODUCT_NAME],
             ""
         ).trim(),
+        product_size: getLarkText(
+            order?.fields[ORDER_FIELDS.PRODUCT_SIZE],
+            ""
+        ).trim(),
         quantity: getLarkNumber(
             order?.fields[ORDER_FIELDS.QUANTITY],
             0
@@ -466,6 +473,10 @@ function buildNotificationLines(
             snapshot.order_number
         );
         addLine(lines, "สินค้า", snapshot.product_name);
+
+        if (snapshot.product_size) {
+            addLine(lines, "ไซส์/ขนาด", snapshot.product_size);
+        }
 
         if (snapshot.quantity > 0) {
             addLine(

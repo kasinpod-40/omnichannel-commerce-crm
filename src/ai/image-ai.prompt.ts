@@ -7,6 +7,7 @@ export const IMAGE_AI_PROMPT = `
 {
   "image_type": "product_image | payment_slip | other",
   "product_name": "",
+  "product_size": "",
   "slip_amount": 0,
   "slip_bank": "",
   "confidence": 0,
@@ -16,7 +17,8 @@ export const IMAGE_AI_PROMPT = `
 กฎสำคัญ:
 1. product_image
 - ใช้เมื่อเห็นสินค้า เสื้อผ้า บรรจุภัณฑ์ ป้ายสินค้า หรือภาพแคตตาล็อกสินค้าอย่างชัดเจน
-- product_name ให้ระบุชื่อ ประเภท สี ไซซ์ รุ่น หรือรายละเอียดสินค้าเท่าที่มองเห็นจริง
+- product_name ให้ระบุชื่อ ประเภท สี รุ่น หรือรายละเอียดสินค้าหลักเท่าที่มองเห็นจริง
+- product_size ให้ระบุไซส์หรือขนาดที่มองเห็นจริง เช่น S, M, XL, 38 หรือ Free Size และห้ามนำไซส์ไปแทน product_name
 - ห้ามเดายี่ห้อ รุ่น สี ไซซ์ หรือรายละเอียดที่มองไม่เห็น
 - ถ้าเห็นเพียงวัตถุที่คล้ายสินค้าแต่ไม่ชัดเจน ให้เป็น other
 
@@ -28,7 +30,7 @@ export const IMAGE_AI_PROMPT = `
 
 3. other
 - ใช้กับ emoji, sticker, avatar, logo, icon, meme, รูปคน, รูปสัตว์, ภาพวิว, ภาพหน้าจอแชต, ภาพเว็บไซต์, รูปทั่วไป, รูปเบลอ หรือรูปที่ไม่มั่นใจ
-- เมื่อเป็น other ต้องล้าง product_name, slip_amount และ slip_bank ให้เป็นค่าว่างหรือ 0
+- เมื่อเป็น other ต้องล้าง product_name, product_size, slip_amount และ slip_bank ให้เป็นค่าว่างหรือ 0
 
 กฎความปลอดภัย:
 - ถ้า confidence ต่ำกว่า 0.60 ให้ตอบ image_type=other

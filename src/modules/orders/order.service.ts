@@ -38,6 +38,7 @@ export type OrderStateSnapshot = {
     phone: string;
     address: string;
     product_name: string;
+    product_size: string;
     product_unit: string;
     quantity: number;
     total_amount: number;
@@ -168,7 +169,14 @@ function resolveQuantityAction(
         .toLowerCase()
         .replace(/\s+/g, " ");
 
-    if (/(?:เพิ่ม|อีก)\s*\d+/.test(normalized)) {
+    if (
+        /(?:เพิ่ม|อีก)\s*(?:\d+|[๐-๙]+|หนึ่ง|นึง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ)/.test(
+            normalized
+        ) ||
+        /(?:เพิ่ม|อีก)\s*(?:แค่|เพียง)?\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)\s*เดียว/.test(
+            normalized
+        )
+    ) {
         return "add";
     }
 
@@ -208,6 +216,10 @@ function getOrderState(order: LarkOrderRecord): OrderStateSnapshot {
             order.fields[ORDER_FIELDS.PRODUCT_NAME],
             ""
         ),
+        product_size: getLarkText(
+            order.fields[ORDER_FIELDS.PRODUCT_SIZE],
+            ""
+        ),
         product_unit: getLarkText(
             order.fields[ORDER_FIELDS.PRODUCT_UNIT],
             ""
@@ -232,6 +244,7 @@ function resolveOrderInput(
     pipeline: LarkPipelineRecord | null,
     input: {
         product_name?: string;
+        product_size?: string;
         product_unit?: string;
         quantity?: number;
         quantity_action?: QuantityAction;
@@ -248,6 +261,13 @@ function resolveOrderInput(
     const storedProductName = allowCustomerSalesContextFallback
         ? getLarkText(
               customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME],
+              ""
+          )
+        : "";
+
+    const storedProductSize = allowCustomerSalesContextFallback
+        ? getLarkText(
+              customer.fields[CUSTOMER_FIELDS.PRODUCT_SIZE],
               ""
           )
         : "";
@@ -288,6 +308,10 @@ function resolveOrderInput(
         input.product_name
     ) || normalizeText(storedProductName);
 
+    const resolvedProductSize = normalizeText(
+        input.product_size
+    ) || normalizeText(storedProductSize);
+
     const resolvedProductUnit = normalizeText(
         input.product_unit
     ) || normalizeText(storedProductUnit);
@@ -304,6 +328,7 @@ function resolveOrderInput(
         address: normalizeText(input.address),
         product_name:
             resolvedProductName || UNKNOWN_PRODUCT_NAME,
+        product_size: resolvedProductSize,
         product_unit: resolvedProductUnit,
         quantity: Math.max(0, resolvedQuantity),
         total_amount: Math.max(0, input.total_amount ?? 0),
@@ -352,6 +377,7 @@ function statesEqual(
         left.phone === right.phone &&
         left.address === right.address &&
         left.product_name === right.product_name &&
+        left.product_size === right.product_size &&
         left.product_unit === right.product_unit &&
         left.quantity === right.quantity &&
         left.total_amount === right.total_amount &&
@@ -413,6 +439,8 @@ function buildNextExistingOrderState(
         address: nextAddress,
         product_name:
             nextProductName || UNKNOWN_PRODUCT_NAME,
+        product_size:
+            resolved.product_size || existing.product_size,
         product_unit:
             resolved.product_unit || existing.product_unit,
         quantity: nextQuantity,
@@ -466,6 +494,7 @@ async function updateExistingQualifiedOrder(
             phone: newState.phone,
             address: newState.address,
             product_name: newState.product_name,
+            product_size: newState.product_size,
             product_unit: newState.product_unit,
             quantity: newState.quantity,
             total_amount: newState.total_amount,
@@ -475,6 +504,7 @@ async function updateExistingQualifiedOrder(
 
     await updateCustomer(env, customer.record_id, {
         product_name: newState.product_name,
+        product_size: newState.product_size,
         product_qty: newState.quantity,
         product_unit: newState.product_unit,
     });
@@ -506,6 +536,7 @@ export async function createTestOrderForCustomer(
         phone: "0800000000",
         address: "Test Address",
         product_name: "Test Product",
+        product_size: "M",
         product_unit: "ชิ้น",
         quantity: 1,
         total_amount: 999,
@@ -523,6 +554,7 @@ export async function createOrderIfReadyToBuy(
     input: {
         qualification_reason: OrderQualificationReason;
         product_name?: string;
+        product_size?: string;
         product_unit?: string;
         quantity?: number;
         quantity_action?: QuantityAction;
@@ -596,6 +628,7 @@ export async function createOrderIfReadyToBuy(
         phone: resolved.phone,
         address: resolved.address,
         product_name: resolved.product_name,
+        product_size: resolved.product_size,
         product_unit: resolved.product_unit,
         quantity: resolved.quantity,
         total_amount: resolved.total_amount,
@@ -608,6 +641,7 @@ export async function createOrderIfReadyToBuy(
     await updateCustomer(env, customer.record_id, {
         active_order_id: order.record_id,
         product_name: resolved.product_name,
+        product_size: resolved.product_size,
         product_qty: resolved.quantity,
         product_unit: resolved.product_unit,
     });

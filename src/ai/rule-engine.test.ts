@@ -46,3 +46,96 @@ describe("CASE 19.3 phone extraction", () => {
         expect(result.phone).toBeUndefined();
     });
 });
+
+describe("Thai natural-language quantity extraction", () => {
+    it("maps ตัวเดียว to quantity 1", () => {
+        const result = analyzeByRuleEngine(
+            "เอาแค่ตัวเดียวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.quantity).toBe(1);
+        expect(result.product_unit).toBe("ตัว");
+        expect(result.quantity_action).toBeUndefined();
+    });
+
+    it("extracts product and quantity from a one-unit order", () => {
+        const result = analyzeByRuleEngine(
+            "เอาเสื้อรุ่นใหม่ X แค่ตัวเดียวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.product_name).toBe("เสื้อรุ่นใหม่ X");
+        expect(result.quantity).toBe(1);
+        expect(result.product_unit).toBe("ตัว");
+    });
+
+    it("maps Thai quantity words to numbers", () => {
+        const result = analyzeByRuleEngine(
+            "เอาเสื้อรุ่น Y หนึ่งตัวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.product_name).toBe("เสื้อรุ่น Y");
+        expect(result.quantity).toBe(1);
+        expect(result.product_unit).toBe("ตัว");
+    });
+
+    it("maps Thai digits to Arabic quantity", () => {
+        const result = analyzeByRuleEngine(
+            "เอาเสื้อรุ่น Z ๑ ตัวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.product_name).toBe("เสื้อรุ่น Z");
+        expect(result.quantity).toBe(1);
+        expect(result.product_unit).toBe("ตัว");
+    });
+
+    it("treats เพิ่มอีกชิ้นเดียว as add quantity 1", () => {
+        const result = analyzeByRuleEngine(
+            "ขอเพิ่มอีกชิ้นเดียวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.quantity).toBe(1);
+        expect(result.product_unit).toBe("ชิ้น");
+        expect(result.quantity_action).toBe("add");
+    });
+});
+
+
+describe("fashion product size extraction", () => {
+    it("keeps a size-only order out of product_name", () => {
+        const result = analyzeByRuleEngine(
+            "เอาไซต์ s 1 ตัวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.product_name).toBeUndefined();
+        expect(result.product_size).toBe("S");
+        expect(result.quantity).toBe(1);
+        expect(result.product_unit).toBe("ตัว");
+    });
+
+    it("separates product name and size in the same order", () => {
+        const result = analyzeByRuleEngine(
+            "เอาเสื้อยืดไซส์ M 2 ตัวครับ"
+        );
+
+        expect(result.intent).toBe("product_order");
+        expect(result.product_name).toBe("เสื้อยืด");
+        expect(result.product_size).toBe("M");
+        expect(result.quantity).toBe(2);
+    });
+
+    it("supports numeric clothing sizes", () => {
+        const result = analyzeByRuleEngine(
+            "เอาขนาด 38 1 ตัวครับ"
+        );
+
+        expect(result.product_name).toBeUndefined();
+        expect(result.product_size).toBe("38");
+        expect(result.quantity).toBe(1);
+    });
+});

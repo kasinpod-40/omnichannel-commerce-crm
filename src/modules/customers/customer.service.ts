@@ -271,6 +271,8 @@ export async function upsertCustomer(
             message_count: 1,
             product_name:
                 input.ai?.product_name ?? "",
+            product_size:
+                input.ai?.product_size ?? "",
             product_qty:
                 input.ai?.quantity ?? 0,
             product_unit:
@@ -443,6 +445,16 @@ export async function upsertCustomer(
                       ""
                   ),
 
+            product_size: startingNewSalesCycle
+                ? input.ai?.product_size ?? ""
+                : input.ai?.product_size ??
+                  getLarkText(
+                      existingFields[
+                          CUSTOMER_FIELDS.PRODUCT_SIZE
+                      ],
+                      ""
+                  ),
+
             product_qty: startingNewSalesCycle
                 ? input.ai?.quantity ?? 0
                 : input.ai?.quantity ??
@@ -495,6 +507,7 @@ export async function markCustomerLost(
             active_order_id: "",
 
             product_name: "",
+            product_size: "",
             product_qty: 0,
             product_unit: "",
 

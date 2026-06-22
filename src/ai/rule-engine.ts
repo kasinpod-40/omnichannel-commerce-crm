@@ -9,6 +9,11 @@ import {
     extractPhoneNumber,
     removePhoneNumbers,
 } from "../utils/phone";
+import {
+    extractProductSize,
+    isProductSizeOnly,
+    stripProductSizeDescriptors,
+} from "../utils/product-size";
 
 const PRODUCT_UNITS = [
     "ตัว",
@@ -24,6 +29,66 @@ const PRODUCT_UNITS = [
     "กล่อง",
 ] as const;
 
+const THAI_QUANTITY_WORDS: Record<string, number> = {
+    หนึ่ง: 1,
+    นึง: 1,
+    เดียว: 1,
+    สอง: 2,
+    สาม: 3,
+    สี่: 4,
+    ห้า: 5,
+    หก: 6,
+    เจ็ด: 7,
+    แปด: 8,
+    เก้า: 9,
+    สิบ: 10,
+};
+
+const THAI_DIGITS: Record<string, string> = {
+    "๐": "0",
+    "๑": "1",
+    "๒": "2",
+    "๓": "3",
+    "๔": "4",
+    "๕": "5",
+    "๖": "6",
+    "๗": "7",
+    "๘": "8",
+    "๙": "9",
+};
+
+function normalizeThaiDigits(value: string): string {
+    return value.replace(/[๐-๙]/g, (digit) =>
+        THAI_DIGITS[digit] ?? digit
+    );
+}
+
+function parseQuantityToken(
+    rawValue: string | undefined
+): number | undefined {
+    if (!rawValue) {
+        return undefined;
+    }
+
+    const normalized = normalizeThaiDigits(rawValue)
+        .trim()
+        .toLowerCase();
+
+    if (/^\d+$/.test(normalized)) {
+        const parsed = Number(normalized);
+
+        return Number.isFinite(parsed) && parsed > 0
+            ? parsed
+            : undefined;
+    }
+
+    return THAI_QUANTITY_WORDS[normalized];
+}
+
+function getQuantityTokenPattern(): string {
+    return "(?:\\d+|[๐-๙]+|หนึ่ง|นึง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ)";
+}
+
 const GENERIC_PRODUCT_REFERENCES = new Set([
     "ตัวนี้",
     "อันนี้",
@@ -32,6 +97,11 @@ const GENERIC_PRODUCT_REFERENCES = new Set([
     "สินค้า",
     "รุ่นนี้",
     "แบบนี้",
+    "ไซส์",
+    "ไซซ์",
+    "ไซต์",
+    "ขนาด",
+    "size",
 ]);
 
 function includesAny(
@@ -79,6 +149,7 @@ type CreateResultInput = {
     hot_lead: boolean;
     ai_summary: string;
     product_name?: string;
+    product_size?: string;
     quantity?: number;
     quantity_action?: QuantityAction;
     product_unit?: string;
@@ -98,34 +169,57 @@ function extractQuantityAndUnit(
     quantity?: number;
     product_unit?: string;
 } {
+    const normalizedText = normalizeThaiDigits(text);
     const unitPattern = PRODUCT_UNITS.join("|");
-    const patterns = [
+    const quantityTokenPattern = getQuantityTokenPattern();
+
+    const tokenPatterns: RegExp[] = [
         new RegExp(
-            `(?:จำนวน\\s*)?(\\d+)\\s*(${unitPattern})`,
+            `(?:จำนวน\\s*)?(${quantityTokenPattern})\\s*(${unitPattern})`,
             "i"
         ),
         new RegExp(
-            `(?:เอา|ขอ|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\\s*(\\d+)\\s*(${unitPattern})?`,
+            `(?:เอา|ขอ|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\\s*(?:แค่|เพียง)?\\s*(${quantityTokenPattern})\\s*(${unitPattern})?`,
             "i"
         ),
     ];
 
-    for (const pattern of patterns) {
-        const match = text.match(pattern);
+    for (const pattern of tokenPatterns) {
+        const match = normalizedText.match(pattern);
+        const quantity = parseQuantityToken(match?.[1]);
 
-        if (!match?.[1]) {
-            continue;
-        }
-
-        const quantity = Number(match[1]);
-
-        if (!Number.isFinite(quantity) || quantity <= 0) {
+        if (!quantity) {
             continue;
         }
 
         return {
             quantity,
-            product_unit: match[2] || undefined,
+            product_unit: match?.[2] || undefined,
+        };
+    }
+
+    // ภาษาไทยมักละเลข 1 แล้วใช้ “ตัวเดียว / ชิ้นเดียว / อันเดียว”
+    const singleUnitPatterns: RegExp[] = [
+        new RegExp(
+            `(?:เอา|ขอ|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\\s*(?:แค่|เพียง)?\\s*(${unitPattern})\\s*เดียว`,
+            "i"
+        ),
+        new RegExp(
+            `(?:แค่|เพียง)\\s*(${unitPattern})\\s*เดียว`,
+            "i"
+        ),
+    ];
+
+    for (const pattern of singleUnitPatterns) {
+        const match = normalizedText.match(pattern);
+
+        if (!match?.[1]) {
+            continue;
+        }
+
+        return {
+            quantity: 1,
+            product_unit: match[1],
         };
     }
 
@@ -139,45 +233,80 @@ function extractQuantityAdjustment(
     quantity_action: QuantityAction;
     product_unit?: string;
 } | null {
+    const normalizedText = normalizeThaiDigits(text);
     const unitPattern = PRODUCT_UNITS.join("|");
+    const quantityTokenPattern = getQuantityTokenPattern();
 
     const patterns: Array<{
         action: QuantityAction;
         pattern: RegExp;
+        singleUnit?: boolean;
     }> = [
         {
             action: "add",
             pattern: new RegExp(
-                `(?:^|\\s)(?:ขอ\\s*)?(?:เพิ่ม(?:อีก)?|อีก|เอาเพิ่ม|รับเพิ่ม|สั่งเพิ่ม)\\s*(\\d+)\\s*(${unitPattern})?`,
+                `(?:^|\\s)(?:ขอ\\s*)?(?:เพิ่ม(?:อีก)?|อีก|เอาเพิ่ม|รับเพิ่ม|สั่งเพิ่ม)\\s*(?:แค่|เพียง)?\\s*(${quantityTokenPattern})\\s*(${unitPattern})?`,
+                "i"
+            ),
+        },
+        {
+            action: "add",
+            pattern: new RegExp(
+                `(?:^|\\s)(?:ขอ\\s*)?(?:เพิ่ม(?:อีก)?|อีก|เอาเพิ่ม|รับเพิ่ม|สั่งเพิ่ม)\\s*(?:แค่|เพียง)?\\s*(${unitPattern})\\s*เดียว`,
+                "i"
+            ),
+            singleUnit: true,
+        },
+        {
+            action: "set",
+            pattern: new RegExp(
+                `(?:เปลี่ยน(?:จำนวน)?เป็น|แก้(?:จำนวน)?เป็น|ปรับ(?:จำนวน)?เป็น|เอาเป็น|รวมเป็น)\\s*(?:แค่|เพียง)?\\s*(${quantityTokenPattern})\\s*(${unitPattern})?`,
                 "i"
             ),
         },
         {
             action: "set",
             pattern: new RegExp(
-                `(?:เปลี่ยน(?:จำนวน)?เป็น|แก้(?:จำนวน)?เป็น|ปรับ(?:จำนวน)?เป็น|เอาเป็น|รวมเป็น)\\s*(\\d+)\\s*(${unitPattern})?`,
+                `(?:เปลี่ยน(?:จำนวน)?เป็น|แก้(?:จำนวน)?เป็น|ปรับ(?:จำนวน)?เป็น|เอาเป็น|รวมเป็น)\\s*(?:แค่|เพียง)?\\s*(${unitPattern})\\s*เดียว`,
+                "i"
+            ),
+            singleUnit: true,
+        },
+        {
+            action: "subtract",
+            pattern: new RegExp(
+                `(?:ลดออก|เอาออก|ตัดออก|หักออก|ลดจำนวน(?:ลง)?)\\s*(?:แค่|เพียง)?\\s*(${quantityTokenPattern})\\s*(${unitPattern})?`,
                 "i"
             ),
         },
         {
             action: "subtract",
             pattern: new RegExp(
-                `(?:ลดออก|เอาออก|ตัดออก|หักออก|ลดจำนวน(?:ลง)?)\\s*(\\d+)\\s*(${unitPattern})?`,
+                `(?:ลดออก|เอาออก|ตัดออก|หักออก|ลดจำนวน(?:ลง)?)\\s*(?:แค่|เพียง)?\\s*(${unitPattern})\\s*เดียว`,
                 "i"
             ),
+            singleUnit: true,
         },
     ];
 
     for (const item of patterns) {
-        const match = text.match(item.pattern);
+        const match = normalizedText.match(item.pattern);
 
-        if (!match?.[1]) {
+        if (!match) {
             continue;
         }
 
-        const quantity = Number(match[1]);
+        if (item.singleUnit) {
+            return {
+                quantity: 1,
+                quantity_action: item.action,
+                product_unit: match[1] || undefined,
+            };
+        }
 
-        if (!Number.isFinite(quantity) || quantity <= 0) {
+        const quantity = parseQuantityToken(match[1]);
+
+        if (!quantity) {
             continue;
         }
 
@@ -194,9 +323,10 @@ function extractQuantityAdjustment(
 function cleanProductCandidate(
     candidate: string
 ): string | undefined {
-    const cleaned = candidate
+    const cleaned = stripProductSizeDescriptors(candidate)
         .trim()
         .replace(/^(?:สินค้า|ขอ|เอา|รับ|สั่ง|ซื้อ)\s*/i, "")
+        .replace(/^(?:แค่|เพียง)\s*/i, "")
         .replace(/\s*(?:ครับ|ค่ะ|คับ|นะ|จ้า|ทีครับ|ทีค่ะ)$/i, "")
         .replace(/[,:：-]+$/g, "")
         .replace(/\s+/g, " ")
@@ -214,6 +344,10 @@ function cleanProductCandidate(
         return undefined;
     }
 
+    if (isProductSizeOnly(cleaned)) {
+        return undefined;
+    }
+
     return cleaned;
 }
 
@@ -225,8 +359,9 @@ function extractProductName(
         .replace(/\s+/g, " ");
 
     const unitPattern = PRODUCT_UNITS.join("|");
+    const quantityTokenPattern = getQuantityTokenPattern();
     const orderPattern = new RegExp(
-        `(?:เอา|รับ|สั่ง|ซื้อ|ขอ)(?:เพิ่ม|อีก)?\\s*(.+?)\\s*(?:จำนวน\\s*)?\\d+\\s*(?:${unitPattern})?`,
+        `(?:เอา|รับ|สั่ง|ซื้อ|ขอ)(?:เพิ่ม|อีก)?\\s*(.+?)\\s*(?:จำนวน\\s*)?(?:แค่|เพียง)?\\s*(?:(?:${quantityTokenPattern})\\s*(?:${unitPattern})?|(?:${unitPattern})\\s*เดียว)`,
         "i"
     );
     const orderMatch = normalized.match(orderPattern);
@@ -437,6 +572,7 @@ export function analyzeByRuleEngine(
                 : input
         );
     const product = extractProductName(message);
+    const productSize = extractProductSize(message);
     const quantityResult =
         extractQuantityAndUnit(text);
 
@@ -508,6 +644,7 @@ export function analyzeByRuleEngine(
             hot_lead: true,
             ai_summary: `ลูกค้าขอข้อมูลชำระเงินหรือพร้อมชำระ: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
             ...quantityResult,
         });
     }
@@ -530,6 +667,7 @@ export function analyzeByRuleEngine(
             lead_score: 90,
             hot_lead: true,
             ai_summary: `ลูกค้า${actionLabel} ${quantityAdjustment.quantity}${quantityAdjustment.product_unit ? ` ${quantityAdjustment.product_unit}` : ""}: "${excerpt}"`,
+            product_size: productSize,
             quantity: quantityAdjustment.quantity,
             quantity_action:
                 quantityAdjustment.quantity_action,
@@ -539,8 +677,10 @@ export function analyzeByRuleEngine(
     }
 
     const readyToBuyPatterns: RegExp[] = [
-        /(?:เอา|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\s*.+?\s*(?:จำนวน\s*)?\d+\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)?/i,
-        /(?:เอา|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\s*\d+\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)?/i,
+        /(?:เอา|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\s*.+?\s*(?:จำนวน\s*)?(?:แค่|เพียง)?\s*(?:\d+|[๐-๙]+|หนึ่ง|นึง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ)\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)?/i,
+        /(?:เอา|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\s*(?:แค่|เพียง)?\s*(?:\d+|[๐-๙]+|หนึ่ง|นึง|สอง|สาม|สี่|ห้า|หก|เจ็ด|แปด|เก้า|สิบ)\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)?/i,
+        /(?:เอา|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\s*.+?\s*(?:แค่|เพียง)?\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)\s*เดียว/i,
+        /(?:เอา|รับ|สั่ง|ซื้อ)(?:เพิ่ม|อีก)?\s*(?:แค่|เพียง)?\s*(?:ตัว|ชิ้น|อัน|ชุด|คู่|โหล|ถุง|ลัง|แพ็ก|แพค|กล่อง)\s*เดียว/i,
         /สั่งซื้อ/i,
         /ซื้อเลย/i,
         /ตกลงซื้อ/i,
@@ -558,6 +698,7 @@ export function analyzeByRuleEngine(
                 ? `ลูกค้าแสดงเจตนาสั่งซื้อ จำนวน ${quantityResult.quantity}: "${excerpt}"`
                 : `ลูกค้าแสดงเจตนาสั่งซื้อชัดเจน: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
             ...quantityResult,
         });
     }
@@ -582,6 +723,7 @@ export function analyzeByRuleEngine(
             hot_lead: false,
             ai_summary: `ลูกค้าสอบถามส่วนลดหรือต่อรองราคา: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
             ...quantityResult,
         });
     }
@@ -605,6 +747,7 @@ export function analyzeByRuleEngine(
             hot_lead: false,
             ai_summary: `ลูกค้าสอบถามราคา แต่ยังไม่ถือเป็นโอกาสขายที่ผ่านการคัดกรอง: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
         });
     }
 
@@ -617,6 +760,7 @@ export function analyzeByRuleEngine(
             hot_lead: false,
             ai_summary: `ลูกค้าสอบถามการจัดส่ง: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
         });
     }
 
@@ -639,6 +783,7 @@ export function analyzeByRuleEngine(
             hot_lead: false,
             ai_summary: `ลูกค้ากำลังเลือกชมสินค้า: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
         });
     }
 
@@ -675,6 +820,7 @@ export function analyzeByRuleEngine(
             hot_lead: false,
             ai_summary: `ลูกค้าแสดงความสนใจหรือสอบถามรายละเอียดสินค้า: "${excerpt}"`,
             product_name: product,
+            product_size: productSize,
         });
     }
 

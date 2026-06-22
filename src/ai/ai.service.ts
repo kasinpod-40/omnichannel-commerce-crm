@@ -23,6 +23,7 @@ import {
     extractPhoneNumber,
     normalizePhoneNumber,
 } from "../utils/phone";
+import { normalizeProductSize } from "../utils/product-size";
 
 const MIN_TEXT_AI_CONFIDENCE = 0.6;
 
@@ -263,6 +264,7 @@ function normalizeTextAIResult(
     const confidence = clampNumber(raw.confidence, 0, 1);
     const quantity = positiveInteger(raw.quantity);
     const productName = String(raw.product_name ?? "").trim();
+    const productSize = normalizeProductSize(raw.product_size);
     const productUnit = String(raw.product_unit ?? "").trim();
     const address = String(raw.address ?? "").trim();
     const phone = normalizePhoneNumber(
@@ -284,6 +286,10 @@ function normalizeTextAIResult(
 
     if (productName) {
         result.product_name = productName;
+    }
+
+    if (productSize) {
+        result.product_size = productSize;
     }
 
     if (quantity) {
@@ -424,6 +430,7 @@ function mapImageAnalysisToAI(
                 image.summary ||
                 `ลูกค้าส่งรูปสินค้า: ${image.product_name}`,
             product_name: image.product_name,
+            product_size: image.product_size || undefined,
             image_ai: image,
             provider:
                 image.provider === "gemini"
@@ -465,6 +472,7 @@ export async function analyzeIncomingContent(
         return mapImageAnalysisToAI({
             image_type: "other",
             product_name: "",
+            product_size: "",
             slip_amount: 0,
             slip_bank: "",
             confidence: 1,
@@ -487,6 +495,7 @@ export async function analyzeIncomingContent(
         return mapImageAnalysisToAI({
             image_type: "other",
             product_name: "",
+            product_size: "",
             slip_amount: 0,
             slip_bank: "",
             confidence: 0,

@@ -188,4 +188,83 @@ describe("repeat purchase order isolation", () => {
         );
     });
 
+
+    it("preserves the active product name when the next message only selects a size", async () => {
+        const activeOrder = {
+            record_id: "rec_order_active_size",
+            fields: {
+                [ORDER_FIELDS.PIPELINE]: ["rec_pipeline_new"],
+                [ORDER_FIELDS.ORDER_STATUS]: "Waiting Payment",
+                [ORDER_FIELDS.CUSTOMER_NAME]: "Repeat User",
+                [ORDER_FIELDS.PHONE]: "0812345678",
+                [ORDER_FIELDS.ADDRESS]: "",
+                [ORDER_FIELDS.PRODUCT_NAME]: "เสื้อสีเขียว",
+                [ORDER_FIELDS.PRODUCT_SIZE]: "",
+                [ORDER_FIELDS.PRODUCT_UNIT]: "ตัว",
+                [ORDER_FIELDS.QUANTITY]: 2,
+                [ORDER_FIELDS.TOTAL_AMOUNT]: 0,
+                [ORDER_FIELDS.SALES_OWNER]: "Unassigned",
+            },
+        };
+
+        const customerWithActiveOrder = {
+            ...returningCustomer,
+            fields: {
+                ...returningCustomer.fields,
+                [CUSTOMER_FIELDS.ACTIVE_ORDER_ID]: activeOrder.record_id,
+                [CUSTOMER_FIELDS.PRODUCT_NAME]: "เสื้อสีเขียว",
+                [CUSTOMER_FIELDS.PRODUCT_SIZE]: "",
+                [CUSTOMER_FIELDS.PRODUCT_QTY]: 2,
+            },
+        };
+
+        vi.mocked(orderRepository.getOrderByRecordId).mockResolvedValue(
+            activeOrder
+        );
+        vi.mocked(orderRepository.updateOrder).mockResolvedValue({
+            ...activeOrder,
+            fields: {
+                ...activeOrder.fields,
+                [ORDER_FIELDS.PRODUCT_SIZE]: "S",
+                [ORDER_FIELDS.QUANTITY]: 1,
+            },
+        });
+        vi.mocked(customerRepository.updateCustomer).mockResolvedValue(
+            customerWithActiveOrder
+        );
+
+        const result = await createOrderIfReadyToBuy(
+            {} as Env,
+            customerWithActiveOrder,
+            pipeline,
+            {
+                qualification_reason: "product_order",
+                product_size: "S",
+                quantity: 1,
+                quantity_action: "set",
+                message: "เอาไซต์ S 1 ตัวครับ",
+            }
+        );
+
+        expect(result?.created).toBe(false);
+        expect(orderRepository.updateOrder).toHaveBeenCalledWith(
+            expect.anything(),
+            activeOrder.record_id,
+            expect.objectContaining({
+                product_name: "เสื้อสีเขียว",
+                product_size: "S",
+                quantity: 1,
+            })
+        );
+        expect(customerRepository.updateCustomer).toHaveBeenCalledWith(
+            expect.anything(),
+            customerWithActiveOrder.record_id,
+            expect.objectContaining({
+                product_name: "เสื้อสีเขียว",
+                product_size: "S",
+                product_qty: 1,
+            })
+        );
+    });
+
 });

@@ -12,6 +12,7 @@ export const CUSTOMER_FIELDS = {
     MESSAGE_COUNT: "message_count",
 
     PRODUCT_NAME: "product_name",
+    PRODUCT_SIZE: "product_size",
     PRODUCT_QTY: "product_qty",
     PRODUCT_UNIT: "product_unit",
 
@@ -73,6 +74,7 @@ export const ORDER_FIELDS = {
     PHONE: "phone",
     ADDRESS: "address",
     PRODUCT_NAME: "product_name",
+    PRODUCT_SIZE: "product_size",
     PRODUCT_UNIT: "product_unit",
     QUANTITY: "quantity",
     TOTAL_AMOUNT: "total_amount",

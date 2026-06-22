@@ -320,4 +320,47 @@ describe("CASE 19.3 customer phone merge", () => {
         );
     });
 
+
+    it("preserves the existing product name when the customer only selects a size", async () => {
+        const activeCustomer = {
+            ...existingCustomer,
+            fields: {
+                ...existingCustomer.fields,
+                [CUSTOMER_FIELDS.CURRENT_STAGE]: "Interested",
+                [CUSTOMER_FIELDS.PRODUCT_NAME]: "เสื้อสีเขียว",
+                [CUSTOMER_FIELDS.PRODUCT_SIZE]: "",
+                [CUSTOMER_FIELDS.PRODUCT_QTY]: 0,
+            },
+        };
+
+        await upsertCustomer({} as Env, {
+            channel: "LINE",
+            channel_customer_id: "line_user_001",
+            last_message: "เอาไซต์ S 1 ตัวครับ",
+            existing_customer: activeCustomer,
+            ai: {
+                intent: "product_order",
+                buyer_intent: "Ready To Buy",
+                customer_stage: "Closing",
+                lead_score: 90,
+                hot_lead: true,
+                ai_summary: "ลูกค้าเลือกไซส์ S จำนวน 1 ตัว",
+                product_size: "S",
+                quantity: 1,
+                product_unit: "ตัว",
+            },
+        });
+
+        expect(customerRepository.updateCustomer).toHaveBeenCalledWith(
+            expect.anything(),
+            activeCustomer.record_id,
+            expect.objectContaining({
+                product_name: "เสื้อสีเขียว",
+                product_size: "S",
+                product_qty: 1,
+                product_unit: "ตัว",
+            })
+        );
+    });
+
 });

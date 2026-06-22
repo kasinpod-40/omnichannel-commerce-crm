@@ -25,6 +25,7 @@ export type UpdateOrderFields = Partial<{
     phone: string;
     address: string;
     product_name: string;
+    product_size: string;
     product_unit: string;
     quantity: number;
     total_amount: number;
@@ -78,6 +79,7 @@ export async function createOrder(
         [ORDER_FIELDS.PHONE]: order.phone ?? "",
         [ORDER_FIELDS.ADDRESS]: order.address ?? "",
         [ORDER_FIELDS.PRODUCT_NAME]: order.product_name,
+        [ORDER_FIELDS.PRODUCT_SIZE]: order.product_size ?? "",
         [ORDER_FIELDS.PRODUCT_UNIT]: order.product_unit ?? "",
         [ORDER_FIELDS.QUANTITY]: order.quantity,
         [ORDER_FIELDS.TOTAL_AMOUNT]: order.total_amount,
@@ -164,6 +166,11 @@ export async function updateOrder(
     if (fields.product_name !== undefined) {
         larkFields[ORDER_FIELDS.PRODUCT_NAME] =
             fields.product_name;
+    }
+
+    if (fields.product_size !== undefined) {
+        larkFields[ORDER_FIELDS.PRODUCT_SIZE] =
+            fields.product_size;
     }
 
     if (fields.product_unit !== undefined) {

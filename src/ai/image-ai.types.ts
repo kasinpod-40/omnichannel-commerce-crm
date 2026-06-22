@@ -20,6 +20,7 @@ export type LoadedImage = {
 export type ImageAnalysisResult = {
     image_type: ImageType;
     product_name: string;
+    product_size: string;
     slip_amount: number;
     slip_bank: string;
     confidence: number;
