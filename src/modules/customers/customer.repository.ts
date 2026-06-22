@@ -5,6 +5,7 @@ import {
     createLarkRecord,
     getLarkRecord,
     searchLarkRecords,
+    listLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
 import { toLarkAttachmentFieldValue } from "../../providers/lark/lark-attachment.provider";
@@ -323,4 +324,17 @@ export async function updateCustomer(
     );
 
     return normalizeCustomerRecord(result);
+}
+
+export async function listCustomers(
+    env: Env
+): Promise<LarkCustomerRecord[]> {
+    const records = await listLarkRecords(
+        env,
+        env.CUSTOMERS_TABLE_ID
+    );
+
+    return records.map((record) =>
+        normalizeCustomerRecord(record)
+    );
 }

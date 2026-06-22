@@ -4,6 +4,7 @@ import {
     createLarkRecord,
     getLarkRecord,
     searchLarkRecords,
+    listLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
 import {
@@ -161,4 +162,14 @@ export async function getPipelineByRecordId(
     }
 
     return result as LarkPipelineRecord;
+}
+export async function listPipelines(
+    env: Env
+): Promise<LarkPipelineRecord[]> {
+    const records = await listLarkRecords(
+        env,
+        env.PIPELINE_TABLE_ID
+    );
+
+    return records.map(normalizePipelineRecord);
 }

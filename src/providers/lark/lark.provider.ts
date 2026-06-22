@@ -286,6 +286,65 @@ export async function searchLarkRecords(
     );
 }
 
+
+export async function listLarkRecords(
+    env: Env,
+    tableId: string
+): Promise<any[]> {
+    const token = await getTenantAccessToken(env);
+    const records: any[] = [];
+    let pageToken = "";
+
+    for (let page = 0; page < 100; page += 1) {
+        const url = new URL(
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records`
+        );
+
+        url.searchParams.set("page_size", "100");
+
+        if (pageToken) {
+            url.searchParams.set("page_token", pageToken);
+        }
+
+        const data = await requestLarkJson<
+            LarkApiResponse<{
+                items?: any[];
+                has_more?: boolean;
+                page_token?: string;
+            }>
+        >(
+            url.toString(),
+            {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            },
+            "list record"
+        );
+
+        if (data.code !== 0) {
+            throw createLarkCodeError("List Record", data);
+        }
+
+        records.push(...(data.data?.items ?? []));
+
+        if (!data.data?.has_more || !data.data.page_token) {
+            return records;
+        }
+
+        pageToken = data.data.page_token;
+    }
+
+    throw new OperationalError(
+        "LARK_PAGINATION_LIMIT",
+        `Lark list pagination exceeded 100 pages for table ${tableId}`,
+        {
+            retryable: false,
+        }
+    );
+}
+
 export async function getLarkRecord(
     env: Env,
     tableId: string,

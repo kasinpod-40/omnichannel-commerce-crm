@@ -4,7 +4,8 @@ export type NotificationType =
     | "PAYMENT_REVIEW"
     | "PAYMENT_VERIFIED"
     | "SALE_WON"
-    | "SALE_LOST";
+    | "SALE_LOST"
+    | "PAYMENT_OVERDUE";
 
 export type NotificationStatus =
     | "Pending"

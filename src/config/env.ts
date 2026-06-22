@@ -45,4 +45,5 @@ export interface Env {
     NOTIFICATION_QUEUE: QueueProducerBinding<NotificationQueueMessage>;
 
     ENABLE_TEST_ROUTES?: string;
+    PAYMENT_DUE_HOURS?: string;
 }

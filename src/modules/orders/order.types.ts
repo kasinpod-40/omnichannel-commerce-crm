@@ -4,6 +4,7 @@ export type PaymentStatus =
     | "Waiting Payment"
     | "Payment Review"
     | "Paid"
+    | "Overdue"
     | "Failed"
     | "Refunded";
 
@@ -62,4 +63,6 @@ export interface Order {
     updated_at?: number;
 
     paid_at?: number;
+
+    payment_due_at?: number;
 }

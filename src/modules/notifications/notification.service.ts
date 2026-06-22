@@ -74,6 +74,7 @@ const NOTIFICATION_LABELS: Record<
     PAYMENT_VERIFIED: "ยืนยันการชำระเงินสำเร็จ",
     SALE_WON: "ปิดการขายสำเร็จ",
     SALE_LOST: "ลูกค้ายกเลิกการสั่งซื้อ",
+    PAYMENT_OVERDUE: "คำสั่งซื้อเกินกำหนดชำระเงิน",
 };
 
 const NOTIFICATION_ICONS: Record<
@@ -86,6 +87,7 @@ const NOTIFICATION_ICONS: Record<
     PAYMENT_VERIFIED: "✅",
     SALE_WON: "🎉",
     SALE_LOST: "❌",
+    PAYMENT_OVERDUE: "⏰",
 };
 
 const NEXT_ACTIONS: Record<
@@ -98,6 +100,7 @@ const NEXT_ACTIONS: Record<
     PAYMENT_VERIFIED: "เตรียมดำเนินการตามคำสั่งซื้อ",
     SALE_WON: "เตรียมจัดส่งและติดตามงานจนเสร็จสมบูรณ์",
     SALE_LOST: "ตรวจสอบสาเหตุและบันทึกหมายเหตุสำหรับติดตามภายหลัง",
+    PAYMENT_OVERDUE: "ติดต่อลูกค้าเพื่อติดตามการชำระเงิน",
 };
 
 function isNotificationType(
@@ -533,6 +536,10 @@ function buildNotificationLines(
 
     if (notificationType === "SALE_WON") {
         addLine(lines, "สถานะ", "ปิดการขายสำเร็จ");
+    }
+
+    if (notificationType === "PAYMENT_OVERDUE") {
+        addLine(lines, "สถานะ", "เกินกำหนดชำระเงิน");
     }
 
     addLine(

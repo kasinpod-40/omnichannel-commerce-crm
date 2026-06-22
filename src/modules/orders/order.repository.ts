@@ -4,6 +4,7 @@ import {
     createLarkRecord,
     getLarkRecord,
     searchLarkRecords,
+    listLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
 import { toLarkAttachmentFieldValue } from "../../providers/lark/lark-attachment.provider";
@@ -39,6 +40,7 @@ export type UpdateOrderFields = Partial<{
     slip_attachment_tokens: string[];
     updated_at: number;
     paid_at: number;
+    payment_due_at: number;
 }>;
 
 function normalizeOrderRecord(result: unknown): LarkOrderRecord {
@@ -113,6 +115,11 @@ export async function createOrder(
 
     if (order.paid_at !== undefined) {
         fields[ORDER_FIELDS.PAID_AT] = order.paid_at;
+    }
+
+    if (order.payment_due_at !== undefined) {
+        fields[ORDER_FIELDS.PAYMENT_DUE_AT] =
+            order.payment_due_at;
     }
 
     if (order.customer_record_id) {
@@ -232,6 +239,11 @@ export async function updateOrder(
     if (fields.paid_at !== undefined) {
         larkFields[ORDER_FIELDS.PAID_AT] =
             fields.paid_at;
+    }
+
+    if (fields.payment_due_at !== undefined) {
+        larkFields[ORDER_FIELDS.PAYMENT_DUE_AT] =
+            fields.payment_due_at;
     }
 
     larkFields[ORDER_FIELDS.UPDATED_AT] =
@@ -364,4 +376,15 @@ export async function findOpenOrdersByCustomer(
             right.record_id
         );
     });
+}
+
+export async function listOrders(
+    env: Env
+): Promise<LarkOrderRecord[]> {
+    const records = await listLarkRecords(
+        env,
+        env.ORDERS_TABLE_ID
+    );
+
+    return records.map(normalizeOrderRecord);
 }

@@ -12,7 +12,9 @@ export type ActivityAction =
     | "PAYMENT_VERIFIED"
     | "SALE_WON"
     | "SALE_LOST"
-    | "ORDER_CANCELLED";
+    | "ORDER_CANCELLED"
+    | "SALES_ASSIGNED"
+    | "PAYMENT_OVERDUE";
 
 export type ActivityValue =
     | string

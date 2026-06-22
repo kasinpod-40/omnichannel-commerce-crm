@@ -89,6 +89,7 @@ export const ORDER_FIELDS = {
     CREATED_AT: "created_at",
     UPDATED_AT: "updated_at",
     PAID_AT: "paid_at",
+    PAYMENT_DUE_AT: "payment_due_at",
 } as const;
 
 export const ACTIVITY_FIELDS = {

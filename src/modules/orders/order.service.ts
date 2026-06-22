@@ -91,6 +91,17 @@ export type CancelOrderResult = {
 
 const UNKNOWN_PRODUCT_NAME = "ยังไม่ระบุสินค้า";
 
+
+function getPaymentDueAt(env: Env, now = Date.now()): number {
+    const parsedHours = Number(env.PAYMENT_DUE_HOURS ?? "24");
+    const hours =
+        Number.isFinite(parsedHours) && parsedHours > 0
+            ? parsedHours
+            : 24;
+
+    return now + Math.round(hours * 60 * 60 * 1000);
+}
+
 function generateOrderNumber(): string {
     const now = new Date();
 
@@ -548,6 +559,7 @@ export async function createTestOrderForCustomer(
         payment_verified: false,
         order_status: "Waiting Payment",
         sales_owner: "Unassigned",
+        payment_due_at: getPaymentDueAt(env),
     });
 }
 
@@ -640,6 +652,7 @@ export async function createOrderIfReadyToBuy(
         payment_verified: false,
         order_status: "Waiting Payment",
         sales_owner: resolved.sales_owner,
+        payment_due_at: getPaymentDueAt(env),
     });
 
     await updateCustomer(env, customer.record_id, {

@@ -18,6 +18,12 @@ import {
 import { handleConversationTest } from "./routes/conversation.route";
 import { handleHealthRoute } from "./routes/health.route";
 import { handleCustomerIntegrity } from "./routes/integrity.route";
+import { handleSalesOwnerAssignment } from "./routes/sales-assignment.route";
+import {
+  handlePaymentOverdueRun,
+  handlePaymentOverdueWebhook,
+} from "./routes/payment-overdue.route";
+import { handleDashboardSummary } from "./routes/dashboard.route";
 import {
   handleCreateTestCustomer,
   handleLarkTest,
@@ -145,6 +151,26 @@ export default {
       return await handleCustomerIntegrity(request, env);
     }
 
+    if (url.pathname === "/webhooks/lark/sales-owner-assigned") {
+      return await handleSalesOwnerAssignment(request, env);
+    }
+
+    if (url.pathname === "/admin/sales/assign") {
+      return await handleSalesOwnerAssignment(request, env);
+    }
+
+    if (url.pathname === "/webhooks/lark/payment-overdue") {
+      return await handlePaymentOverdueWebhook(request, env);
+    }
+
+    if (url.pathname === "/admin/payments/overdue/run") {
+      return await handlePaymentOverdueRun(request, env);
+    }
+
+    if (url.pathname === "/admin/dashboard/summary") {
+      return await handleDashboardSummary(request, env);
+    }
+
     const testResponse = await handleTestRoute(
       request,
       env,
@@ -164,6 +190,7 @@ export default {
       404
     );
   },
+
 
   async queue(
     batch: QueueBatchLike<unknown>,
