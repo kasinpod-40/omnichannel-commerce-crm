@@ -154,21 +154,6 @@ function createNotificationEventId(
     return parts.join(":");
 }
 
-async function findLatestCustomer(
-    env: Env,
-    input: ProcessIncomingMessageInput,
-    fallback: LarkCustomerRecord
-): Promise<LarkCustomerRecord> {
-    const customer =
-        await findCustomerByChannelCustomerId(
-            env,
-            input.channel,
-            input.channel_customer_id
-        );
-
-    return customer ?? fallback;
-}
-
 async function reloadCustomerByRecordId(
     env: Env,
     customer: LarkCustomerRecord

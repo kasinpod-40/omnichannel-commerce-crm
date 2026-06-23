@@ -32,8 +32,6 @@ export interface Env {
     AI?: WorkersAIBinding;
     WORKERS_TEXT_MODEL?: string;
 
-    // Kept only for backward compatibility with the unused legacy image provider.
-    WORKERS_IMAGE_MODEL?: string;
 
     GEMINI_API_KEY?: string;
     GEMINI_TEXT_MODEL?: string;

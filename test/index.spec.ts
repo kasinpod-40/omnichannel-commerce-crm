@@ -10,7 +10,7 @@ import worker from "../src/index";
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 describe("Omnichannel Commerce CRM worker", () => {
-    it("returns the Lazada live connector health payload (unit style)", async () => {
+    it("returns the current application health payload (unit style)", async () => {
         const request = new IncomingRequest(
             "http://example.com/health"
         );
@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "lazada-live-connector-th-2",
+            version: "architecture-refactor-th-17",
         });
     });
 
@@ -39,4 +39,30 @@ describe("Omnichannel Commerce CRM worker", () => {
             path: "/unknown-route",
         });
     });
+    it("preserves the Lazada webhook health route after route grouping", async () => {
+        const response = await SELF.fetch(
+            "https://example.com/webhooks/lazada"
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            ok: true,
+            service: "lazada-webhook",
+            region: "TH",
+        });
+    });
+
+    it("preserves the TikTok webhook health route after route grouping", async () => {
+        const response = await SELF.fetch(
+            "https://example.com/webhooks/tiktok"
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            ok: true,
+            service: "tiktok-shop-webhook",
+            region: "TH",
+        });
+    });
+
 });

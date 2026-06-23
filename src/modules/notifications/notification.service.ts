@@ -6,7 +6,7 @@ import {
     PIPELINE_FIELDS,
 } from "../../core/lark-fields";
 import { sendLarkGroupText } from "../../providers/lark/lark-group-webhook.provider";
-import { enqueueNotificationDelivery } from "../../queues/notification-producer";
+import { enqueueNotificationDelivery } from "../../queues/notification.producer";
 import {
     getFirstLinkedRecordId,
     getLarkNumber,

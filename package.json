@@ -1,12 +1,16 @@
 {
   "name": "omnichannel-commerce-crm",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
+    "deploy:dry": "wrangler deploy --dry-run",
     "dev": "wrangler dev",
     "start": "wrangler dev",
+    "typecheck": "tsc --noEmit",
     "test": "vitest",
+    "test:run": "vitest run",
+    "check": "npm run typecheck && npm run test:run && npm run deploy:dry",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {

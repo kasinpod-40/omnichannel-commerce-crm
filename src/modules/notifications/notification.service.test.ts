@@ -20,7 +20,7 @@ vi.mock("./notification.repository", async (importOriginal) => {
     };
 });
 
-vi.mock("../../queues/notification-producer", () => ({
+vi.mock("../../queues/notification.producer", () => ({
     enqueueNotificationDelivery,
 }));
 
