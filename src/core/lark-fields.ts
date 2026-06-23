@@ -100,6 +100,15 @@ export const ORDER_FIELDS = {
     CURRENCY: "currency",
     TRACKING_NUMBER: "tracking_number",
     SHIPPING_PROVIDER: "shipping_provider",
+
+    QUOTATION_URL: "quotation_url",
+    INVOICE_URL: "invoice_url",
+    TAX_INVOICE_URL: "tax_invoice_url",
+    TAX_FORM_URL: "tax_form_url",
+    TAX_NAME: "tax_name",
+    TAX_ADDRESS: "tax_address",
+    TAX_ID: "tax_id",
+    TAX_BRANCH: "tax_branch",
 } as const;
 
 export const ACTIVITY_FIELDS = {

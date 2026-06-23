@@ -9,13 +9,6 @@ import type {
     DocumentViewModel,
 } from "./document.types";
 
-const TAX_FIELDS = {
-    NAME: "tax_name",
-    ADDRESS: "tax_address",
-    ID: "tax_id",
-    BRANCH: "tax_branch",
-} as const;
-
 const TITLES: Record<DocumentType, { th: string; en: string; prefix: string }> = {
     quotation: { th: "ใบเสนอราคา", en: "QUOTATION", prefix: "QT" },
     invoice: { th: "ใบแจ้งหนี้", en: "INVOICE", prefix: "INV" },
@@ -108,6 +101,16 @@ function buildItems(record: LarkOrderRecord, grandTotal: number): DocumentLineIt
     ];
 }
 
+function isPlaceholderCompanyValue(value?: string): boolean {
+    const normalized = value?.trim() ?? "";
+    return (
+        !normalized ||
+        normalized === "-" ||
+        normalized === "ชื่อบริษัท / ร้านค้า" ||
+        normalized.startsWith("กรุณาแก้ไข")
+    );
+}
+
 function companyFromEnv(env: Env) {
     return {
         name: env.DOCUMENT_COMPANY_NAME?.trim() || "ชื่อบริษัท / ร้านค้า",
@@ -123,18 +126,18 @@ function companyFromEnv(env: Env) {
 function customerFromRecord(record: LarkOrderRecord): DocumentCustomer {
     return {
         name:
-            getLarkText(record.fields[TAX_FIELDS.NAME], "") ||
+            getLarkText(record.fields[ORDER_FIELDS.TAX_NAME], "") ||
             getLarkText(record.fields[ORDER_FIELDS.CUSTOMER_NAME], "-") ||
             "-",
         address:
-            getLarkText(record.fields[TAX_FIELDS.ADDRESS], "") ||
+            getLarkText(record.fields[ORDER_FIELDS.TAX_ADDRESS], "") ||
             getLarkText(record.fields[ORDER_FIELDS.ADDRESS], "-") ||
             "-",
         phone:
             getLarkText(record.fields[ORDER_FIELDS.PHONE], "") || undefined,
-        tax_id: getLarkText(record.fields[TAX_FIELDS.ID], "") || undefined,
+        tax_id: getLarkText(record.fields[ORDER_FIELDS.TAX_ID], "") || undefined,
         branch:
-            getLarkText(record.fields[TAX_FIELDS.BRANCH], "") || undefined,
+            getLarkText(record.fields[ORDER_FIELDS.TAX_BRANCH], "") || undefined,
     };
 }
 
@@ -207,13 +210,13 @@ export function buildDocumentViewModelFromRecord(
 
     if (type === "tax-invoice") {
         const missing: string[] = [];
-        if (!company.name || company.name === "ชื่อบริษัท / ร้านค้า") {
+        if (isPlaceholderCompanyValue(company.name)) {
             missing.push("DOCUMENT_COMPANY_NAME");
         }
-        if (!company.address || company.address === "-") {
+        if (isPlaceholderCompanyValue(company.address)) {
             missing.push("DOCUMENT_COMPANY_ADDRESS");
         }
-        if (!company.tax_id) {
+        if (isPlaceholderCompanyValue(company.tax_id)) {
             missing.push("DOCUMENT_COMPANY_TAX_ID");
         }
         if (!customer.tax_id) {

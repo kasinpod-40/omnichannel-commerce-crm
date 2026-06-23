@@ -66,6 +66,7 @@ export interface Env {
 
 
     DOCUMENT_LINK_SECRET?: string;
+    DOCUMENT_WORKFLOW_TOKEN?: string;
     DOCUMENT_COMPANY_NAME?: string;
     DOCUMENT_COMPANY_ADDRESS?: string;
     DOCUMENT_COMPANY_TAX_ID?: string;
@@ -77,6 +78,7 @@ export interface Env {
     DOCUMENT_QUOTATION_VALID_DAYS?: string;
     DOCUMENT_VAT_RATE?: string;
     DOCUMENT_PRICE_INCLUDES_VAT?: string;
+    DOCUMENT_TAX_FORM_EXPIRES_MINUTES?: string;
 
     MARKETPLACE_TOKENS?: KVNamespace;
 }
