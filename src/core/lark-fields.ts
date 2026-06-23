@@ -90,6 +90,16 @@ export const ORDER_FIELDS = {
     UPDATED_AT: "updated_at",
     PAID_AT: "paid_at",
     PAYMENT_DUE_AT: "payment_due_at",
+
+    MARKETPLACE_STORE_ID: "marketplace_store_id",
+    MARKETPLACE_STORE_NAME: "marketplace_store_name",
+    MARKETPLACE_STATUS: "marketplace_status",
+    MARKETPLACE_ITEMS_JSON: "marketplace_items_json",
+    MARKETPLACE_EVENT_ID: "marketplace_event_id",
+    MARKETPLACE_UPDATED_AT: "marketplace_updated_at",
+    CURRENCY: "currency",
+    TRACKING_NUMBER: "tracking_number",
+    SHIPPING_PROVIDER: "shipping_provider",
 } as const;
 
 export const ACTIVITY_FIELDS = {

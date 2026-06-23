@@ -166,6 +166,56 @@ function formatAmount(amount: number): string {
     }).format(amount)} บาท`;
 }
 
+function isMarketplaceSnapshot(
+    snapshot: NotificationSnapshot
+): boolean {
+    return ["Shopee", "Lazada", "TikTok"].includes(
+        snapshot.channel
+    );
+}
+
+function marketplaceNotificationTitle(
+    notificationType: NotificationType,
+    snapshot: NotificationSnapshot
+): string | null {
+    if (!isMarketplaceSnapshot(snapshot)) {
+        return null;
+    }
+
+    if (notificationType === "SALE_WON") {
+        return snapshot.marketplace_event_kind === "completed"
+            ? `✅ คำสั่งซื้อ ${snapshot.channel} เสร็จสมบูรณ์`
+            : `🛒 มีคำสั่งซื้อใหม่จาก ${snapshot.channel}`;
+    }
+
+    if (notificationType === "SALE_LOST") {
+        return `❌ คำสั่งซื้อ ${snapshot.channel} ถูกยกเลิก`;
+    }
+
+    return null;
+}
+
+function marketplaceNextAction(
+    notificationType: NotificationType,
+    snapshot: NotificationSnapshot
+): string | null {
+    if (!isMarketplaceSnapshot(snapshot)) {
+        return null;
+    }
+
+    if (notificationType === "SALE_WON") {
+        return snapshot.marketplace_event_kind === "completed"
+            ? "ตรวจสอบความเรียบร้อยของคำสั่งซื้อและปิดงานใน CRM"
+            : "ตรวจสอบคำสั่งซื้อและเตรียมดำเนินการตามสถานะใน Marketplace";
+    }
+
+    if (notificationType === "SALE_LOST") {
+        return "ตรวจสอบเหตุผลการยกเลิก คืนสินค้า หรือคืนเงินใน Marketplace";
+    }
+
+    return null;
+}
+
 function addLine(
     lines: string[],
     label: string,
@@ -290,6 +340,12 @@ function parseNotificationSnapshot(
             order_status: normalizeSnapshotString(
                 parsed.order_status
             ),
+            marketplace_event_kind:
+                parsed.marketplace_event_kind === "completed" ||
+                parsed.marketplace_event_kind === "cancelled" ||
+                parsed.marketplace_event_kind === "created"
+                    ? parsed.marketplace_event_kind
+                    : undefined,
         };
     } catch {
         return null;
@@ -432,6 +488,7 @@ function buildNotificationLines(
     snapshot: NotificationSnapshot
 ): string[] {
     const lines: string[] = [];
+    const marketplace = isMarketplaceSnapshot(snapshot);
 
     addLine(lines, "ลูกค้า", snapshot.customer_name);
     addLine(lines, "ช่องทาง", snapshot.channel);
@@ -492,7 +549,7 @@ function buildNotificationLines(
         if (
             notificationType === "PAYMENT_REVIEW" ||
             notificationType === "PAYMENT_VERIFIED" ||
-            notificationType === "SALE_WON" ||
+            (notificationType === "SALE_WON" && !marketplace) ||
             snapshot.slip_amount > 0
         ) {
             addLine(
@@ -503,6 +560,28 @@ function buildNotificationLines(
                     : "ยังอ่านยอดจากสลิปไม่ได้"
             );
         }
+
+        if (
+            marketplace &&
+            (notificationType === "SALE_WON" ||
+                notificationType === "SALE_LOST")
+        ) {
+            addLine(
+                lines,
+                "ยอดรวม",
+                formatAmount(snapshot.total_amount)
+            );
+            addLine(
+                lines,
+                "สถานะชำระเงิน",
+                snapshot.payment_status
+            );
+            addLine(
+                lines,
+                "สถานะคำสั่งซื้อ",
+                snapshot.order_status
+            );
+        }
     }
 
     if (notificationType === "SALE_LOST") {
@@ -511,7 +590,13 @@ function buildNotificationLines(
             "ข้อความล่าสุด",
             snapshot.last_message
         );
-        addLine(lines, "สถานะ", "ยกเลิกการสั่งซื้อ");
+        addLine(
+            lines,
+            "สถานะ",
+            marketplace
+                ? "ยกเลิกหรือคืนสินค้าใน Marketplace"
+                : "ยกเลิกการสั่งซื้อ"
+        );
     }
 
     if (notificationType === "PAYMENT_REVIEW") {
@@ -535,7 +620,15 @@ function buildNotificationLines(
     }
 
     if (notificationType === "SALE_WON") {
-        addLine(lines, "สถานะ", "ปิดการขายสำเร็จ");
+        addLine(
+            lines,
+            "สถานะ",
+            marketplace
+                ? snapshot.marketplace_event_kind === "completed"
+                    ? "คำสั่งซื้อสำเร็จแล้ว"
+                    : "ได้รับคำสั่งซื้อใหม่"
+                : "ปิดการขายสำเร็จ"
+        );
     }
 
     if (notificationType === "PAYMENT_OVERDUE") {
@@ -588,20 +681,29 @@ function formatNotificationText(
         typeText,
         snapshot
     );
+    const marketplaceTitle = marketplaceNotificationTitle(
+        typeText,
+        snapshot
+    );
+    const marketplaceAction = marketplaceNextAction(
+        typeText,
+        snapshot
+    );
 
     return [
-        `[CRM] ${NOTIFICATION_ICONS[typeText]} ${NOTIFICATION_LABELS[typeText]}`,
+        `[CRM] ${marketplaceTitle ?? `${NOTIFICATION_ICONS[typeText]} ${NOTIFICATION_LABELS[typeText]}`}`,
         "",
         ...detailLines,
         "",
         `สิ่งที่ต้องทำ: ${
-            typeText === "PAYMENT_REVIEW" &&
+            marketplaceAction ??
+            (typeText === "PAYMENT_REVIEW" &&
             !snapshot.order_number
                 ? "ตรวจสอบข้อมูลลูกค้าและผูกสลิปกับคำสั่งซื้อ"
                 : typeText === "PAYMENT_VERIFIED" &&
                     snapshot.order_status === "Waiting Address"
                   ? "ติดต่อลูกค้าเพื่อขอชื่อ เบอร์โทร และที่อยู่จัดส่ง"
-                  : NEXT_ACTIONS[typeText]
+                  : NEXT_ACTIONS[typeText])
         }`,
     ]
         .filter((line, index, array) => {

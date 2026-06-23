@@ -46,4 +46,23 @@ export interface Env {
 
     ENABLE_TEST_ROUTES?: string;
     PAYMENT_DUE_HOURS?: string;
+
+    TIKTOK_APP_KEY?: string;
+    TIKTOK_APP_SECRET?: string;
+    TIKTOK_API_BASE?: string;
+    TIKTOK_AUTH_BASE?: string;
+    TIKTOK_REDIRECT_URI?: string;
+
+    LAZADA_APP_KEY?: string;
+    LAZADA_APP_SECRET?: string;
+    LAZADA_API_BASE?: string;
+    LAZADA_AUTH_BASE?: string;
+    LAZADA_REDIRECT_URI?: string;
+    LAZADA_POLL_ENABLED?: string;
+    LAZADA_POLL_INITIAL_LOOKBACK_MINUTES?: string;
+    LAZADA_POLL_OVERLAP_MINUTES?: string;
+    LAZADA_POLL_PAGE_SIZE?: string;
+    LAZADA_POLL_MAX_PAGES?: string;
+
+    MARKETPLACE_TOKENS?: KVNamespace;
 }

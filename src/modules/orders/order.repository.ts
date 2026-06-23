@@ -41,6 +41,15 @@ export type UpdateOrderFields = Partial<{
     updated_at: number;
     paid_at: number;
     payment_due_at: number;
+    marketplace_store_id: string;
+    marketplace_store_name: string;
+    marketplace_status: string;
+    marketplace_items_json: string;
+    marketplace_event_id: string;
+    marketplace_updated_at: number;
+    currency: string;
+    tracking_number: string;
+    shipping_provider: string;
 }>;
 
 function normalizeOrderRecord(result: unknown): LarkOrderRecord {
@@ -101,7 +110,27 @@ export async function createOrder(
             order.created_at ?? now,
         [ORDER_FIELDS.UPDATED_AT]:
             order.updated_at ?? now,
+        [ORDER_FIELDS.MARKETPLACE_STORE_ID]:
+            order.marketplace_store_id ?? "",
+        [ORDER_FIELDS.MARKETPLACE_STORE_NAME]:
+            order.marketplace_store_name ?? "",
+        [ORDER_FIELDS.MARKETPLACE_STATUS]:
+            order.marketplace_status ?? "",
+        [ORDER_FIELDS.MARKETPLACE_ITEMS_JSON]:
+            order.marketplace_items_json ?? "",
+        [ORDER_FIELDS.MARKETPLACE_EVENT_ID]:
+            order.marketplace_event_id ?? "",
+        [ORDER_FIELDS.CURRENCY]: order.currency ?? "THB",
+        [ORDER_FIELDS.TRACKING_NUMBER]:
+            order.tracking_number ?? "",
+        [ORDER_FIELDS.SHIPPING_PROVIDER]:
+            order.shipping_provider ?? "",
     };
+
+    if (order.marketplace_updated_at !== undefined) {
+        fields[ORDER_FIELDS.MARKETPLACE_UPDATED_AT] =
+            order.marketplace_updated_at;
+    }
 
     if (
         order.slip_attachment_tokens &&
@@ -246,6 +275,51 @@ export async function updateOrder(
             fields.payment_due_at;
     }
 
+
+    if (fields.marketplace_store_id !== undefined) {
+        larkFields[ORDER_FIELDS.MARKETPLACE_STORE_ID] =
+            fields.marketplace_store_id;
+    }
+
+    if (fields.marketplace_store_name !== undefined) {
+        larkFields[ORDER_FIELDS.MARKETPLACE_STORE_NAME] =
+            fields.marketplace_store_name;
+    }
+
+    if (fields.marketplace_status !== undefined) {
+        larkFields[ORDER_FIELDS.MARKETPLACE_STATUS] =
+            fields.marketplace_status;
+    }
+
+    if (fields.marketplace_items_json !== undefined) {
+        larkFields[ORDER_FIELDS.MARKETPLACE_ITEMS_JSON] =
+            fields.marketplace_items_json;
+    }
+
+    if (fields.marketplace_event_id !== undefined) {
+        larkFields[ORDER_FIELDS.MARKETPLACE_EVENT_ID] =
+            fields.marketplace_event_id;
+    }
+
+    if (fields.marketplace_updated_at !== undefined) {
+        larkFields[ORDER_FIELDS.MARKETPLACE_UPDATED_AT] =
+            fields.marketplace_updated_at;
+    }
+
+    if (fields.currency !== undefined) {
+        larkFields[ORDER_FIELDS.CURRENCY] = fields.currency;
+    }
+
+    if (fields.tracking_number !== undefined) {
+        larkFields[ORDER_FIELDS.TRACKING_NUMBER] =
+            fields.tracking_number;
+    }
+
+    if (fields.shipping_provider !== undefined) {
+        larkFields[ORDER_FIELDS.SHIPPING_PROVIDER] =
+            fields.shipping_provider;
+    }
+
     larkFields[ORDER_FIELDS.UPDATED_AT] =
         fields.updated_at ?? Date.now();
 
@@ -376,6 +450,51 @@ export async function findOpenOrdersByCustomer(
             right.record_id
         );
     });
+}
+
+export async function findOrdersByCustomer(
+    env: Env,
+    customerRecordId: string
+): Promise<LarkOrderRecord[]> {
+    const orders = await listOrders(env);
+
+    return orders.filter((order) =>
+        getLinkedRecordIds(
+            order.fields[ORDER_FIELDS.CUSTOMER]
+        ).includes(customerRecordId)
+    );
+}
+
+export async function findOrderByChannelAndExternalId(
+    env: Env,
+    channel: Order["channel"],
+    externalOrderId: string
+): Promise<LarkOrderRecord | null> {
+    const records = await searchLarkRecords(
+        env,
+        env.ORDERS_TABLE_ID,
+        {
+            conjunction: "and",
+            conditions: [
+                {
+                    field_name: ORDER_FIELDS.CHANNEL,
+                    operator: "is",
+                    value: [channel],
+                },
+                {
+                    field_name: ORDER_FIELDS.EXTERNAL_ORDER_ID,
+                    operator: "is",
+                    value: [externalOrderId],
+                },
+            ],
+        }
+    );
+
+    if (records.length === 0) {
+        return null;
+    }
+
+    return normalizeOrderRecord(records[0]);
 }
 
 export async function listOrders(

@@ -12,8 +12,12 @@ export type OrderStatus =
     | "Waiting Payment"
     | "Payment Review"
     | "Waiting Address"
+    | "Processing"
+    | "Ready to Ship"
+    | "Shipped"
     | "Completed"
-    | "Cancelled";
+    | "Cancelled"
+    | "Returned";
 
 export interface Order {
     order_number: string;
@@ -65,4 +69,22 @@ export interface Order {
     paid_at?: number;
 
     payment_due_at?: number;
+
+    marketplace_store_id?: string;
+
+    marketplace_store_name?: string;
+
+    marketplace_status?: string;
+
+    marketplace_items_json?: string;
+
+    marketplace_event_id?: string;
+
+    marketplace_updated_at?: number;
+
+    currency?: string;
+
+    tracking_number?: string;
+
+    shipping_provider?: string;
 }

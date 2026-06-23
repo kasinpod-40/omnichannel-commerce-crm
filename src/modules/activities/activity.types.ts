@@ -14,7 +14,9 @@ export type ActivityAction =
     | "SALE_LOST"
     | "ORDER_CANCELLED"
     | "SALES_ASSIGNED"
-    | "PAYMENT_OVERDUE";
+    | "PAYMENT_OVERDUE"
+    | "MARKETPLACE_ORDER_CREATED"
+    | "MARKETPLACE_ORDER_UPDATED";
 
 export type ActivityValue =
     | string

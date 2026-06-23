@@ -31,6 +31,7 @@ export type NotificationSnapshot = {
     slip_amount: number;
     payment_status?: string;
     order_status?: string;
+    marketplace_event_kind?: "created" | "completed" | "cancelled";
 };
 
 export type Notification = {

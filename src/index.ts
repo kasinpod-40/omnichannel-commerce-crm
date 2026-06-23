@@ -24,6 +24,31 @@ import {
   handlePaymentOverdueWebhook,
 } from "./routes/payment-overdue.route";
 import { handleDashboardSummary } from "./routes/dashboard.route";
+import { handleMarketplaceOrderUpsert } from "./routes/marketplace.route";
+import { handleShopeeSimulation } from "./routes/shopee.route";
+import { handleLazadaSimulation } from "./routes/lazada.route";
+import { handleTikTokSimulation } from "./routes/tiktok.route";
+import { handleMarketplaceManualBatch } from "./routes/marketplace-batch.route";
+import {
+  handleTikTokAdminRefreshToken,
+  handleTikTokAdminStatus,
+  handleTikTokAdminSyncOrder,
+  handleTikTokOAuthCallback,
+  handleTikTokWebhook,
+} from "./routes/tiktok-live.route";
+import {
+  handleLazadaAdminPollStatus,
+  handleLazadaAdminResetPollCursor,
+  handleLazadaAdminSyncRecent,
+} from "./routes/lazada-poll.route";
+import { runLazadaPolling } from "./modules/marketplace/lazada/lazada.poller";
+import {
+  handleLazadaAdminRefreshToken,
+  handleLazadaAdminStatus,
+  handleLazadaAdminSyncOrder,
+  handleLazadaOAuthCallback,
+  handleLazadaWebhook,
+} from "./routes/lazada-live.route";
 import {
   handleCreateTestCustomer,
   handleLarkTest,
@@ -131,7 +156,8 @@ async function handleTestRoute(
 export default {
   async fetch(
     request: Request,
-    env: Env
+    env: Env,
+    ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
 
@@ -171,6 +197,82 @@ export default {
       return await handleDashboardSummary(request, env);
     }
 
+    if (url.pathname === "/admin/marketplace/orders/upsert") {
+      return await handleMarketplaceOrderUpsert(request, env);
+    }
+
+    if (url.pathname === "/admin/marketplace/simulate/shopee") {
+      return await handleShopeeSimulation(request, env);
+    }
+
+    if (url.pathname === "/admin/marketplace/simulate/lazada") {
+      return await handleLazadaSimulation(request, env);
+    }
+
+    if (url.pathname === "/admin/marketplace/simulate/tiktok") {
+      return await handleTikTokSimulation(request, env);
+    }
+
+    if (
+      url.pathname === "/admin/marketplace/manual/batch" ||
+      url.pathname === "/admin/marketplace/simulate/batch"
+    ) {
+      return await handleMarketplaceManualBatch(request, env);
+    }
+
+    if (url.pathname === "/oauth/tiktok/callback") {
+      return await handleTikTokOAuthCallback(request, env);
+    }
+
+    if (url.pathname === "/webhooks/tiktok") {
+      return await handleTikTokWebhook(request, env);
+    }
+
+    if (url.pathname === "/admin/tiktok/status") {
+      return await handleTikTokAdminStatus(request, env);
+    }
+
+    if (url.pathname === "/admin/tiktok/sync/order") {
+      return await handleTikTokAdminSyncOrder(request, env);
+    }
+
+    if (url.pathname === "/admin/tiktok/token/refresh") {
+      return await handleTikTokAdminRefreshToken(request, env);
+    }
+
+    if (url.pathname === "/oauth/lazada/callback") {
+      return await handleLazadaOAuthCallback(request, env);
+    }
+
+    if (url.pathname === "/webhooks/lazada") {
+      return await handleLazadaWebhook(request, env, ctx);
+    }
+
+    if (url.pathname === "/admin/lazada/status") {
+      return await handleLazadaAdminStatus(request, env);
+    }
+
+    if (url.pathname === "/admin/lazada/sync/order") {
+      return await handleLazadaAdminSyncOrder(request, env);
+    }
+
+
+    if (url.pathname === "/admin/lazada/sync/recent") {
+      return await handleLazadaAdminSyncRecent(request, env);
+    }
+
+    if (url.pathname === "/admin/lazada/poll/status") {
+      return await handleLazadaAdminPollStatus(request, env);
+    }
+
+    if (url.pathname === "/admin/lazada/poll/reset") {
+      return await handleLazadaAdminResetPollCursor(request, env);
+    }
+
+    if (url.pathname === "/admin/lazada/token/refresh") {
+      return await handleLazadaAdminRefreshToken(request, env);
+    }
+
     const testResponse = await handleTestRoute(
       request,
       env,
@@ -188,6 +290,25 @@ export default {
         path: url.pathname,
       },
       404
+    );
+  },
+
+
+  async scheduled(
+    controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    ctx.waitUntil(
+      runLazadaPolling({
+        env,
+        trigger: "cron",
+        runAtMs: controller.scheduledTime,
+      }).catch((error) => {
+        console.error("LAZADA_POLL_SCHEDULED_FAILED", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
     );
   },
 
