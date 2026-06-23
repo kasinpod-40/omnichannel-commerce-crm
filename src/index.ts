@@ -24,6 +24,8 @@ import {
   handlePaymentOverdueWebhook,
 } from "./routes/payment-overdue.route";
 import { handleDashboardSummary } from "./routes/dashboard.route";
+import { handleMarketplaceDashboard } from "./routes/marketplace-dashboard.route";
+import { handleDocumentRoutes } from "./routes/document.route";
 import { handleMarketplaceOrderUpsert } from "./routes/marketplace.route";
 import { handleShopeeSimulation } from "./routes/shopee.route";
 import { handleLazadaSimulation } from "./routes/lazada.route";
@@ -195,6 +197,20 @@ export default {
 
     if (url.pathname === "/admin/dashboard/summary") {
       return await handleDashboardSummary(request, env);
+    }
+
+    if (url.pathname === "/admin/dashboard/marketplace") {
+      return await handleMarketplaceDashboard(request, env);
+    }
+
+    const documentResponse = await handleDocumentRoutes(
+      request,
+      env,
+      url.pathname
+    );
+
+    if (documentResponse) {
+      return documentResponse;
     }
 
     if (url.pathname === "/admin/marketplace/orders/upsert") {

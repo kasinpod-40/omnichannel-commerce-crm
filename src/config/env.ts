@@ -64,5 +64,19 @@ export interface Env {
     LAZADA_POLL_PAGE_SIZE?: string;
     LAZADA_POLL_MAX_PAGES?: string;
 
+
+    DOCUMENT_LINK_SECRET?: string;
+    DOCUMENT_COMPANY_NAME?: string;
+    DOCUMENT_COMPANY_ADDRESS?: string;
+    DOCUMENT_COMPANY_TAX_ID?: string;
+    DOCUMENT_COMPANY_BRANCH?: string;
+    DOCUMENT_COMPANY_PHONE?: string;
+    DOCUMENT_COMPANY_EMAIL?: string;
+    DOCUMENT_LOGO_URL?: string;
+    DOCUMENT_NOTE?: string;
+    DOCUMENT_QUOTATION_VALID_DAYS?: string;
+    DOCUMENT_VAT_RATE?: string;
+    DOCUMENT_PRICE_INCLUDES_VAT?: string;
+
     MARKETPLACE_TOKENS?: KVNamespace;
 }
