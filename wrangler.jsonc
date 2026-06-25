@@ -19,7 +19,7 @@
 		"LAZADA_API_BASE": "https://api.lazada.co.th/rest",
 		"LAZADA_AUTH_BASE": "https://auth.lazada.com",
 		"LAZADA_REDIRECT_URI": "https://omnichannel-commerce-crm.kasinpod40.workers.dev/oauth/lazada/callback",
-		"LAZADA_POLL_ENABLED": "true",
+		"LAZADA_POLL_ENABLED": "false",
 		"LAZADA_POLL_INITIAL_LOOKBACK_MINUTES": "1440",
 		"LAZADA_POLL_OVERLAP_MINUTES": "10",
 		"LAZADA_POLL_PAGE_SIZE": "100",
@@ -46,6 +46,10 @@
 			{
 				"binding": "NOTIFICATION_QUEUE",
 				"queue": "crm-notifications"
+			},
+			{
+				"binding": "MARKETPLACE_EVENTS_QUEUE",
+				"queue": "crm-marketplace-events"
 			}
 		],
 		"consumers": [
@@ -66,6 +70,14 @@
 				"dead_letter_queue": "crm-notifications-dlq"
 			},
 			{
+				"queue": "crm-marketplace-events",
+				"max_batch_size": 100,
+				"max_batch_timeout": 5,
+				"max_concurrency": 1,
+				"max_retries": 5,
+				"dead_letter_queue": "crm-marketplace-events-dlq"
+			},
+			{
 				"queue": "crm-line-events-dlq",
 				"max_batch_size": 1,
 				"max_batch_timeout": 1,
@@ -74,6 +86,13 @@
 			},
 			{
 				"queue": "crm-notifications-dlq",
+				"max_batch_size": 1,
+				"max_batch_timeout": 1,
+				"max_concurrency": 1,
+				"max_retries": 0
+			},
+			{
+				"queue": "crm-marketplace-events-dlq",
 				"max_batch_size": 1,
 				"max_batch_timeout": 1,
 				"max_concurrency": 1,
@@ -90,10 +109,5 @@
 			"binding": "MARKETPLACE_TOKENS",
 			"id": "734afda4df064541a30925df47df1583"
 		}
-	],
-	"triggers": {
-		"crons": [
-			"*/5 * * * *"
-		]
-	}
+	]
 }

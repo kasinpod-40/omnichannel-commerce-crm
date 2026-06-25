@@ -465,12 +465,67 @@ export async function findOrdersByCustomer(
     );
 }
 
+function selectCanonicalMarketplaceOrder(
+    records: unknown[],
+    channel: Order["channel"],
+    externalOrderId: string
+): LarkOrderRecord | null {
+    const normalizedChannel = channel.trim().toLowerCase();
+    const normalizedExternalOrderId = externalOrderId.trim();
+    const matches = records
+        .map(normalizeOrderRecord)
+        .filter((record) => {
+            const recordChannel = getLarkText(
+                record.fields[ORDER_FIELDS.CHANNEL],
+                ""
+            ).trim().toLowerCase();
+            const recordExternalOrderId = getLarkText(
+                record.fields[ORDER_FIELDS.EXTERNAL_ORDER_ID],
+                ""
+            ).trim();
+
+            return (
+                recordChannel === normalizedChannel &&
+                recordExternalOrderId === normalizedExternalOrderId
+            );
+        })
+        .sort((left, right) => {
+            const leftCreatedAt = getLarkNumber(
+                left.fields[ORDER_FIELDS.CREATED_AT],
+                Number.MAX_SAFE_INTEGER
+            );
+            const rightCreatedAt = getLarkNumber(
+                right.fields[ORDER_FIELDS.CREATED_AT],
+                Number.MAX_SAFE_INTEGER
+            );
+
+            if (leftCreatedAt !== rightCreatedAt) {
+                return leftCreatedAt - rightCreatedAt;
+            }
+
+            return left.record_id.localeCompare(right.record_id);
+        });
+
+    if (matches.length > 1) {
+        console.warn("MARKETPLACE_ORDER_DUPLICATES_FOUND", {
+            channel,
+            external_order_id: externalOrderId,
+            canonical_record_id: matches[0]?.record_id,
+            duplicate_record_ids: matches
+                .slice(1)
+                .map((record) => record.record_id),
+        });
+    }
+
+    return matches[0] ?? null;
+}
+
 export async function findOrderByChannelAndExternalId(
     env: Env,
     channel: Order["channel"],
     externalOrderId: string
 ): Promise<LarkOrderRecord | null> {
-    const records = await searchLarkRecords(
+    const searchedRecords = await searchLarkRecords(
         env,
         env.ORDERS_TABLE_ID,
         {
@@ -489,12 +544,31 @@ export async function findOrderByChannelAndExternalId(
             ],
         }
     );
+    const searchedMatch = selectCanonicalMarketplaceOrder(
+        searchedRecords,
+        channel,
+        externalOrderId
+    );
 
-    if (records.length === 0) {
-        return null;
+    if (searchedMatch) {
+        return searchedMatch;
     }
 
-    return normalizeOrderRecord(records[0]);
+    /*
+     * Lark Search อาจยังไม่เห็น Record ที่เพิ่งสร้างทันที
+     * จึงใช้ List Records เป็น Fallback แล้วเทียบค่า Channel + External Order ID แบบตรงตัว
+     * Queue จะประมวลผลทีละ Batch ทำให้ Event ถัดไปอัปเดต Record เดิมแทนการสร้างซ้ำ
+     */
+    const listedRecords = await listLarkRecords(
+        env,
+        env.ORDERS_TABLE_ID
+    );
+
+    return selectCanonicalMarketplaceOrder(
+        listedRecords,
+        channel,
+        externalOrderId
+    );
 }
 
 export async function listOrders(

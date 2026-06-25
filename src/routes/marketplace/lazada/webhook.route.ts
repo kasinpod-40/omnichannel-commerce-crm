@@ -1,12 +1,10 @@
 import type { Env } from "../../../config/env";
-import { adaptLazadaThailand } from "../../../modules/marketplace/adapters/lazada.adapter";
 import { verifyLazadaWebhookSignature } from "../../../modules/marketplace/lazada/lazada.crypto";
-import { resolveLazadaCredential } from "../../../modules/marketplace/lazada/lazada.token-store";
 import type { LazadaWebhookEnvelope } from "../../../modules/marketplace/lazada/lazada.types";
-import { upsertMarketplaceOrder } from "../../../modules/marketplace/marketplace.service";
 import { jsonResponse } from "../../../utils/response";
 import { firstText } from "../../shared/value";
-import { extractWebhookIdentity, fetchLazadaOrderBundle } from "./live.shared";
+import { enqueueMarketplaceEvent } from "../../../queues/marketplace-event.producer";
+import { extractWebhookIdentity } from "./live.shared";
 
 type LazadaWebhookContext = Pick<ExecutionContext, "waitUntil">;
 
@@ -22,61 +20,10 @@ function isLazadaVerificationProbe(identity: {
     );
 }
 
-async function processLazadaWebhookEvent(input: {
-    env: Env;
-    webhook: LazadaWebhookEnvelope;
-    identity: ReturnType<typeof extractWebhookIdentity>;
-}): Promise<void> {
-    try {
-        const credential = await resolveLazadaCredential(input.env, {
-            sellerId: input.identity.sellerId,
-        });
-
-        if (!credential) {
-            throw new Error(
-                `LAZADA_SELLER_CREDENTIAL_NOT_FOUND:${input.identity.sellerId || "unknown"}`
-            );
-        }
-
-        const bundle = await fetchLazadaOrderBundle(
-            input.env,
-            credential,
-            input.identity.orderId
-        );
-        const adapted = adaptLazadaThailand({
-            webhook: input.webhook,
-            order_detail_response: bundle.orderDetail,
-            order_items_response: bundle.orderItems,
-            store_name: credential.account || `Lazada ${credential.seller_id}`,
-        });
-        const result = await upsertMarketplaceOrder(
-            input.env,
-            adapted.normalized
-        );
-
-        console.log("LAZADA_WEBHOOK_PROCESS_COMPLETED", {
-            seller_id: input.identity.sellerId,
-            order_id: input.identity.orderId,
-            message_type: input.identity.messageType,
-            order_status: input.identity.orderStatus,
-            result,
-        });
-    } catch (error) {
-        const message =
-            error instanceof Error ? error.message : String(error);
-        console.error("LAZADA_WEBHOOK_PROCESS_FAILED", {
-            seller_id: input.identity.sellerId,
-            order_id: input.identity.orderId,
-            message_type: input.identity.messageType,
-            error: message,
-        });
-    }
-}
-
 export async function handleLazadaWebhook(
     request: Request,
     env: Env,
-    context?: LazadaWebhookContext
+    _context?: LazadaWebhookContext
 ): Promise<Response> {
     if (request.method === "GET") {
         return jsonResponse({
@@ -135,8 +82,8 @@ export async function handleLazadaWebhook(
 
     const identity = extractWebhookIdentity(webhook);
 
-    // Lazada sends a signed synthetic order during Push Mechanism verification.
-    // It must be acknowledged without trying to load a real seller credential.
+    // Lazada ส่ง Order จำลองที่มี Signature มาใช้ตรวจสอบ Push Mechanism
+    // ต้องตอบรับทันทีโดยไม่พยายามค้นหา Credential ของร้านจริง
     if (isLazadaVerificationProbe(identity)) {
         console.log("LAZADA_WEBHOOK_VERIFICATION_ACCEPTED", {
             seller_id: identity.sellerId,
@@ -160,30 +107,26 @@ export async function handleLazadaWebhook(
         });
     }
 
-    const processing = processLazadaWebhookEvent({
-        env,
+    /*
+     * Lazada อาจส่งหลาย Event ของ Order เดียวกันเข้ามาพร้อมกัน
+     * จึงรับ Webhook แล้วส่งเข้า Queue ก่อน เพื่อให้ประมวลผลเรียงทีละรายการ
+     * และตอบกลับ Lazada ให้เร็วโดยไม่รอการดึง Order API กับการเขียน Lark
+     */
+    await enqueueMarketplaceEvent(env, {
+        schema_version: 1,
+        channel: "Lazada",
+        seller_id: identity.sellerId,
+        order_id: identity.orderId,
+        order_status: identity.orderStatus,
+        message_type: identity.messageType,
+        received_at: Date.now(),
         webhook,
-        identity,
     });
-
-    if (context) {
-        context.waitUntil(processing);
-
-        return jsonResponse({
-            ok: true,
-            accepted: true,
-            message_type: identity.messageType,
-            order_id: identity.orderId,
-            order_status: identity.orderStatus,
-        });
-    }
-
-    await processing;
 
     return jsonResponse({
         ok: true,
         accepted: true,
-        processed: true,
+        queued: true,
         message_type: identity.messageType,
         order_id: identity.orderId,
         order_status: identity.orderStatus,

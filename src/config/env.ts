@@ -3,6 +3,7 @@ import type {
     QueueProducerBinding,
 } from "../queues/line-event.types";
 import type { NotificationQueueMessage } from "../queues/notification-event.types";
+import type { MarketplaceEventQueueMessage } from "../queues/marketplace-event.types";
 
 export interface WorkersAIBinding {
     run(
@@ -41,6 +42,7 @@ export interface Env {
     LINE_CHANNEL_ACCESS_TOKEN: string;
     LINE_EVENTS_QUEUE: QueueProducerBinding<LineEventQueueMessage>;
     NOTIFICATION_QUEUE: QueueProducerBinding<NotificationQueueMessage>;
+    MARKETPLACE_EVENTS_QUEUE: QueueProducerBinding<MarketplaceEventQueueMessage>;
 
     ENABLE_TEST_ROUTES?: string;
     PAYMENT_DUE_HOURS?: string;

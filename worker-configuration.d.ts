@@ -5,6 +5,7 @@ interface __BaseEnv_Env {
 	MARKETPLACE_TOKENS: KVNamespace;
 	LINE_EVENTS_QUEUE: Queue;
 	NOTIFICATION_QUEUE: Queue;
+	MARKETPLACE_EVENTS_QUEUE: Queue;
 	AI: Ai;
 	ENVIRONMENT: "production";
 	ENABLE_TEST_ROUTES: "false";

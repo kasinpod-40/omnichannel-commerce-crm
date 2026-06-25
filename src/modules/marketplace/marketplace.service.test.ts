@@ -247,6 +247,34 @@ describe("marketplace order upsert", () => {
         );
     });
 
+    it("does not send the cancellation notification again when the order was already Cancelled", async () => {
+        findOrderByChannelAndExternalId.mockResolvedValue({
+            record_id: "order-1",
+            fields: {
+                [ORDER_FIELDS.CUSTOMER]: ["cus-1"],
+                [ORDER_FIELDS.MARKETPLACE_EVENT_ID]: "evt-cancelled-old",
+                [ORDER_FIELDS.MARKETPLACE_UPDATED_AT]: 1_000_000,
+                [ORDER_FIELDS.MARKETPLACE_STATUS]: "CANCELLED",
+                [ORDER_FIELDS.ORDER_STATUS]: "Cancelled",
+                [ORDER_FIELDS.PAYMENT_STATUS]: "Pending",
+            },
+        });
+
+        const result = await upsertMarketplaceOrder(env, {
+            ...input,
+            channel: "Lazada",
+            event_id: "evt-cancelled-new",
+            external_order_id: "LAZADA-ORDER-CANCELLED",
+            marketplace_status: "canceled",
+            marketplace_payment_status: "REFUNDED",
+            updated_at: 3_000,
+        });
+
+        expect(result.action).toBe("updated");
+        expect(result.order_status).toBe("Cancelled");
+        expect(recordAndDispatchNotificationOnce).not.toHaveBeenCalled();
+    });
+
     it("does not process the same event twice", async () => {
         findOrderByChannelAndExternalId.mockResolvedValue({
             record_id: "order-1",

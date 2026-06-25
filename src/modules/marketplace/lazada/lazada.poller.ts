@@ -566,7 +566,7 @@ export async function runLazadaPolling(input: {
     const enabled =
         input.env.LAZADA_POLL_ENABLED?.trim().toLowerCase() !== "false";
 
-    if (!enabled) {
+    if (!enabled && input.trigger === "cron") {
         return {
             ok: true,
             trigger: input.trigger,

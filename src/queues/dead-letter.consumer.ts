@@ -11,6 +11,7 @@ import type {
     QueueBatchLike,
 } from "./line-event.types";
 import type { NotificationQueueMessage } from "./notification-event.types";
+import type { MarketplaceEventQueueMessage } from "./marketplace-event.types";
 
 export async function handleLineDlqBatch(
     batch: QueueBatchLike<LineEventQueueMessage>,
@@ -113,6 +114,29 @@ export async function handleNotificationDlqBatch(
             notification_record_id:
                 notificationRecordId,
             event_id: message.body?.event_id,
+        });
+
+        message.ack();
+    }
+}
+
+/**
+ * รับ Marketplace Event ที่ Retry ครบแล้วเพื่อเก็บ Log ไว้ตรวจสอบ
+ * Queue นี้ไม่เขียน Notification ซ้ำและไม่วน Retry ต่อ
+ */
+export async function handleMarketplaceDlqBatch(
+    batch: QueueBatchLike<MarketplaceEventQueueMessage>,
+    _env: Env
+): Promise<void> {
+    for (const message of batch.messages) {
+        console.error("MARKETPLACE_EVENT_MOVED_TO_DLQ", {
+            queue_message_id: message.id,
+            attempts: message.attempts,
+            channel: message.body?.channel,
+            seller_id: message.body?.seller_id,
+            order_id: message.body?.order_id,
+            message_type: message.body?.message_type,
+            received_at: message.body?.received_at,
         });
 
         message.ack();

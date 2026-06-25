@@ -658,7 +658,10 @@ export async function upsertMarketplaceOrder(
                 "completed",
                 aggregateCustomerState
             );
-        } else if (isCancelledOrReturned(mapping.order_status)) {
+        } else if (
+            isCancelledOrReturned(mapping.order_status) &&
+            !isCancelledOrReturned(oldOrderStatus)
+        ) {
             await dispatchMarketplaceNotification(
                 env,
                 input,
