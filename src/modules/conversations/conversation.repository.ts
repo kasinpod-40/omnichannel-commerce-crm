@@ -54,8 +54,6 @@ function buildConversationFields(
         [CONVERSATION_FIELDS.MESSAGE_TYPE]:
             conversation.message_type,
         [CONVERSATION_FIELDS.MESSAGE]: conversation.message,
-        [CONVERSATION_FIELDS.IMAGE_URL]:
-            conversation.image_url ?? "",
         [CONVERSATION_FIELDS.INTENT]: conversation.intent,
         [CONVERSATION_FIELDS.BUYER_INTENT]:
             conversation.buyer_intent,
@@ -72,6 +70,15 @@ function buildConversationFields(
         [CONVERSATION_FIELDS.CREATED_AT]:
             conversation.created_at ?? Date.now(),
     };
+
+    const imageUrl = conversation.image_url?.trim();
+
+    if (imageUrl) {
+        fields[CONVERSATION_FIELDS.IMAGE_URL] = {
+            link: imageUrl,
+            text: "Open image",
+        };
+    }
 
     if (conversation.image_type) {
         fields[CONVERSATION_FIELDS.IMAGE_TYPE] =

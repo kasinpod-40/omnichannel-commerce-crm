@@ -158,7 +158,6 @@ async function processImageEvent(
         message_type: "image",
         message: imageAnalysis.summary || "ลูกค้าส่งรูปภาพ",
         customer_name_resolver: customerNameResolver,
-        image_url: "",
         image_attachment_tokens: attachmentTokens,
         slip_amount: isPaymentSlip
             ? imageAnalysis.slip_amount
@@ -166,7 +165,6 @@ async function processImageEvent(
         slip_bank: isPaymentSlip
             ? imageAnalysis.slip_bank
             : undefined,
-        slip_image_url: "",
         slip_attachment_tokens: isPaymentSlip
             ? attachmentTokens
             : undefined,

@@ -97,6 +97,8 @@ export function classifyOperationalError(
         normalized.includes("permission") ||
         normalized.includes("fieldnamenotfound") ||
         normalized.includes("field name not found") ||
+        normalized.includes("fieldconvfail") ||
+        normalized.includes("failed to convert phone field") ||
         normalized.includes("unsupported image") ||
         normalized.includes("image is empty") ||
         normalized.includes("image is too large") ||

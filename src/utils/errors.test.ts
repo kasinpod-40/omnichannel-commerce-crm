@@ -47,6 +47,16 @@ describe("operational error classification", () => {
         });
     });
 
+    it("does not retry Lark field conversion failures", () => {
+        expect(
+            classifyOperationalError(
+                new Error(
+                    'Lark Create Record Error: {"code":1254068,"msg":"URLFieldConvFail"}'
+                )
+            ).retryable
+        ).toBe(false);
+    });
+
     it("does not retry data invariant violations", () => {
         expect(
             classifyOperationalError(
