@@ -3,6 +3,7 @@ import { ACTIVITY_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
     searchLarkRecords,
+    listLarkRecords,
 } from "../../providers/lark/lark.provider";
 import type { Activity } from "./activity.types";
 
@@ -101,4 +102,16 @@ export async function createActivity(
     );
 
     return normalizeActivityRecord(result);
+}
+
+/** ดึง Activity ทั้งหมดสำหรับหน้า Dashboard และรายงานภายใน */
+export async function listActivities(
+    env: Env
+): Promise<LarkActivityRecord[]> {
+    const records = await listLarkRecords(
+        env,
+        env.ACTIVITIES_TABLE_ID
+    );
+
+    return records.map(normalizeActivityRecord);
 }

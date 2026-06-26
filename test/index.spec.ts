@@ -23,7 +23,18 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "architecture-refactor-th-17",
+            version: "lark-auth-th-18",
+        });
+    });
+
+    it("returns 401 for /auth/me when the session cookie is missing", async () => {
+        const response = await SELF.fetch(
+            "https://example.com/auth/me"
+        );
+
+        expect(response.status).toBe(401);
+        await expect(response.json()).resolves.toMatchObject({
+            code: "AUTH_SESSION_MISSING",
         });
     });
 

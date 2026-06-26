@@ -18,6 +18,15 @@ export interface Env {
     LARK_APP_ID: string;
     LARK_APP_SECRET: string;
 
+    // Dashboard Authentication: ค่าจริงตั้งผ่าน Wrangler/Cloudflare หลัง Deploy Frontend
+    DASHBOARD_URL: string;
+    LARK_AUTH_REDIRECT_URI: string;
+    LARK_ALLOWED_TENANT_KEY?: string;
+    AUTH_SESSION_SECRET: string;
+    AUTH_ALLOWED_ORIGINS?: string;
+    AUTH_SESSION_TTL_SECONDS?: string;
+    AUTH_COOKIE_SAME_SITE?: string;
+
     LARK_APP_TOKEN: string;
     LARK_GROUP_WEBHOOK_URL: string;
     NOTIFICATION_DISPATCH_TOKEN: string;

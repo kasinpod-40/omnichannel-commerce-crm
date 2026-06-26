@@ -1,4 +1,5 @@
 import type { Env } from "../config/env";
+import { handleAuthRoutes } from "../routes/auth";
 import { handleDashboardRoutes } from "../routes/dashboard";
 import { handleDocumentRoutes } from "../routes/documents";
 import { handleHealthRoute } from "../routes/health.route";
@@ -22,6 +23,7 @@ export async function handleHttpRequest(
     }
 
     const featureHandlers: FeatureRouteHandler[] = [
+        () => handleAuthRoutes(request, env, pathname),
         () => handleLineRoutes(request, env, pathname),
         () => handleLarkOperationalRoutes(request, env, pathname),
         () => handleDashboardRoutes(request, env, pathname),
