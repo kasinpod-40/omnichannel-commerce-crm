@@ -1,6 +1,8 @@
 import type { Env } from "../config/env";
 import { handleAuthRoutes } from "../routes/auth";
+import { handleCustomerRoutes } from "../routes/customers";
 import { handleDashboardRoutes } from "../routes/dashboard";
+import { handleApiDocsRoutes } from "../routes/docs";
 import { handleDocumentRoutes } from "../routes/documents";
 import { handleHealthRoute } from "../routes/health.route";
 import { handleLarkOperationalRoutes } from "../routes/lark";
@@ -23,10 +25,12 @@ export async function handleHttpRequest(
     }
 
     const featureHandlers: FeatureRouteHandler[] = [
+        () => handleApiDocsRoutes(request, env, pathname),
         () => handleAuthRoutes(request, env, pathname),
         () => handleLineRoutes(request, env, pathname),
         () => handleLarkOperationalRoutes(request, env, pathname),
         () => handleDashboardRoutes(request, env, pathname),
+        () => handleCustomerRoutes(request, env, pathname),
         () => handleDocumentRoutes(request, env, pathname),
         () => handleMarketplaceRoutes(request, env, ctx, pathname),
         () => handleTestingRoutes(request, env, pathname),

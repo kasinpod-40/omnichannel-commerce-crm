@@ -50,12 +50,14 @@ describe("commerce dashboard summary", () => {
             {
                 record_id: "rec_customer_current",
                 fields: {
+                    [CUSTOMER_FIELDS.CUSTOMER_NAME]: "คุณมินท์",
                     [CUSTOMER_FIELDS.CREATED_AT]: daysAgo(5),
                 },
             },
             {
                 record_id: "rec_customer_previous",
                 fields: {
+                    [CUSTOMER_FIELDS.CUSTOMER_NAME]: "คุณพลอย",
                     [CUSTOMER_FIELDS.CREATED_AT]: daysAgo(35),
                 },
             },
@@ -130,6 +132,7 @@ describe("commerce dashboard summary", () => {
                 fields: {
                     [ACTIVITY_FIELDS.EVENT_ID]: "evt-new",
                     [ACTIVITY_FIELDS.ACTION]: "PAYMENT_VERIFIED",
+                    [ACTIVITY_FIELDS.CUSTOMER]: ["rec_customer_current"],
                     [ACTIVITY_FIELDS.NEW_VALUE]: JSON.stringify({
                         order_record_id: "rec_order_line",
                         payment_status: "Paid",
@@ -184,6 +187,7 @@ describe("commerce dashboard summary", () => {
         expect(result.recent_activities[0]).toMatchObject({
             id: "evt-new",
             title: "ยืนยันการชำระเงินแล้ว",
+            detail: "ลูกค้า คุณมินท์ · Order rec_order_line · Paid",
             type: "payment",
         });
     });
@@ -198,8 +202,8 @@ describe("commerce dashboard summary", () => {
         expect(result.recent_activities[0]?.title).toBe(
             "Payment verified"
         );
-        expect(result.recent_activities[0]?.detail).toContain(
-            "Order rec_order_line"
+        expect(result.recent_activities[0]?.detail).toBe(
+            "Customer คุณมินท์ · Order rec_order_line · Paid"
         );
     });
 

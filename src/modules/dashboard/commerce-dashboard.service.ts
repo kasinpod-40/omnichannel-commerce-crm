@@ -352,46 +352,60 @@ const ACTIVITY_TITLES: Record<
     },
 };
 
+/**
+ * สร้างข้อความรายละเอียดกิจกรรมโดยใช้ชื่อลูกค้าจริงแทน Lark record_id
+ *
+ * ผู้เรียกใช้: mapRecentActivities()
+ * แหล่งชื่อ: Customers table ที่ buildCommerceDashboardSummary() ดึงมาพร้อม Activity
+ * เหตุผล: record_id เช่น recxxxxxxxx เป็นข้อมูลเทคนิคและไม่ควรแสดงให้ผู้ใช้ปลายทาง
+ */
 function activityDetail(
     activity: LarkRecord,
     payload: Record<string, unknown>,
-    language: DashboardLanguage
+    language: DashboardLanguage,
+    customerNameByRecordId: ReadonlyMap<string, string>
 ): string {
     const orderId = getLarkText(payload.order_record_id, "").trim();
     const pipelineId = getLarkText(payload.pipeline_record_id, "").trim();
     const customerId = getFirstLinkedRecordId(
         activity.fields[ACTIVITY_FIELDS.CUSTOMER]
     );
+    const customerNameFromPayload = getLarkText(
+        payload.customer_name,
+        ""
+    ).trim();
+    const customerName =
+        (customerId ? customerNameByRecordId.get(customerId) : undefined) ||
+        customerNameFromPayload ||
+        (language === "th" ? "ไม่ระบุชื่อ" : "Unnamed customer");
     const status =
         getLarkText(payload.payment_status, "").trim() ||
         getLarkText(payload.order_status, "").trim() ||
         getLarkText(payload.stage, "").trim();
 
-    const parts: string[] = [];
+    const parts: string[] = [
+        language === "th"
+            ? `ลูกค้า ${customerName}`
+            : `Customer ${customerName}`,
+    ];
 
     if (orderId) {
         parts.push(`Order ${orderId}`);
     } else if (pipelineId) {
         parts.push(`Pipeline ${pipelineId}`);
-    } else if (customerId) {
-        parts.push(
-            language === "th"
-                ? `ลูกค้า ${customerId}`
-                : `Customer ${customerId}`
-        );
     }
 
     if (status) {
         parts.push(status);
     }
 
-    return parts.join(" · ") ||
-        (language === "th" ? "อัปเดตข้อมูลใน CRM" : "CRM data updated");
+    return parts.join(" · ");
 }
 
 function mapRecentActivities(
     activities: LarkRecord[],
-    language: DashboardLanguage
+    language: DashboardLanguage,
+    customerNameByRecordId: ReadonlyMap<string, string>
 ): CommerceDashboardSummary["recent_activities"] {
     return [...activities]
         .sort(
@@ -422,7 +436,12 @@ function mapRecentActivities(
                         ""
                     ).trim() || activity.record_id,
                 title,
-                detail: activityDetail(activity, payload, language),
+                detail: activityDetail(
+                    activity,
+                    payload,
+                    language,
+                    customerNameByRecordId
+                ),
                 created_at: new Date(timestamp || Date.now()).toISOString(),
                 type: activityType(rawAction),
             };
@@ -441,6 +460,22 @@ async function buildCommerceDashboardSummary(
         listOrders(env),
         listActivities(env),
     ]);
+
+    /*
+     * Activity เก็บ Link ไปยัง Customer เป็น record_id เท่านั้น
+     * Map นี้ใช้แปลง record_id เป็น customer_name หนึ่งครั้ง แล้วส่งเข้า mapper กิจกรรม
+     * เพื่อไม่ต้องเรียก Lark เพิ่มทีละ Activity และไม่แสดงรหัสภายในให้ผู้ใช้เห็น
+     */
+    const customerNameByRecordId = new Map(
+        customers.map((customer) => {
+            const customerName = getLarkText(
+                customer.fields[CUSTOMER_FIELDS.CUSTOMER_NAME],
+                ""
+            ).trim();
+
+            return [customer.record_id, customerName] as const;
+        }).filter((entry) => entry[1].length > 0)
+    );
 
     const currentStart = now - THIRTY_DAYS_MS;
     const previousStart = currentStart - THIRTY_DAYS_MS;
@@ -578,7 +613,11 @@ async function buildCommerceDashboardSummary(
             ),
         },
         channels,
-        recent_activities: mapRecentActivities(activities, language),
+        recent_activities: mapRecentActivities(
+            activities,
+            language,
+            customerNameByRecordId
+        ),
         updated_at: new Date(now).toISOString(),
     };
 }

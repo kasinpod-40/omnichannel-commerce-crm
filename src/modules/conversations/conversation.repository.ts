@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { CONVERSATION_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
+    listLarkRecords,
     searchLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
@@ -196,4 +197,16 @@ export async function findConversationByExternalMessageId(
     }
 
     return normalizeConversationRecord(records[0]);
+}
+
+/** ดึง Conversation ทั้งหมดสำหรับ Dashboard read model และ Customer timeline */
+export async function listConversations(
+    env: Env
+): Promise<LarkConversationRecord[]> {
+    const records = await listLarkRecords(
+        env,
+        env.CONVERSATIONS_TABLE_ID
+    );
+
+    return records.map(normalizeConversationRecord);
 }
