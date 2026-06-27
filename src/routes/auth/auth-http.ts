@@ -50,7 +50,7 @@ export function addAuthCorsHeaders(
     const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Allow-Credentials", "true");
-    headers.set("Access-Control-Allow-Headers", "Content-Type");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
     headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     headers.append("Vary", "Origin");
 

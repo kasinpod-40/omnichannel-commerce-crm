@@ -23,6 +23,12 @@ import {
     handleTikTokWebhook,
 } from "./tiktok/live.route";
 import { handleMarketplaceOrderUpsert } from "./upsert.route";
+import {
+    handleMarketplaceDetail,
+    handleMarketplaceStatus,
+    handleMarketplaceSyncHistory,
+} from "./status.route";
+import { dashboardPreflight } from "../shared/dashboard-api";
 
 export async function handleMarketplaceRoutes(
     request: Request,
@@ -30,6 +36,22 @@ export async function handleMarketplaceRoutes(
     ctx: ExecutionContext,
     pathname: string
 ): Promise<Response | null> {
+    if (pathname === "/marketplaces/status") {
+        if (request.method === "OPTIONS") return dashboardPreflight(request, env);
+        return handleMarketplaceStatus(request, env);
+    }
+
+    if (pathname === "/marketplaces/sync-history") {
+        if (request.method === "OPTIONS") return dashboardPreflight(request, env);
+        return handleMarketplaceSyncHistory(request, env);
+    }
+
+    const marketplaceDetailMatch = pathname.match(/^\/marketplaces\/([^/]+)$/);
+    if (marketplaceDetailMatch) {
+        if (request.method === "OPTIONS") return dashboardPreflight(request, env);
+        return handleMarketplaceDetail(request, env, marketplaceDetailMatch[1]);
+    }
+
     if (pathname === "/admin/marketplace/orders/upsert") {
         return handleMarketplaceOrderUpsert(request, env);
     }

@@ -53,6 +53,17 @@ describe("API documentation", () => {
         expect(document.paths["/dashboard/summary"]?.get).toBeTruthy();
         expect(document.paths["/customers"]?.get).toBeTruthy();
         expect(document.paths["/customers/{customerId}"]?.get).toBeTruthy();
+        expect(document.paths["/conversations"]?.get).toBeTruthy();
+        expect(document.paths["/conversations/{conversationId}"]?.get).toBeTruthy();
+        expect(document.paths["/conversations/{conversationId}/messages"]?.get).toBeTruthy();
+        expect(document.paths["/conversations/images/{messageRecordId}"]?.get).toBeTruthy();
+        expect(document.paths["/pipelines"]?.get).toBeTruthy();
+        expect(document.paths["/pipelines/{pipelineId}"]?.get).toBeTruthy();
+        expect(document.paths["/orders"]?.get).toBeTruthy();
+        expect(document.paths["/orders/{orderId}"]?.get).toBeTruthy();
+        expect(document.paths["/marketplaces/status"]?.get).toBeTruthy();
+        expect(document.paths["/marketplaces/sync-history"]?.get).toBeTruthy();
+        expect(document.paths["/marketplaces/{marketplaceId}"]?.get).toBeTruthy();
         expect(document.paths["/webhooks/line"]?.post).toBeTruthy();
         expect(
             document.paths["/admin/marketplace/orders/upsert"]?.post

@@ -5,6 +5,7 @@ import {
     handleAuthLogout,
     handleAuthMe,
     handleLarkBrowserLogin,
+    handleLarkClientConfig,
 } from "./auth.route";
 
 const env = {
@@ -71,6 +72,40 @@ describe("authentication routes", () => {
                 lark_open_id: "ou_001",
                 role: "admin",
             },
+        });
+    });
+
+
+    it("คืน Lark app id สำหรับ Client requestAccess พร้อม CORS", async () => {
+        const response = handleLarkClientConfig(
+            new Request("https://api.example.com/auth/lark/client-config", {
+                headers: { Origin: "https://crm.example.com" },
+            }),
+            env
+        );
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+            "https://crm.example.com"
+        );
+        await expect(response.json()).resolves.toEqual({ app_id: "cli_test" });
+    });
+
+    it("ยอมรับ Dashboard Session ผ่าน Authorization Bearer สำหรับ Lark iOS WebView", async () => {
+        const session = await createAuthSession(env, user);
+        const response = await handleAuthMe(
+            new Request("https://api.example.com/auth/me", {
+                headers: {
+                    Origin: "https://crm.example.com",
+                    Authorization: `Bearer ${session.token}`,
+                },
+            }),
+            env
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            user: { user_id: "rec_user_001" },
         });
     });
 

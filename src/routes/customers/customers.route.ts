@@ -9,9 +9,8 @@ import {
 } from "../../modules/customers/customer-dashboard.service";
 import {
     clearSessionCookie,
-    getCookie,
-    SESSION_COOKIE_NAME,
 } from "../auth/auth-cookie";
+import { getDashboardSessionToken } from "../auth/auth-session-token";
 import { addAuthCorsHeaders } from "../auth/auth-http";
 
 function json(data: unknown, status = 200): Response {
@@ -23,7 +22,7 @@ function json(data: unknown, status = 200): Response {
 
 /** Customers API ใช้ Session เดียวกับ Dashboard และไม่ยอมให้เรียกข้อมูล Lark แบบ anonymous */
 async function assertCustomerSession(request: Request, env: Env): Promise<void> {
-    const token = getCookie(request, SESSION_COOKIE_NAME);
+    const token = getDashboardSessionToken(request);
 
     if (!token) {
         throw new AuthError(

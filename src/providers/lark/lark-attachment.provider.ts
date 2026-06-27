@@ -95,3 +95,62 @@ export async function uploadLarkBitableImage(
 
     return fileToken;
 }
+
+export type DownloadedLarkMedia = {
+    bytes: ArrayBuffer;
+    mime_type: string;
+    size_bytes: number;
+};
+
+/**
+ * ดาวน์โหลดไฟล์แนบจาก Lark Drive ด้วย file_token ที่เก็บอยู่ในฟิลด์ Attachment ของ Base
+ * ใช้สำหรับส่งรูปผ่าน Dashboard image proxy โดยไม่เปิดเผย tenant access token ให้ Browser
+ */
+export async function downloadLarkMedia(
+    env: Env,
+    fileToken: string
+): Promise<DownloadedLarkMedia> {
+    const normalizedToken = fileToken.trim();
+    if (!normalizedToken) {
+        throw new Error("Lark media file token is required");
+    }
+
+    const token = await getTenantAccessToken(env);
+    const response = await fetch(
+        `https://open.larksuite.com/open-apis/drive/v1/medias/${encodeURIComponent(normalizedToken)}/download`,
+        {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        }
+    );
+
+    if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(
+            `Lark media download failed: ${response.status} ${bodyText.slice(0, 500)}`
+        );
+    }
+
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength === 0) {
+        throw new Error("Lark media download returned an empty file");
+    }
+
+    if (bytes.byteLength > MAX_SINGLE_UPLOAD_BYTES) {
+        throw new Error(
+            `Lark media exceeds 20 MB: ${bytes.byteLength} bytes`
+        );
+    }
+
+    const mimeType = response.headers
+        .get("content-type")
+        ?.split(";")[0]
+        .trim() || "application/octet-stream";
+
+    return {
+        bytes,
+        mime_type: mimeType,
+        size_bytes: bytes.byteLength,
+    };
+}

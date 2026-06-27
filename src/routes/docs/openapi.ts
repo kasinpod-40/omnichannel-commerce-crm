@@ -44,7 +44,7 @@ type RouteDefinition = {
     responseSchema?: string;
     successStatus?: number;
     successDescription?: string;
-    contentType?: "application/json" | "text/html" | "redirect";
+    contentType?: "application/json" | "text/html" | "redirect" | "binary";
     enabledWhen?: string;
     deprecated?: boolean;
 };
@@ -248,6 +248,153 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
             query("lang", "ภาษาของข้อความ Timeline ที่ Backend สร้าง", { type: "string", enum: ["th", "en"], default: "th" }),
         ],
         responseSchema: "CustomerDetailResponse",
+    },
+
+
+    {
+        path: "/conversations",
+        method: "get",
+        tag: "Conversations",
+        summary: "รายการข้อความขาเข้าจาก LINE OA",
+        description: "รวม Conversation records ตาม Customer และแสดงเฉพาะข้อความที่ลูกค้าส่งเข้ามา ไม่รวมข้อความตอบกลับของ Sales หรือ Marketplace chat",
+        security: "cookie",
+        parameters: [
+            query("search", "ค้นหาชื่อลูกค้า Customer ID ข้อความล่าสุด หรือ Sales owner"),
+            query("intent", "กรอง Buyer intent", { type: "string", enum: ["Just Browsing", "Interested", "Purchase Intent", "Ready To Buy", "Payment", "Support"] }),
+            query("process_status", "กรองสถานะประมวลผล", { type: "string", enum: ["processed", "pending", "failed"] }),
+            query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
+            query("page_size", "จำนวนลูกค้าต่อหน้า", { type: "integer", enum: [10, 20, 50], default: 10 }),
+        ],
+        responseSchema: "ConversationListResponse",
+    },
+    {
+        path: "/conversations/{conversationId}",
+        method: "get",
+        tag: "Conversations",
+        summary: "Customer message timeline ชุดล่าสุด",
+        description: "คืนข้อมูล Customer พร้อมข้อความขาเข้า LINE ชุดล่าสุดสูงสุด 20 รายการ และ cursor สำหรับโหลดข้อความเก่ากว่า",
+        security: "cookie",
+        parameters: [
+            pathParameter("conversationId", "Customer record_id ที่ใช้เป็น Conversation URL", "recxxxxxxxx"),
+        ],
+        responseSchema: "ConversationDetailResponse",
+    },
+    {
+        path: "/conversations/{conversationId}/messages",
+        method: "get",
+        tag: "Conversations",
+        summary: "โหลดข้อความเก่าด้วย Cursor Pagination",
+        description: "คืนข้อความขาเข้า LINE ที่เก่ากว่า cursor สำหรับ Infinite Scroll ด้านบน โดยเรียงรายการภายในชุดจากเก่าไปใหม่",
+        security: "cookie",
+        parameters: [
+            pathParameter("conversationId", "Customer record_id", "recxxxxxxxx"),
+            query("limit", "จำนวนข้อความต่อชุด สูงสุด 50", { type: "integer", minimum: 1, maximum: 50, default: 20 }),
+            query("before", "Opaque cursor จาก next_cursor ของ Response ก่อนหน้า"),
+        ],
+        responseSchema: "ConversationMessagePageResponse",
+    },
+    {
+        path: "/conversations/images/{messageRecordId}",
+        method: "get",
+        tag: "Conversations",
+        summary: "ดาวน์โหลดรูปข้อความผ่าน Image Proxy",
+        description: "ตรวจ Dashboard session แล้วดาวน์โหลดรูปจาก Lark attachment หรือ LINE Messaging API โดยไม่เปิดเผย token แก่ Browser",
+        security: "cookie",
+        parameters: [
+            pathParameter("messageRecordId", "Lark Conversation record_id ของข้อความรูปภาพ", "recxxxxxxxx"),
+        ],
+        contentType: "binary",
+        successDescription: "คืนไฟล์รูปภาพพร้อม Content-Type จริง",
+    },
+    {
+        path: "/pipelines",
+        method: "get",
+        tag: "Pipelines",
+        summary: "รายการ Sales Pipeline สำหรับ Kanban",
+        description: "อ่าน Pipeline และ Customer link แบบ batch พร้อม Search และ Status filter",
+        security: "cookie",
+        parameters: [
+            query("search", "ค้นหา Pipeline ID ชื่อลูกค้า เบอร์โทร Sales owner หรือ AI summary"),
+            query("status", "กรองสถานะ Pipeline", { type: "string", enum: ["open", "won", "lost"] }),
+        ],
+        responseSchema: "PipelineListResponse",
+    },
+    {
+        path: "/pipelines/{pipelineId}",
+        method: "get",
+        tag: "Pipelines",
+        summary: "รายละเอียด Pipeline",
+        description: "คืน Pipeline พร้อมข้อมูล Customer และ Active Order ที่เกี่ยวข้อง",
+        security: "cookie",
+        parameters: [pathParameter("pipelineId", "Lark Pipeline record_id", "recxxxxxxxx")],
+        responseSchema: "PipelineRecordResponse",
+    },
+    {
+        path: "/orders",
+        method: "get",
+        tag: "Orders",
+        summary: "รายการ Orders สำหรับ Dashboard",
+        description: "อ่าน Orders จาก Lark Base พร้อม Search, Filter, Sort, Pagination และ Customer mapping",
+        security: "cookie",
+        parameters: [
+            query("search", "ค้นหา Order ID, External Order ID, ลูกค้า, เบอร์โทร, สินค้า หรือ Tracking"),
+            query("channel", "กรองช่องทาง", { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] }),
+            query("order_status", "กรองสถานะ Order ที่ normalize สำหรับ UI", { type: "string", enum: ["Draft", "Confirmed", "Completed", "Cancelled"] }),
+            query("payment_status", "กรองสถานะชำระเงิน", { type: "string", enum: ["Pending", "Paid", "Overdue"] }),
+            query("sort", "ลำดับข้อมูล", { type: "string", enum: ["updated_desc", "amount_desc", "created_desc"], default: "updated_desc" }),
+            query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
+            query("page_size", "จำนวนรายการต่อหน้า สูงสุด 100", { type: "integer", enum: [10, 20, 50], default: 10 }),
+        ],
+        responseSchema: "OrderListResponse",
+    },
+    {
+        path: "/orders/{orderId}",
+        method: "get",
+        tag: "Orders",
+        summary: "รายละเอียด Order",
+        description: "คืน Order พร้อม Customer, Pipeline, Payment, Tracking และ Marketplace sync status",
+        security: "cookie",
+        parameters: [pathParameter("orderId", "Lark Order record_id", "recxxxxxxxx")],
+        responseSchema: "OrderRecordResponse",
+    },
+    {
+        path: "/marketplaces/status",
+        method: "get",
+        tag: "Marketplace",
+        summary: "สถานะ Marketplace สำหรับ React Dashboard",
+        description: "รวม OAuth credentials และ Orders วันนี้ โดยไม่ผูกกับ Pagination ของประวัติการซิงก์",
+        security: "cookie",
+        parameters: [
+            query("lang", "ภาษาของข้อความสถานะ", { type: "string", enum: ["th", "en"], default: "th" }),
+        ],
+        responseSchema: "MarketplaceStatusResponse",
+    },
+    {
+        path: "/marketplaces/sync-history",
+        method: "get",
+        tag: "Marketplace",
+        summary: "ประวัติการซิงก์ Marketplace แบบแบ่งหน้า",
+        description: "อ่าน Event Log จริงจาก KV และ fallback ข้อมูล snapshot ก่อนอัปเกรด โดยเรียงเวลาและ id แบบ stable",
+        security: "cookie",
+        parameters: [
+            query("lang", "ภาษาของข้อความสถานะ", { type: "string", enum: ["th", "en"], default: "th" }),
+            query("page", "หน้าประวัติการซิงก์", { type: "integer", minimum: 1, default: 1 }),
+            query("page_size", "จำนวนประวัติต่อหน้า", { type: "integer", enum: [10, 20, 50], default: 10 }),
+        ],
+        responseSchema: "MarketplaceSyncHistoryResponse",
+    },
+    {
+        path: "/marketplaces/{marketplaceId}",
+        method: "get",
+        tag: "Marketplace",
+        summary: "รายละเอียด Marketplace สำหรับ Drawer",
+        description: "คืน Connection และเหตุการณ์ล่าสุดของ Marketplace ที่เลือก แยกจากหน้าตารางหลัก",
+        security: "cookie",
+        parameters: [
+            pathParameter("marketplaceId", "Marketplace id", "lazada"),
+            query("lang", "ภาษาของข้อความสถานะ", { type: "string", enum: ["th", "en"], default: "th" }),
+        ],
+        responseSchema: "MarketplaceDetailResponse",
     },
 
     {
@@ -940,6 +1087,12 @@ function standardResponses(
                 schema: { type: "string" },
             },
         };
+    } else if (contentType === "binary") {
+        success.content = {
+            "application/octet-stream": {
+                schema: { type: "string", format: "binary" },
+            },
+        };
     }
 
     return {
@@ -1092,7 +1245,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "dashboard-customers-assets-th-23" },
+                version: { type: "string", example: "lark-ios-auth-fix-th-27" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1248,6 +1401,233 @@ function schemas(): Record<string, unknown> {
                 },
             ],
         },
+
+        ConversationListItemResponse: {
+            type: "object",
+            required: ["conversation_id", "customer_id", "customer_name", "channel", "message_preview", "last_message_at", "message_count", "intent", "hot_lead", "lead_score", "process_status"],
+            properties: {
+                conversation_id: { type: "string" },
+                customer_id: { type: "string" },
+                customer_name: { type: "string" },
+                channel: { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] },
+                message_preview: { type: "string" },
+                last_message_at: { type: "string", format: "date-time" },
+                message_count: { type: "integer", minimum: 0 },
+                intent: { type: "string", enum: ["Just Browsing", "Interested", "Purchase Intent", "Ready To Buy", "Payment", "Support"] },
+                hot_lead: { type: "boolean" },
+                lead_score: { type: "number", minimum: 0, maximum: 100 },
+                process_status: { type: "string", enum: ["processed", "pending", "failed"] },
+                assigned_to: { type: ["string", "null"] },
+            },
+        },
+        ConversationListResponse: {
+            type: "object",
+            required: ["items", "summary", "total", "page", "page_size", "total_pages", "updated_at"],
+            properties: {
+                items: { type: "array", items: { $ref: "#/components/schemas/ConversationListItemResponse" } },
+                summary: {
+                    type: "object",
+                    required: ["total_customers", "total_messages", "hot_leads", "failed_messages"],
+                    properties: {
+                        total_customers: { type: "integer", minimum: 0 },
+                        total_messages: { type: "integer", minimum: 0 },
+                        hot_leads: { type: "integer", minimum: 0 },
+                        failed_messages: { type: "integer", minimum: 0 },
+                    },
+                },
+                total: { type: "integer", minimum: 0 },
+                page: { type: "integer", minimum: 1 },
+                page_size: { type: "integer", minimum: 1, maximum: 50 },
+                total_pages: { type: "integer", minimum: 1 },
+                updated_at: { type: "string", format: "date-time" },
+            },
+        },
+        ConversationMessageResponse: {
+            type: "object",
+            required: ["message_id", "message_type", "content", "image_url", "created_at"],
+            properties: {
+                message_id: { type: "string" },
+                message_type: { type: "string", enum: ["text", "image"] },
+                content: { type: "string" },
+                image_url: { type: ["string", "null"], description: "Relative URL ของ authenticated image proxy" },
+                created_at: { type: "string", format: "date-time" },
+            },
+        },
+        ConversationMessagePageResponse: {
+            type: "object",
+            required: ["items", "next_cursor", "has_more"],
+            properties: {
+                items: { type: "array", items: { $ref: "#/components/schemas/ConversationMessageResponse" } },
+                next_cursor: { type: ["string", "null"], description: "Opaque cursor สำหรับส่งเป็น query parameter before" },
+                has_more: { type: "boolean" },
+            },
+        },
+        ConversationDetailResponse: {
+            allOf: [
+                { $ref: "#/components/schemas/ConversationListItemResponse" },
+                {
+                    type: "object",
+                    required: ["customer_stage", "messages", "next_cursor", "has_more_messages"],
+                    properties: {
+                        phone: { type: ["string", "null"] },
+                        customer_stage: { type: "string", enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"] },
+                        ai_summary: { type: ["string", "null"] },
+                        active_order_id: { type: ["string", "null"] },
+                        messages: { type: "array", items: { $ref: "#/components/schemas/ConversationMessageResponse" } },
+                        next_cursor: { type: ["string", "null"] },
+                        has_more_messages: { type: "boolean" },
+                    },
+                },
+            ],
+        },
+        PipelineRecordResponse: {
+            type: "object",
+            required: ["pipeline_id", "status", "stage", "lead_score", "created_at", "customer"],
+            properties: {
+                pipeline_id: { type: "string" },
+                status: { type: "string", enum: ["open", "won", "lost"] },
+                stage: { type: "string", enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"] },
+                lead_score: { type: "number", minimum: 0, maximum: 100 },
+                ai_summary: { type: ["string", "null"] },
+                created_at: { type: "string", format: "date-time" },
+                closed_at: { type: ["string", "null"], format: "date-time" },
+                customer: {
+                    type: "object",
+                    required: ["customer_id", "customer_name", "channel"],
+                    properties: {
+                        customer_id: { type: "string" },
+                        customer_name: { type: "string" },
+                        channel: { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] },
+                        phone: { type: ["string", "null"] },
+                        sales_owner: { type: ["string", "null"] },
+                        active_order_id: { type: ["string", "null"] },
+                    },
+                },
+            },
+        },
+        PipelineListResponse: {
+            type: "object",
+            required: ["items", "summary", "total", "updated_at"],
+            properties: {
+                items: { type: "array", items: { $ref: "#/components/schemas/PipelineRecordResponse" } },
+                summary: {
+                    type: "object",
+                    required: ["total_pipelines", "open_pipelines", "won_pipelines", "lost_pipelines"],
+                    properties: {
+                        total_pipelines: { type: "integer", minimum: 0 },
+                        open_pipelines: { type: "integer", minimum: 0 },
+                        won_pipelines: { type: "integer", minimum: 0 },
+                        lost_pipelines: { type: "integer", minimum: 0 },
+                    },
+                },
+                total: { type: "integer", minimum: 0 },
+                updated_at: { type: "string", format: "date-time" },
+            },
+        },
+        OrderRecordResponse: {
+            type: "object",
+            required: ["order_id", "channel", "customer", "quantity", "total_amount", "order_status", "payment_status", "payment_verified", "sync_status", "created_at", "updated_at"],
+            properties: {
+                order_id: { type: "string" },
+                external_order_id: { type: ["string", "null"] },
+                pipeline_id: { type: ["string", "null"] },
+                channel: { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] },
+                customer: { type: "object", additionalProperties: true },
+                product_name: { type: ["string", "null"] },
+                quantity: { type: "number", minimum: 0 },
+                total_amount: { type: "number", minimum: 0 },
+                order_status: { type: "string", enum: ["Draft", "Confirmed", "Completed", "Cancelled"] },
+                payment_status: { type: "string", enum: ["Pending", "Paid", "Overdue"] },
+                address: { type: ["string", "null"] },
+                tracking_number: { type: ["string", "null"] },
+                payment_verified: { type: "boolean" },
+                sync_status: { type: "string", enum: ["synced", "pending", "failed"] },
+                sync_error: { type: ["string", "null"] },
+                created_at: { type: "string", format: "date-time" },
+                updated_at: { type: "string", format: "date-time" },
+                paid_at: { type: ["string", "null"], format: "date-time" },
+                closed_at: { type: ["string", "null"], format: "date-time" },
+            },
+        },
+        OrderListResponse: {
+            type: "object",
+            required: ["items", "summary", "total", "page", "page_size", "total_pages", "updated_at"],
+            properties: {
+                items: { type: "array", items: { $ref: "#/components/schemas/OrderRecordResponse" } },
+                summary: { type: "object", additionalProperties: { type: "integer" } },
+                total: { type: "integer", minimum: 0 },
+                page: { type: "integer", minimum: 1 },
+                page_size: { type: "integer", minimum: 1, maximum: 100 },
+                total_pages: { type: "integer", minimum: 1 },
+                updated_at: { type: "string", format: "date-time" },
+            },
+        },
+        MarketplaceConnectionResponse: {
+            type: "object",
+            required: ["platform", "seller_account", "country", "currency", "health", "oauth_connected", "webhook_active", "order_sync_active", "orders_today"],
+            properties: {
+                platform: { type: "string", enum: ["Shopee", "Lazada", "TikTok Shop"] },
+                seller_account: { type: "string" },
+                country: { type: "string", const: "TH" },
+                currency: { type: "string", const: "THB" },
+                health: { type: "string", enum: ["healthy", "attention", "disconnected"] },
+                oauth_connected: { type: "boolean" },
+                webhook_active: { type: "boolean" },
+                order_sync_active: { type: "boolean" },
+                orders_today: { type: "integer", minimum: 0 },
+                last_webhook_at: { type: ["string", "null"], format: "date-time" },
+                last_order_sync_at: { type: ["string", "null"], format: "date-time" },
+                last_error: { type: ["string", "null"] },
+            },
+        },
+        MarketplaceSyncEventResponse: {
+            type: "object",
+            required: ["id", "platform", "event_type", "result", "detail", "occurred_at"],
+            properties: {
+                id: { type: "string" },
+                platform: { type: "string", enum: ["Shopee", "Lazada", "TikTok Shop"] },
+                event_type: { type: "string", enum: ["order_webhook", "order_sync", "oauth_refresh"] },
+                result: { type: "string", enum: ["success", "failed"] },
+                detail: { type: "string" },
+                occurred_at: { type: "string", format: "date-time" },
+            },
+        },
+        MarketplaceStatusResponse: {
+            type: "object",
+            required: ["connections", "updated_at"],
+            properties: {
+                connections: { type: "array", items: { $ref: "#/components/schemas/MarketplaceConnectionResponse" } },
+                updated_at: { type: "string", format: "date-time" },
+            },
+        },
+        MarketplaceSyncHistoryResponse: {
+            type: "object",
+            required: ["items", "pagination", "updated_at"],
+            properties: {
+                items: { type: "array", items: { $ref: "#/components/schemas/MarketplaceSyncEventResponse" } },
+                pagination: {
+                    type: "object",
+                    required: ["page", "page_size", "total", "total_pages"],
+                    properties: {
+                        page: { type: "integer", minimum: 1 },
+                        page_size: { type: "integer", minimum: 1, maximum: 50 },
+                        total: { type: "integer", minimum: 0 },
+                        total_pages: { type: "integer", minimum: 1 },
+                    },
+                },
+                updated_at: { type: "string", format: "date-time" },
+            },
+        },
+        MarketplaceDetailResponse: {
+            type: "object",
+            required: ["connection", "recent_events", "updated_at"],
+            properties: {
+                connection: { $ref: "#/components/schemas/MarketplaceConnectionResponse" },
+                recent_events: { type: "array", items: { $ref: "#/components/schemas/MarketplaceSyncEventResponse" } },
+                updated_at: { type: "string", format: "date-time" },
+            },
+        },
+
         OrderRecordRequest: {
             type: "object",
             required: ["order_record_id"],
@@ -1476,7 +1856,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.5.0-th-23",
+            version: "1.6.3-th-27",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",
@@ -1499,6 +1879,9 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
             { name: "Authentication", description: "Lark OAuth และ Dashboard session" },
             { name: "Dashboard", description: "API สำหรับหน้า React Dashboard และ Admin summary" },
             { name: "Customers", description: "รายการลูกค้าและ Customer 360° detail" },
+            { name: "Conversations", description: "ข้อความขาเข้าจาก LINE OA" },
+            { name: "Pipelines", description: "Sales Pipeline สำหรับ Kanban และ Detail" },
+            { name: "Orders", description: "รายการ Order และรายละเอียด" },
             { name: "LINE", description: "LINE Messaging API webhook" },
             { name: "Lark Operations", description: "Workflow และงานดูแลข้อมูลใน Lark Base" },
             { name: "Marketplace", description: "Marketplace order ingestion และ upsert" },

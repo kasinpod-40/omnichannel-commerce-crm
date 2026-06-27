@@ -1,16 +1,13 @@
 import type { Env } from "../../config/env";
 import { verifyAuthSession } from "../../modules/auth/auth.session";
-import {
-    getCookie,
-    SESSION_COOKIE_NAME,
-} from "../auth/auth-cookie";
+import { getDashboardSessionToken } from "../auth/auth-session-token";
 import { isAdminAuthorized } from "../shared/admin-auth";
 import { buildOpenApiDocument } from "./openapi";
 import { renderSwaggerUi } from "./swagger-ui";
 
 /**
  * API Docs อนุญาต 2 วิธี:
- * 1) Login Dashboard แล้วมี crm_session cookie
+ * 1) Login Dashboard ด้วย crm_session cookie หรือ Lark client bearer
  * 2) ส่ง Admin Bearer token สำหรับอ่าน openapi.json ผ่าน CLI/Postman
  */
 async function isApiDocsAuthorized(
@@ -21,7 +18,7 @@ async function isApiDocsAuthorized(
         return true;
     }
 
-    const token = getCookie(request, SESSION_COOKIE_NAME);
+    const token = getDashboardSessionToken(request);
 
     if (!token) {
         return false;

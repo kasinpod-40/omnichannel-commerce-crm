@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { CONVERSATION_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
+    getLarkRecord,
     listLarkRecords,
     searchLarkRecords,
     updateLarkRecord,
@@ -206,6 +207,47 @@ export async function listConversations(
     const records = await listLarkRecords(
         env,
         env.CONVERSATIONS_TABLE_ID
+    );
+
+    return records.map(normalizeConversationRecord);
+}
+
+
+/** อ่าน Conversation record โดยตรงสำหรับ Detail/Image proxy */
+export async function getConversationByRecordId(
+    env: Env,
+    recordId: string
+): Promise<LarkConversationRecord | null> {
+    const record = await getLarkRecord(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        recordId
+    );
+
+    return record ? normalizeConversationRecord(record) : null;
+}
+
+/**
+ * ดึงเฉพาะข้อความที่ Link มายัง Customer เดียว
+ * ลดการอ่านทั้งตารางสำหรับ Message cursor pagination และ Image timeline
+ */
+export async function listConversationsByCustomer(
+    env: Env,
+    customerRecordId: string
+): Promise<LarkConversationRecord[]> {
+    const records = await searchLarkRecords(
+        env,
+        env.CONVERSATIONS_TABLE_ID,
+        {
+            conjunction: "and",
+            conditions: [
+                {
+                    field_name: CONVERSATION_FIELDS.CUSTOMER,
+                    operator: "is",
+                    value: [customerRecordId],
+                },
+            ],
+        }
     );
 
     return records.map(normalizeConversationRecord);

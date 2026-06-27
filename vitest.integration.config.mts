@@ -3,12 +3,14 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
     test: {
-        // ชุด Unit/Service ไม่ต้องโหลด Worker entry ทั้งระบบ ช่วยให้รัน Regression ได้เสถียรและเร็วขึ้น
-        exclude: ["test/index.spec.ts", "**/node_modules/**"],
-        maxWorkers: 4,
+        // ชุด Integration นี้ทดสอบผ่าน SELF จึงต้องโหลด Worker entry จริง
+        include: ["test/index.spec.ts"],
+        fileParallelism: false,
+        maxWorkers: 1,
     },
     plugins: [
         cloudflareTest({
+            main: "./src/index.ts",
             miniflare: {
                 compatibilityDate: "2026-06-16",
                 compatibilityFlags: ["nodejs_compat"],

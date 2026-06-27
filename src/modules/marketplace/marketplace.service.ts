@@ -40,6 +40,12 @@ import type {
     MarketplaceOrderUpsertResult,
     MarketplaceStatusMapping,
 } from "./marketplace.types";
+import { recordMarketplaceDashboardEvent } from "./marketplace-event-log";
+
+
+function dashboardPlatform(channel: MarketplaceOrderInput["channel"]): "Shopee" | "Lazada" | "TikTok Shop" {
+    return channel === "TikTok" ? "TikTok Shop" : channel;
+}
 
 function toTimestamp(
     value: number | string | undefined,
@@ -501,7 +507,7 @@ function createCurrentOrderRecord(
     };
 }
 
-export async function upsertMarketplaceOrder(
+async function upsertMarketplaceOrderCore(
     env: Env,
     input: MarketplaceOrderInput
 ): Promise<MarketplaceOrderUpsertResult> {
@@ -775,4 +781,53 @@ export async function upsertMarketplaceOrder(
         order_status: mapping.order_status,
         payment_status: mapping.payment_status,
     };
+}
+
+
+/**
+ * Public boundary ของ Marketplace upsert: บันทึก Event Log จริงทั้ง Success และ Failure
+ * โดยไม่ให้ความผิดพลาดของระบบ Log ทำให้ Order processing หลักล้มเหลว
+ */
+export async function upsertMarketplaceOrder(
+    env: Env,
+    input: MarketplaceOrderInput
+): Promise<MarketplaceOrderUpsertResult> {
+    const occurredAt = new Date(toTimestamp(input.updated_at, Date.now())).toISOString();
+
+    try {
+        const result = await upsertMarketplaceOrderCore(env, input);
+        try {
+            await recordMarketplaceDashboardEvent(env, {
+                id: `order:${input.channel}:${input.event_id}:${result.action}`,
+                platform: dashboardPlatform(input.channel),
+                event_type: "order_sync",
+                result: "success",
+                detail: `${result.action.toUpperCase()}:${input.marketplace_status}`,
+                occurred_at: occurredAt,
+            });
+        } catch (logError) {
+            console.warn("MARKETPLACE_EVENT_LOG_WRITE_FAILED", {
+                event_id: input.event_id,
+                error: logError instanceof Error ? logError.message : String(logError),
+            });
+        }
+        return result;
+    } catch (error) {
+        try {
+            await recordMarketplaceDashboardEvent(env, {
+                id: `order:${input.channel}:${input.event_id}:failed`,
+                platform: dashboardPlatform(input.channel),
+                event_type: "order_sync",
+                result: "failed",
+                detail: error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300),
+                occurred_at: occurredAt,
+            });
+        } catch (logError) {
+            console.warn("MARKETPLACE_EVENT_LOG_WRITE_FAILED", {
+                event_id: input.event_id,
+                error: logError instanceof Error ? logError.message : String(logError),
+            });
+        }
+        throw error;
+    }
 }

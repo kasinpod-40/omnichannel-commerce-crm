@@ -11,6 +11,14 @@ import {
     getLarkText,
     getLinkedRecordIds,
 } from "../../utils/lark-field-value";
+import {
+    normalizeChannel,
+    normalizeCustomerStage,
+    nullableText,
+    readTimestamp,
+    toIso,
+} from "../dashboard-read/dashboard-read.shared";
+import type { DashboardChannel } from "../dashboard-read/dashboard-read.types";
 import { listActivities } from "../activities/activity.repository";
 import { listConversations } from "../conversations/conversation.repository";
 import { findOrdersByCustomer } from "../orders/order.repository";
@@ -24,11 +32,7 @@ import type { CustomerStage } from "./customer.types";
 /** ภาษาใช้เฉพาะข้อความ Timeline ที่ Backend สร้างขึ้น ไม่แก้ข้อมูลจริงจาก Lark */
 export type CustomerDashboardLanguage = "th" | "en";
 
-export type CustomerDashboardChannel =
-    | "LINE"
-    | "Shopee"
-    | "Lazada"
-    | "TikTok Shop";
+export type CustomerDashboardChannel = DashboardChannel;
 
 export type CustomerListItemResponse = {
     customer_id: string;
@@ -93,54 +97,6 @@ type LarkRecord = {
     fields: Record<string, unknown>;
 };
 
-const STAGES = new Set<CustomerStage>([
-    "New Lead",
-    "Interested",
-    "Negotiating",
-    "Closing",
-    "Won",
-    "Lost",
-]);
-
-/** Lark DateTime ใช้ milliseconds; รองรับข้อมูลเก่าที่อาจเป็น seconds หรือ ISO string */
-function readTimestamp(value: unknown): number {
-    if (typeof value === "string" && value.trim()) {
-        const parsedDate = Date.parse(value);
-        if (Number.isFinite(parsedDate)) return parsedDate;
-    }
-
-    const numeric = getLarkNumber(value, 0);
-    if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-    return numeric < 10_000_000_000 ? numeric * 1_000 : numeric;
-}
-
-function toIso(value: unknown, fallback = 0): string {
-    const timestamp = readTimestamp(value) || fallback || Date.now();
-    return new Date(timestamp).toISOString();
-}
-
-function nullableText(value: unknown): string | null {
-    const text = getLarkText(value, "").trim();
-    return text || null;
-}
-
-function normalizeChannel(value: unknown): CustomerDashboardChannel {
-    const text = getLarkText(value, "LINE").trim().toLowerCase();
-
-    if (text === "shopee") return "Shopee";
-    if (text === "lazada") return "Lazada";
-    if (text === "tiktok" || text === "tiktok shop" || text === "tik tok") {
-        return "TikTok Shop";
-    }
-
-    return "LINE";
-}
-
-function normalizeStage(value: unknown): CustomerStage {
-    const stage = getLarkText(value, "New Lead").trim() as CustomerStage;
-    return STAGES.has(stage) ? stage : "New Lead";
-}
-
 /** แปลง Record จาก Lark ให้ตรง Contract snake_case ที่ Frontend mapper รออยู่ */
 function mapCustomer(record: LarkCustomerRecord): CustomerListItemResponse {
     const fields = record.fields;
@@ -157,7 +113,7 @@ function mapCustomer(record: LarkCustomerRecord): CustomerListItemResponse {
             ""
         ).trim(),
         phone: nullableText(fields[CUSTOMER_FIELDS.PHONE]),
-        current_stage: normalizeStage(fields[CUSTOMER_FIELDS.CURRENT_STAGE]),
+        current_stage: normalizeCustomerStage(fields[CUSTOMER_FIELDS.CURRENT_STAGE]),
         lead_score: Math.min(
             100,
             Math.max(0, getLarkNumber(fields[CUSTOMER_FIELDS.LEAD_SCORE], 0))
@@ -344,7 +300,7 @@ function timelineFromConversation(
                 : language === "th"
                   ? "ไม่มีข้อความ"
                   : "No message content"),
-        created_at: toIso(record.fields[CONVERSATION_FIELDS.CREATED_AT]),
+        created_at: toIso(readTimestamp(record.fields[CONVERSATION_FIELDS.CREATED_AT])),
     };
 }
 
@@ -365,7 +321,7 @@ function timelineFromActivity(
             ACTION_TITLES[action]?.[language] ??
             (language === "th" ? "อัปเดตข้อมูลลูกค้า" : "Customer updated"),
         detail: activityDetail(action, payload, language),
-        created_at: toIso(record.fields[ACTIVITY_FIELDS.CREATED_AT]),
+        created_at: toIso(readTimestamp(record.fields[ACTIVITY_FIELDS.CREATED_AT])),
     };
 }
 
@@ -406,8 +362,10 @@ function timelineFromOrder(
             .filter(Boolean)
             .join(" · "),
         created_at: toIso(
-            record.fields[ORDER_FIELDS.UPDATED_AT],
-            readTimestamp(record.fields[ORDER_FIELDS.CREATED_AT])
+            readTimestamp(
+                record.fields[ORDER_FIELDS.UPDATED_AT],
+                readTimestamp(record.fields[ORDER_FIELDS.CREATED_AT])
+            )
         ),
     };
 }

@@ -7,9 +7,8 @@ import {
 } from "../../modules/dashboard/commerce-dashboard.service";
 import {
     clearSessionCookie,
-    getCookie,
-    SESSION_COOKIE_NAME,
 } from "../auth/auth-cookie";
+import { getDashboardSessionToken } from "../auth/auth-session-token";
 import { addAuthCorsHeaders } from "../auth/auth-http";
 
 function json(data: unknown, status = 200): Response {
@@ -32,7 +31,7 @@ async function assertDashboardSession(
     request: Request,
     env: Env
 ): Promise<void> {
-    const token = getCookie(request, SESSION_COOKIE_NAME);
+    const token = getDashboardSessionToken(request);
 
     if (!token) {
         throw new AuthError(

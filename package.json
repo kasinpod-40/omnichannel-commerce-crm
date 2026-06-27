@@ -1,6 +1,6 @@
 {
   "name": "omnichannel-commerce-crm",
-  "version": "1.5.0",
+  "version": "1.6.3",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
@@ -8,16 +8,18 @@
     "dev": "wrangler dev",
     "start": "wrangler dev",
     "typecheck": "tsc --noEmit",
-    "test": "vitest",
-    "test:run": "vitest run",
+    "test": "npm run test:run",
+    "test:run": "node scripts/run-regression-tests.mjs",
     "check": "npm run typecheck && npm run test:run && npm run deploy:dry",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test:unit": "node scripts/run-regression-tests.mjs --unit-only",
+    "test:integration": "vitest run --config vitest.integration.config.mts"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.4",
+    "@cloudflare/vitest-pool-workers": "^0.16.20",
     "@types/node": "^25.9.3",
     "typescript": "^5.5.2",
-    "vitest": "~3.2.0",
-    "wrangler": "^4.101.0"
+    "vitest": "~4.1.9",
+    "wrangler": "^4.105.0"
   }
 }

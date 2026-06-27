@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "lark-auth-th-18",
+            version: "lark-ios-auth-fix-th-27",
         });
     });
 

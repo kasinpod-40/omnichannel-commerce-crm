@@ -1,4 +1,5 @@
 import type { Env } from "../../../config/env";
+import { recordMarketplaceDashboardEvent } from "../marketplace-event-log";
 import type {
     LazadaCountryUserInfo,
     LazadaSellerCredential,
@@ -120,6 +121,22 @@ export async function saveLazadaCredential(
     }
 
     await Promise.all(operations);
+
+    try {
+        await recordMarketplaceDashboardEvent(env, {
+            id: `oauth:lazada:${credential.seller_id}:${credential.updated_at}`,
+            platform: "Lazada",
+            event_type: "oauth_refresh",
+            result: "success",
+            detail: "TOKEN_UPDATED",
+            occurred_at: new Date(credential.updated_at).toISOString(),
+        });
+    } catch (error) {
+        console.warn("MARKETPLACE_OAUTH_EVENT_LOG_FAILED", {
+            platform: "Lazada",
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
 }
 
 export async function getLazadaCredentialBySellerId(

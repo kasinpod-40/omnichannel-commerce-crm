@@ -3,6 +3,7 @@ import {
     handleAuthLogout,
     handleAuthMe,
     handleLarkBrowserCallback,
+    handleLarkClientConfig,
     handleLarkBrowserLogin,
     handleLarkClientSession,
 } from "./auth.route";
@@ -38,6 +39,8 @@ export async function handleAuthRoutes(
             return handleLarkBrowserLogin(request, env);
         case "/auth/lark/callback":
             return handleLarkBrowserCallback(request, env);
+        case "/auth/lark/client-config":
+            return handleLarkClientConfig(request, env);
         case "/auth/lark/client-session":
             return handleLarkClientSession(request, env);
         case "/auth/me":

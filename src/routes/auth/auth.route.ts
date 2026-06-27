@@ -13,13 +13,13 @@ import {
 import { authenticateWithLarkCode } from "../../modules/auth/auth.service";
 import {
     OAUTH_STATE_COOKIE_NAME,
-    SESSION_COOKIE_NAME,
     clearOAuthStateCookie,
     clearSessionCookie,
     createOAuthStateCookie,
     createSessionCookie,
     getCookie,
 } from "./auth-cookie";
+import { getDashboardSessionToken } from "./auth-session-token";
 import {
     addAuthCorsHeaders,
     assertAllowedOrigin,
@@ -116,6 +116,26 @@ function authErrorResponse(error: unknown): Response {
             message,
         },
         normalized.status
+    );
+}
+
+/** GET /auth/lark/client-config: คืนค่า public app id สำหรับ requestAccess ใน Lark WebView */
+export function handleLarkClientConfig(
+    request: Request,
+    env: Env
+): Response {
+    if (request.method !== "GET") {
+        return addAuthCorsHeaders(
+            methodNotAllowed("GET"),
+            request,
+            env
+        );
+    }
+
+    return addAuthCorsHeaders(
+        json({ app_id: env.LARK_APP_ID }),
+        request,
+        env
     );
 }
 
@@ -236,13 +256,20 @@ export async function handleLarkClientSession(
         const body = await readJsonObject(request);
         const code = typeof body.code === "string" ? body.code : "";
         const result = await authenticateWithLarkCode(env, code);
-        const response = json(result.response, 200, {
-            "Set-Cookie": createSessionCookie(
-                request,
-                env,
-                result.token
-            ),
-        });
+        const response = json(
+            {
+                ...result.response,
+                session_token: result.token,
+            },
+            200,
+            {
+                "Set-Cookie": createSessionCookie(
+                    request,
+                    env,
+                    result.token
+                ),
+            }
+        );
 
         return addAuthCorsHeaders(response, request, env);
     } catch (error) {
@@ -269,7 +296,7 @@ export async function handleAuthMe(
     }
 
     try {
-        const token = getCookie(request, SESSION_COOKIE_NAME);
+        const token = getDashboardSessionToken(request);
 
         if (!token) {
             throw new AuthError(
