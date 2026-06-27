@@ -45,9 +45,10 @@ describe("authentication routes", () => {
         expect(location.origin).toBe("https://open.larksuite.com");
         expect(location.searchParams.get("app_id")).toBe("cli_test");
         expect(location.searchParams.get("state")).toBeTruthy();
-        expect(response.headers.get("Set-Cookie")).toContain(
-            "crm_oauth_state="
-        );
+        const setCookie = response.headers.get("Set-Cookie") ?? "";
+        expect(setCookie).toContain("crm_oauth_state=");
+        expect(setCookie).toContain("crm_session=");
+        expect(setCookie).toContain("Max-Age=0");
     });
 
     it("คืน Session Contract ที่ตรงกับ Frontend จาก /auth/me", async () => {

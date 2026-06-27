@@ -154,18 +154,18 @@ export async function handleLarkBrowserLogin(
         );
         const state = await createOAuthState(env, returnTo);
 
-        return new Response(null, {
-            status: 302,
-            headers: {
-                Location: createLarkAuthorizeUrl(env, state.token),
-                "Cache-Control": "no-store",
-                "Set-Cookie": createOAuthStateCookie(
-                    request,
-                    env,
-                    state.token
-                ),
-            },
+        const headers = new Headers({
+            Location: createLarkAuthorizeUrl(env, state.token),
+            "Cache-Control": "no-store",
         });
+        // เริ่ม Login ใหม่จาก Cookie ที่สะอาดเสมอ โดยเฉพาะหลัง Session เดิมหมดอายุ
+        headers.append("Set-Cookie", clearSessionCookie(request, env));
+        headers.append(
+            "Set-Cookie",
+            createOAuthStateCookie(request, env, state.token)
+        );
+
+        return new Response(null, { status: 302, headers });
     } catch (error) {
         logAuthError(error, "/auth/lark/login");
         return authErrorResponse(error);
