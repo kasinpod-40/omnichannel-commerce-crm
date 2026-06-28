@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
 import {
+    getLarkAttachmentTokens,
     getLarkBoolean,
     getLarkNumber,
     getLarkText,
@@ -43,6 +44,7 @@ export type OrderRecordResponse = {
     address: string | null;
     tracking_number: string | null;
     payment_verified: boolean;
+    payment_review_available: boolean;
     sync_status: OrderSyncStatusResponse;
     sync_error: string | null;
     created_at: string;
@@ -132,6 +134,14 @@ function mapOrder(
     const orderPhone = nullableText(fields[ORDER_FIELDS.PHONE]);
     const orderOwner = nullableText(fields[ORDER_FIELDS.SALES_OWNER]);
     const syncStatus = normalizeSyncStatus(fields, channel);
+    const paymentReviewAvailable =
+        !getLarkBoolean(fields[ORDER_FIELDS.PAYMENT_VERIFIED], false) &&
+        (
+            getLarkAttachmentTokens(fields[ORDER_FIELDS.SLIP_ATTACHMENT]).length > 0 ||
+            Boolean(getLarkText(fields[ORDER_FIELDS.SLIP_IMAGE_URL], "").trim()) ||
+            getLarkNumber(fields[ORDER_FIELDS.SLIP_AMOUNT], 0) > 0 ||
+            Boolean(getLarkText(fields[ORDER_FIELDS.SLIP_BANK], "").trim())
+        );
 
     return {
         order_id: record.record_id,
@@ -152,6 +162,7 @@ function mapOrder(
         address: nullableText(fields[ORDER_FIELDS.ADDRESS]),
         tracking_number: nullableText(fields[ORDER_FIELDS.TRACKING_NUMBER]),
         payment_verified: getLarkBoolean(fields[ORDER_FIELDS.PAYMENT_VERIFIED], false),
+        payment_review_available: paymentReviewAvailable,
         sync_status: syncStatus,
         sync_error: syncStatus === "failed" ? "MARKETPLACE_SYNC_FAILED" : null,
         created_at: toIso(createdAt),

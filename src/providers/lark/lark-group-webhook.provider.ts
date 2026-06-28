@@ -52,9 +52,9 @@ export type LarkGroupWebhookResult = {
     response: unknown;
 };
 
-export async function sendLarkGroupText(
+async function sendLarkGroupPayload(
     env: Env,
-    text: string
+    payload: Record<string, unknown>
 ): Promise<LarkGroupWebhookResult> {
     const webhookUrl = env.LARK_GROUP_WEBHOOK_URL?.trim();
 
@@ -78,12 +78,7 @@ export async function sendLarkGroupText(
             headers: {
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-                msg_type: "text",
-                content: {
-                    text,
-                },
-            }),
+            body: JSON.stringify(payload),
         });
     } catch (error) {
         throw new OperationalError(
@@ -143,4 +138,73 @@ export async function sendLarkGroupText(
         ok: true,
         response: responseData,
     };
+}
+
+export async function sendLarkGroupText(
+    env: Env,
+    text: string
+): Promise<LarkGroupWebhookResult> {
+    return await sendLarkGroupPayload(env, {
+        msg_type: "text",
+        content: { text },
+    });
+}
+
+export type LarkReviewCardInput = {
+    title: string;
+    markdown: string;
+    button_text: string;
+    button_url: string;
+};
+
+/** ส่ง Message Card แบบ one-way ผ่าน Custom Bot โดยปุ่มเปิด Dashboard URL ที่ผ่านการตรวจสิทธิ์อีกชั้น */
+export async function sendLarkGroupReviewCard(
+    env: Env,
+    input: LarkReviewCardInput
+): Promise<LarkGroupWebhookResult> {
+    const buttonUrl = input.button_url.trim();
+
+    if (!buttonUrl.startsWith("https://")) {
+        throw new Error("Lark review card URL must start with https://");
+    }
+
+    return await sendLarkGroupPayload(env, {
+        msg_type: "interactive",
+        card: {
+            config: {
+                wide_screen_mode: true,
+                enable_forward: true,
+            },
+            header: {
+                template: "orange",
+                title: {
+                    tag: "plain_text",
+                    content: input.title,
+                },
+            },
+            elements: [
+                {
+                    tag: "div",
+                    text: {
+                        tag: "lark_md",
+                        content: input.markdown,
+                    },
+                },
+                {
+                    tag: "action",
+                    actions: [
+                        {
+                            tag: "button",
+                            type: "primary",
+                            text: {
+                                tag: "plain_text",
+                                content: input.button_text,
+                            },
+                            url: buttonUrl,
+                        },
+                    ],
+                },
+            ],
+        },
+    });
 }

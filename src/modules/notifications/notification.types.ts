@@ -32,6 +32,8 @@ export type NotificationSnapshot = {
     payment_status?: string;
     order_status?: string;
     marketplace_event_kind?: "created" | "completed" | "cancelled";
+    dashboard_read_at?: number;
+    review_resolved_at?: number;
 };
 
 export type Notification = {

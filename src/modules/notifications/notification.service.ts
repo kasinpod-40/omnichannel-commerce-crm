@@ -5,7 +5,10 @@ import {
     ORDER_FIELDS,
     PIPELINE_FIELDS,
 } from "../../core/lark-fields";
-import { sendLarkGroupText } from "../../providers/lark/lark-group-webhook.provider";
+import {
+    sendLarkGroupReviewCard,
+    sendLarkGroupText,
+} from "../../providers/lark/lark-group-webhook.provider";
 import { enqueueNotificationDelivery } from "../../queues/notification.producer";
 import {
     getFirstLinkedRecordId,
@@ -21,6 +24,7 @@ import {
     findPendingNotifications,
     getNotificationByRecordId,
     updateNotificationDelivery,
+    updateNotificationPayload,
     type LarkNotificationRecord,
 } from "./notification.repository";
 import type {
@@ -103,7 +107,7 @@ const NEXT_ACTIONS: Record<
     PAYMENT_OVERDUE: "ติดต่อลูกค้าเพื่อติดตามการชำระเงิน",
 };
 
-function isNotificationType(
+export function isNotificationType(
     value: string
 ): value is NotificationType {
     return Object.prototype.hasOwnProperty.call(
@@ -120,7 +124,7 @@ function getErrorMessage(error: unknown): string {
     return String(error).slice(0, 1000);
 }
 
-function getLastEventPart(eventId: string): string {
+export function getLastEventPart(eventId: string): string {
     const parts = eventId
         .split(":")
         .map((part) => part.trim())
@@ -262,7 +266,7 @@ function normalizeSnapshotNumber(
     return fallback;
 }
 
-function parseNotificationSnapshot(
+export function parseNotificationSnapshot(
     record: LarkNotificationRecord
 ): NotificationSnapshot | null {
     const payloadText = getLarkText(
@@ -346,6 +350,14 @@ function parseNotificationSnapshot(
                 parsed.marketplace_event_kind === "created"
                     ? parsed.marketplace_event_kind
                     : undefined,
+            dashboard_read_at: (() => {
+                const value = normalizeSnapshotNumber(parsed.dashboard_read_at, 0);
+                return value > 0 ? value : undefined;
+            })(),
+            review_resolved_at: (() => {
+                const value = normalizeSnapshotNumber(parsed.review_resolved_at, 0);
+                return value > 0 ? value : undefined;
+            })(),
         };
     } catch {
         return null;
@@ -782,7 +794,7 @@ export async function recordAndDispatchNotificationOnce(
 
     if (
         recorded.duplicate &&
-        existingStatus === "Sent"
+        (existingStatus === "Sent" || existingStatus === "Read")
     ) {
         return {
             ...recorded,
@@ -817,18 +829,17 @@ export async function recordAndDispatchNotificationOnce(
     }
 }
 
-async function hydrateNotificationForDelivery(
+export async function ensureNotificationSnapshot(
     env: Env,
     record: LarkNotificationRecord
 ): Promise<LarkNotificationRecord> {
-    if (parseNotificationSnapshot(record)) {
+    const existingSnapshot = parseNotificationSnapshot(record);
+    if (existingSnapshot && existingSnapshot.captured_at > 0) {
         return record;
     }
 
     const typeText = getLarkText(
-        record.fields[
-            NOTIFICATION_FIELDS.NOTIFICATION_TYPE
-        ],
+        record.fields[NOTIFICATION_FIELDS.NOTIFICATION_TYPE],
         ""
     ).trim();
 
@@ -864,13 +875,106 @@ async function hydrateNotificationForDelivery(
             ) as NotificationStatus,
         }
     );
+    const nextSnapshot: NotificationSnapshot = {
+        ...snapshot,
+        ...(existingSnapshot?.dashboard_read_at
+            ? { dashboard_read_at: existingSnapshot.dashboard_read_at }
+            : {}),
+        ...(existingSnapshot?.review_resolved_at
+            ? { review_resolved_at: existingSnapshot.review_resolved_at }
+            : {}),
+    };
+
+    const updated = await updateNotificationPayload(
+        env,
+        record.record_id,
+        nextSnapshot as unknown as Record<string, unknown>
+    );
 
     return {
         ...record,
+        ...updated,
         fields: {
             ...record.fields,
-            [NOTIFICATION_FIELDS.PAYLOAD_JSON]:
-                JSON.stringify(snapshot),
+            ...updated.fields,
+            [NOTIFICATION_FIELDS.PAYLOAD_JSON]: JSON.stringify(nextSnapshot),
+        },
+    };
+}
+
+export async function markNotificationDashboardRead(
+    env: Env,
+    record: LarkNotificationRecord,
+    readAt = Date.now()
+): Promise<LarkNotificationRecord> {
+    const hydrated = await ensureNotificationSnapshot(env, record);
+    const snapshot = parseNotificationSnapshot(hydrated);
+    const nextPayload: Record<string, unknown> = snapshot
+        ? { ...snapshot, dashboard_read_at: snapshot.dashboard_read_at ?? readAt }
+        : { version: 1, captured_at: 0, dashboard_read_at: readAt };
+
+    if (snapshot?.dashboard_read_at) {
+        return hydrated;
+    }
+
+    return await updateNotificationPayload(env, record.record_id, nextPayload);
+}
+
+/** ปิด Payment Review ที่ดำเนินการแล้ว โดยไม่ต้องเพิ่ม Select option ใหม่ใน Lark Base */
+export async function markPaymentReviewNotificationResolved(
+    env: Env,
+    record: LarkNotificationRecord,
+    resolvedAt = Date.now()
+): Promise<LarkNotificationRecord> {
+    const hydrated = await ensureNotificationSnapshot(env, record);
+    const snapshot = parseNotificationSnapshot(hydrated);
+    const nextPayload: Record<string, unknown> = snapshot
+        ? {
+              ...snapshot,
+              dashboard_read_at: snapshot.dashboard_read_at ?? resolvedAt,
+              review_resolved_at: snapshot.review_resolved_at ?? resolvedAt,
+          }
+        : {
+              version: 1,
+              captured_at: 0,
+              dashboard_read_at: resolvedAt,
+              review_resolved_at: resolvedAt,
+          };
+    const payloadUpdated = snapshot?.review_resolved_at
+        ? hydrated
+        : await updateNotificationPayload(env, record.record_id, nextPayload);
+    const status = getLarkText(
+        record.fields[NOTIFICATION_FIELDS.STATUS],
+        "Pending"
+    ).trim();
+
+    if (status === "Sent" || status === "Read") {
+        return payloadUpdated;
+    }
+
+    const attemptCount = getLarkNumber(
+        record.fields[NOTIFICATION_FIELDS.ATTEMPT_COUNT],
+        0
+    );
+    const deliveryUpdated = await updateNotificationDelivery(
+        env,
+        record.record_id,
+        {
+            status: "Sent",
+            attempt_count: attemptCount,
+            sent_at: resolvedAt,
+            error_message: "",
+        }
+    );
+
+    return {
+        ...payloadUpdated,
+        ...deliveryUpdated,
+        fields: {
+            ...payloadUpdated.fields,
+            ...deliveryUpdated.fields,
+            [NOTIFICATION_FIELDS.PAYLOAD_JSON]: JSON.stringify(nextPayload),
+            [NOTIFICATION_FIELDS.STATUS]: "Sent",
         },
     };
 }
@@ -921,7 +1025,7 @@ export async function sendNotificationByRecordId(
         0
     );
 
-    if (previousStatus === "Sent") {
+    if (previousStatus === "Sent" || previousStatus === "Read") {
         return {
             ok: true,
             notification_record_id:
@@ -937,17 +1041,65 @@ export async function sendNotificationByRecordId(
 
     const nextAttemptCount = previousAttempts + 1;
     const hydratedNotification =
-        await hydrateNotificationForDelivery(
+        await ensureNotificationSnapshot(
             env,
             notification
         );
+    const hydratedSnapshot = parseNotificationSnapshot(hydratedNotification);
+
+    if (notificationType === "PAYMENT_REVIEW" && hydratedSnapshot?.review_resolved_at) {
+        const terminalRecord = await updateNotificationDelivery(
+            env,
+            notification.record_id,
+            {
+                status: "Sent",
+                attempt_count: previousAttempts,
+                sent_at: hydratedSnapshot.review_resolved_at,
+                error_message: "",
+            }
+        );
+        return {
+            ok: true,
+            notification_record_id: notification.record_id,
+            notification_type: notificationType,
+            previous_status: previousStatus,
+            status: "Sent",
+            already_sent: true,
+            attempt_count: previousAttempts,
+            record: terminalRecord,
+        };
+    }
+
     const text = formatNotificationText(
         hydratedNotification
     );
 
     try {
-        const webhookResult =
-            await sendLarkGroupText(env, text);
+        const snapshot = hydratedSnapshot;
+        const eventId = getLarkText(
+            hydratedNotification.fields[
+                NOTIFICATION_FIELDS.EVENT_ID
+            ],
+            ""
+        ).trim();
+        const orderRecordId =
+            notificationType === "PAYMENT_REVIEW" &&
+            snapshot?.order_number
+                ? getLastEventPart(eventId)
+                : "";
+        const dashboardUrl = env.DASHBOARD_URL?.trim().replace(/\/$/, "") ?? "";
+        const reviewUrl = orderRecordId && dashboardUrl
+            ? `${dashboardUrl}/orders/${encodeURIComponent(orderRecordId)}?review=1&notification=${encodeURIComponent(notification.record_id)}`
+            : "";
+
+        const webhookResult = reviewUrl
+            ? await sendLarkGroupReviewCard(env, {
+                  title: "🧾 มีการชำระเงินรอตรวจสอบ",
+                  markdown: text.replace(/^\[CRM\]\s*/u, ""),
+                  button_text: "เปิดตรวจสอบ",
+                  button_url: reviewUrl,
+              })
+            : await sendLarkGroupText(env, text);
 
         const updated =
             await updateNotificationDelivery(

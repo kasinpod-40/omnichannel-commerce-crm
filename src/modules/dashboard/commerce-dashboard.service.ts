@@ -322,6 +322,14 @@ const ACTIVITY_TITLES: Record<
         th: "ยืนยันการชำระเงินแล้ว",
         en: "Payment verified",
     },
+    PAYMENT_REVIEW_APPROVED: {
+        th: "อนุมัติการชำระเงินจาก Dashboard",
+        en: "Payment approved from dashboard",
+    },
+    PAYMENT_REVIEW_REJECTED: {
+        th: "ปฏิเสธหลักฐานการชำระเงิน",
+        en: "Payment evidence rejected",
+    },
     SALE_WON: {
         th: "ปิดการขายสำเร็จ",
         en: "Sale marked as won",

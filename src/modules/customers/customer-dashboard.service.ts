@@ -243,6 +243,8 @@ const ACTION_TITLES: Record<string, { th: string; en: string }> = {
     PHONE_UPDATED: { th: "อัปเดตเบอร์โทร", en: "Phone number updated" },
     PAYMENT_SLIP_RECEIVED: { th: "ได้รับหลักฐานการชำระเงิน", en: "Payment evidence received" },
     PAYMENT_VERIFIED: { th: "ยืนยันการชำระเงิน", en: "Payment verified" },
+    PAYMENT_REVIEW_APPROVED: { th: "อนุมัติการชำระเงิน", en: "Payment approved" },
+    PAYMENT_REVIEW_REJECTED: { th: "ปฏิเสธหลักฐานการชำระเงิน", en: "Payment evidence rejected" },
     SALE_WON: { th: "ปิดการขายสำเร็จ", en: "Sale marked as won" },
     SALE_LOST: { th: "ปิดการขายไม่สำเร็จ", en: "Sale marked as lost" },
     ORDER_CANCELLED: { th: "ยกเลิกคำสั่งซื้อ", en: "Order cancelled" },

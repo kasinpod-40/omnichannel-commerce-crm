@@ -3,6 +3,7 @@ import { NOTIFICATION_FIELDS } from "../../core/lark-fields";
 import {
     createLarkRecord,
     getLarkRecord,
+    listLarkRecords,
     searchLarkRecords,
     updateLarkRecord,
 } from "../../providers/lark/lark.provider";
@@ -184,6 +185,37 @@ export async function updateNotificationDelivery(
         env.NOTIFICATIONS_TABLE_ID,
         recordId,
         fields
+    );
+
+    return normalizeNotificationRecord(result);
+}
+
+/** อ่าน Notification ทั้งหมดสำหรับ Notification Center ใน Dashboard */
+export async function listNotifications(
+    env: Env
+): Promise<LarkNotificationRecord[]> {
+    const records = await listLarkRecords(
+        env,
+        env.NOTIFICATIONS_TABLE_ID
+    );
+
+    return records.map(normalizeNotificationRecord);
+}
+
+
+/** อัปเดต snapshot/read marker โดยไม่เปลี่ยนสถานะการส่งเข้า Lark Group */
+export async function updateNotificationPayload(
+    env: Env,
+    recordId: string,
+    payload: Record<string, unknown>
+): Promise<LarkNotificationRecord> {
+    const result = await updateLarkRecord(
+        env,
+        env.NOTIFICATIONS_TABLE_ID,
+        recordId,
+        {
+            [NOTIFICATION_FIELDS.PAYLOAD_JSON]: JSON.stringify(payload),
+        }
     );
 
     return normalizeNotificationRecord(result);

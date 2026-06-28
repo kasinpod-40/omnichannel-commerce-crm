@@ -11,6 +11,7 @@ import { listActivities } from '../activities/activity.repository';
 import { listConversations } from '../conversations/conversation.repository';
 import { listCustomers } from '../customers/customer.repository';
 import { listOrders } from '../orders/order.repository';
+import { listNotifications } from '../notifications/notification.repository';
 import { listPipelines } from '../pipeline/pipeline.repository';
 import { withDashboardReadCache } from './dashboard-read.cache';
 
@@ -62,5 +63,14 @@ export function getDashboardActivities(env: Env) {
         key('activities', env.LARK_APP_TOKEN, env.ACTIVITIES_TABLE_ID),
         RECORD_CACHE_TTL_MS,
         () => listActivities(env)
+    );
+}
+
+/** อ่าน Notifications สำหรับ Notification Center/Unread badge และรวม request ที่ poll พร้อมกัน */
+export function getDashboardNotifications(env: Env) {
+    return withDashboardReadCache(
+        key('notifications', env.LARK_APP_TOKEN, env.NOTIFICATIONS_TABLE_ID),
+        15_000,
+        () => listNotifications(env)
     );
 }

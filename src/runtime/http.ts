@@ -9,7 +9,9 @@ import { handleHealthRoute } from "../routes/health.route";
 import { handleLarkOperationalRoutes } from "../routes/lark";
 import { handleLineRoutes } from "../routes/line";
 import { handleMarketplaceRoutes } from "../routes/marketplace";
+import { handleNotificationRoutes } from "../routes/notifications";
 import { handleOrderRoutes } from "../routes/orders";
+import { handlePaymentReviewRoutes } from "../routes/payment-reviews";
 import { handlePipelineRoutes } from "../routes/pipelines";
 import { handleTestingRoutes } from "../routes/testing";
 import { jsonResponse } from "../utils/response";
@@ -36,7 +38,9 @@ export async function handleHttpRequest(
         () => handleCustomerRoutes(request, env, pathname),
         () => handleConversationRoutes(request, env, pathname),
         () => handlePipelineRoutes(request, env, pathname),
+        () => handleNotificationRoutes(request, env, pathname),
         () => handleOrderRoutes(request, env, pathname),
+        () => handlePaymentReviewRoutes(request, env, pathname),
         () => handleDocumentRoutes(request, env, pathname),
         () => handleMarketplaceRoutes(request, env, ctx, pathname),
         () => handleTestingRoutes(request, env, pathname),

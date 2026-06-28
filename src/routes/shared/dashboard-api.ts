@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env";
 import { AuthError, isAuthError } from "../../modules/auth/auth.error";
 import { verifyAuthSession } from "../../modules/auth/auth.session";
+import type { AuthSessionPayload } from "../../modules/auth/auth.types";
 import type { DashboardLanguage } from "../../modules/dashboard-read/dashboard-read.types";
 import {
     clearSessionCookie,
@@ -21,7 +22,7 @@ export function dashboardJson(data: unknown, status = 200): Response {
 export async function assertDashboardSession(
     request: Request,
     env: Env
-): Promise<void> {
+): Promise<AuthSessionPayload> {
     const token = getDashboardSessionToken(request);
     if (!token) {
         throw new AuthError(
@@ -30,7 +31,7 @@ export async function assertDashboardSession(
             401
         );
     }
-    await verifyAuthSession(env, token);
+    return await verifyAuthSession(env, token);
 }
 
 export function parseDashboardLanguage(request: Request): DashboardLanguage {
