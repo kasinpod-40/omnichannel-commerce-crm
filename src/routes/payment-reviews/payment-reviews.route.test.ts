@@ -23,6 +23,7 @@ vi.mock("../../modules/payments/payment-review.service", async (importOriginal) 
     };
 });
 
+import { handlePaymentReviewRoutes } from "./index";
 import {
     handlePaymentReviewApprove,
     handlePaymentReviewReject,
@@ -65,6 +66,33 @@ describe("Payment Review routes", () => {
         vi.clearAllMocks();
         approvePaymentReview.mockResolvedValue({ ok: true, outcome: "SALE_COMPLETED" });
         rejectPaymentReview.mockResolvedValue({ ok: true, outcome: "REJECTED" });
+    });
+
+
+    it("อนุญาต Idempotency-Key ใน CORS preflight ของ Payment Review", async () => {
+        const request = new Request(
+            "https://api.example.com/payment-reviews/rec-order-001/approve",
+            {
+                method: "OPTIONS",
+                headers: {
+                    Origin: "https://crm.example.com",
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers":
+                        "authorization, content-type, idempotency-key",
+                },
+            }
+        );
+
+        const response = await handlePaymentReviewRoutes(
+            request,
+            env,
+            "/payment-reviews/rec-order-001/approve"
+        );
+
+        expect(response?.status).toBe(204);
+        expect(response?.headers.get("Access-Control-Allow-Headers")).toContain(
+            "Idempotency-Key"
+        );
     });
 
     it("ปฏิเสธ Sales role ที่พยายาม Approve", async () => {

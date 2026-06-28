@@ -58,6 +58,9 @@ describe("Lark client session route", () => {
         expect(response.headers.get("Access-Control-Allow-Headers")).toContain(
             "Authorization"
         );
+        expect(response.headers.get("Access-Control-Allow-Headers")).toContain(
+            "Idempotency-Key"
+        );
         await expect(response.json()).resolves.toMatchObject({
             session_token: "signed-session-token",
             user: { user_id: "user-1" },

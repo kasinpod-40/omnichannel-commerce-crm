@@ -802,6 +802,69 @@ export async function recordAndDispatchNotificationOnce(
         };
     }
 
+    /*
+     * PAYMENT_REVIEW เป็นงานที่คนต้องเห็นทันที จึงลองส่ง Lark Group Card
+     * ใน request ปัจจุบันก่อน แล้วใช้ Queue เป็น fallback เมื่อ Webhook ล้มเหลว
+     * Queue ที่มาทีหลังจะเห็นสถานะ Sent และไม่ส่งซ้ำ
+     */
+    if (notification.notification_type === "PAYMENT_REVIEW") {
+        try {
+            const delivery = await sendNotificationByRecordId(
+                env,
+                recorded.record.record_id
+            );
+
+            if (delivery.ok) {
+                return {
+                    ...recorded,
+                    delivery,
+                };
+            }
+
+            try {
+                await enqueueNotificationDelivery(env, {
+                    schema_version: 1,
+                    notification_record_id: recorded.record.record_id,
+                    event_id: notification.event_id,
+                    created_at: Date.now(),
+                });
+            } catch (queueError) {
+                return {
+                    ...recorded,
+                    delivery,
+                    dispatch_error: `${delivery.error_message ?? "Payment review delivery failed"}; queue: ${getErrorMessage(queueError)}`,
+                };
+            }
+
+            return {
+                ...recorded,
+                delivery,
+                dispatch_error: delivery.error_message,
+            };
+        } catch (error) {
+            try {
+                await enqueueNotificationDelivery(env, {
+                    schema_version: 1,
+                    notification_record_id: recorded.record.record_id,
+                    event_id: notification.event_id,
+                    created_at: Date.now(),
+                });
+            } catch (queueError) {
+                return {
+                    ...recorded,
+                    delivery: null,
+                    dispatch_error: `${getErrorMessage(error)}; queue: ${getErrorMessage(queueError)}`,
+                };
+            }
+
+            return {
+                ...recorded,
+                delivery: null,
+                dispatch_error: getErrorMessage(error),
+            };
+        }
+    }
+
     try {
         await enqueueNotificationDelivery(env, {
             schema_version: 1,

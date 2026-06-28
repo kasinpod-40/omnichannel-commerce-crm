@@ -92,6 +92,13 @@ function fallbackType(value: unknown): NotificationType {
     return isNotificationType(normalized) ? normalized : "NEW_LEAD";
 }
 
+/** Dashboard Notification Center แสดงเฉพาะงานตรวจสอบการชำระเงินตามขอบเขต UX ปัจจุบัน */
+function isPaymentReviewRecord(record: LarkNotificationRecord): boolean {
+    return fallbackType(
+        record.fields[NOTIFICATION_FIELDS.NOTIFICATION_TYPE]
+    ) === "PAYMENT_REVIEW";
+}
+
 function isDashboardRead(record: LarkNotificationRecord): boolean {
     const status = normalizeStatus(record.fields[NOTIFICATION_FIELDS.STATUS]);
     const snapshot = parseNotificationSnapshot(record);
@@ -198,6 +205,7 @@ export async function getNotificationList(
     ]);
     const customers = buildCustomerLookup(customerRecords);
     const allItems = records
+        .filter(isPaymentReviewRecord)
         .map((record) => mapNotification(record, customers))
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
     const filtered = allItems.filter((item) => matchesQuery(item, query));
@@ -225,7 +233,9 @@ export async function getNotificationList(
 
 export async function getNotificationUnreadCount(env: Env): Promise<number> {
     const records = await getDashboardNotifications(env);
-    return records.filter((record) => !isDashboardRead(record)).length;
+    return records.filter(
+        (record) => isPaymentReviewRecord(record) && !isDashboardRead(record)
+    ).length;
 }
 
 export async function markNotificationRead(
@@ -240,6 +250,9 @@ export async function markNotificationRead(
     if (!record) {
         throw new Error(`Notification not found: ${normalizedId}`);
     }
+    if (!isPaymentReviewRecord(record)) {
+        throw new Error(`Notification is not a payment review: ${normalizedId}`);
+    }
     await markNotificationDashboardRead(env, record);
     clearDashboardReadCache("dashboard-records:notifications");
     return { notification_id: normalizedId, is_read: true };
@@ -249,7 +262,9 @@ export async function markAllNotificationsRead(
     env: Env
 ): Promise<{ updated: number }> {
     const records = await listNotifications(env);
-    const unread = records.filter((record) => !isDashboardRead(record));
+    const unread = records.filter(
+        (record) => isPaymentReviewRecord(record) && !isDashboardRead(record)
+    );
 
     let updated = 0;
     for (const record of unread) {
