@@ -1,6 +1,6 @@
 {
   "name": "omnichannel-commerce-crm",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",

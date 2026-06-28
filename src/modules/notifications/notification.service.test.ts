@@ -49,7 +49,7 @@ vi.mock("./notification.repository", async (importOriginal) => {
         });
 
         const result = await recordAndDispatchNotificationOnce(
-            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            { DASHBOARD_URL: "https://crm.example.com", LARK_APP_ID: "cli_test_app" } as any,
             {
                 event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
                 notification_type: "PAYMENT_REVIEW",
@@ -100,7 +100,7 @@ vi.mock("../../providers/lark/lark-group-webhook.provider", async (importOrigina
         });
 
         const result = await recordAndDispatchNotificationOnce(
-            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            { DASHBOARD_URL: "https://crm.example.com", LARK_APP_ID: "cli_test_app" } as any,
             {
                 event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
                 notification_type: "PAYMENT_REVIEW",
@@ -194,7 +194,7 @@ describe("notification idempotency and payment review delivery", () => {
         });
 
         const result = await recordAndDispatchNotificationOnce(
-            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            { DASHBOARD_URL: "https://crm.example.com", LARK_APP_ID: "cli_test_app" } as any,
             {
                 event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
                 notification_type: "PAYMENT_REVIEW",
@@ -207,7 +207,7 @@ describe("notification idempotency and payment review delivery", () => {
         expect(sendLarkGroupReviewCard).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
-                button_url: expect.stringContaining("/orders/order1?review=1"),
+                button_url: expect.stringContaining("https://applink.larksuite.com/client/web_app/open"),
             })
         );
         expect(enqueueNotificationDelivery).not.toHaveBeenCalled();
@@ -228,7 +228,7 @@ describe("notification idempotency and payment review delivery", () => {
         });
 
         const result = await recordAndDispatchNotificationOnce(
-            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            { DASHBOARD_URL: "https://crm.example.com", LARK_APP_ID: "cli_test_app" } as any,
             {
                 event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
                 notification_type: "PAYMENT_REVIEW",
@@ -262,7 +262,7 @@ describe("notification idempotency and payment review delivery", () => {
         });
 
         const result = await recordAndDispatchNotificationOnce(
-            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            { DASHBOARD_URL: "https://crm.example.com", LARK_APP_ID: "cli_test_app" } as any,
             {
                 event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
                 notification_type: "PAYMENT_REVIEW",

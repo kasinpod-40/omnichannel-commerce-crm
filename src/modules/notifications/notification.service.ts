@@ -9,6 +9,7 @@ import {
     sendLarkGroupReviewCard,
     sendLarkGroupText,
 } from "../../providers/lark/lark-group-webhook.provider";
+import { buildLarkDashboardAppLink } from "../../providers/lark/lark-applink";
 import { enqueueNotificationDelivery } from "../../queues/notification.producer";
 import { classifyOperationalError } from "../../utils/errors";
 import {
@@ -1155,9 +1156,11 @@ export async function sendNotificationByRecordId(
             snapshot?.order_number
                 ? getLastEventPart(eventId)
                 : "";
-        const dashboardUrl = env.DASHBOARD_URL?.trim().replace(/\/$/, "") ?? "";
-        const reviewUrl = orderRecordId && dashboardUrl
-            ? `${dashboardUrl}/orders/${encodeURIComponent(orderRecordId)}?review=1&notification=${encodeURIComponent(notification.record_id)}`
+        const reviewPath = orderRecordId
+            ? `/orders/${encodeURIComponent(orderRecordId)}?review=1&notification=${encodeURIComponent(notification.record_id)}`
+            : "";
+        const reviewUrl = reviewPath
+            ? buildLarkDashboardAppLink(env, reviewPath)
             : "";
 
         const webhookResult = reviewUrl

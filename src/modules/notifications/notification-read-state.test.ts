@@ -53,6 +53,7 @@ import {
 
 const env = {
     DASHBOARD_URL: "https://crm.example.com",
+    LARK_APP_ID: "cli_test_app",
 } as Env;
 
 const baseRecord = {
@@ -154,7 +155,7 @@ describe("Notification dashboard read state", () => {
             env,
             expect.objectContaining({
                 button_text: "เปิดตรวจสอบ",
-                button_url: "https://crm.example.com/orders/rec-order-001?review=1&notification=noti-001",
+                button_url: expect.stringContaining("https://applink.larksuite.com/client/web_app/open"),
             })
         );
         expect(mocks.updateNotificationDelivery).toHaveBeenCalledWith(
