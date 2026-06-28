@@ -7,7 +7,7 @@ const env = {
 } as Env;
 
 describe("Lark Web App AppLink", () => {
-    it("เปิด Payment Review ผ่าน /lark-entry และรักษา returnTo ครบ", () => {
+    it("แยก Payment Review returnTo ออกจาก path เพื่อให้ Mobile และ Desktop รักษาปลายทางครบ", () => {
         const returnTo =
             "/orders/rec-order-001?review=1&notification=noti-001";
         const result = buildLarkDashboardAppLink(env, returnTo);
@@ -17,12 +17,10 @@ describe("Lark Web App AppLink", () => {
         expect(appLink.pathname).toBe("/client/web_app/open");
         expect(appLink.searchParams.get("appId")).toBe("cli_test_app");
         expect(appLink.searchParams.get("mode")).toBe("window");
-
-        const appPath = appLink.searchParams.get("path");
-        expect(appPath).toBeTruthy();
-        const entryUrl = new URL(appPath!, "https://crm.example.com");
-        expect(entryUrl.pathname).toBe("/lark-entry");
-        expect(entryUrl.searchParams.get("returnTo")).toBe(returnTo);
+        expect(appLink.searchParams.get("path")).toBe("/lark-entry");
+        expect(appLink.searchParams.get("path")).not.toContain("?");
+        expect(appLink.searchParams.get("source")).toBe("lark");
+        expect(appLink.searchParams.get("crm_return_to")).toBe(returnTo);
     });
 
     it("ไม่สร้างลิงก์เมื่อ LARK_APP_ID ไม่มีค่า", () => {

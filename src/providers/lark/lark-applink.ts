@@ -4,10 +4,14 @@ import { OperationalError } from "../../utils/errors";
 const LARK_WEB_APP_LINK_BASE =
     "https://applink.larksuite.com/client/web_app/open";
 const LARK_ENTRY_PATH = "/lark-entry";
+const LARK_RETURN_TO_PARAM = "crm_return_to";
 
 /**
  * สร้าง AppLink สำหรับเปิด Dashboard ภายใต้ Web App context ของ Lark
- * ลำดับ: Lark Group Card -> AppLink -> /lark-entry -> returnTo -> AuthGuard/Client Session
+ *
+ * Lark กำหนดให้ path เป็น path ของ H5 App เท่านั้น ส่วน query ของหน้าปลายทาง
+ * ต้องส่งเป็น AppLink query ระดับเดียวกัน ห้ามซ้อน ?returnTo ไว้ในค่า path
+ * เพราะ Client บางแพลตฟอร์มจะตัด query ซ้อนและเปิดกลับหน้า Dashboard
  */
 export function buildLarkDashboardAppLink(
     env: Env,
@@ -34,14 +38,12 @@ export function buildLarkDashboardAppLink(
         );
     }
 
-    const entryQuery = new URLSearchParams({
-        returnTo: normalizedReturnTo,
-    });
-    const appPath = `${LARK_ENTRY_PATH}?${entryQuery.toString()}`;
     const appLinkQuery = new URLSearchParams({
         appId,
-        path: appPath,
+        path: LARK_ENTRY_PATH,
         mode: "window",
+        source: "lark",
+        [LARK_RETURN_TO_PARAM]: normalizedReturnTo,
     });
 
     return `${LARK_WEB_APP_LINK_BASE}?${appLinkQuery.toString()}`;
