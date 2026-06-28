@@ -1,6 +1,8 @@
+import { normalizeLeadScore } from "../../core/lead-score";
 import {
     CUSTOMER_FIELDS,
 } from "../../core/lark-fields";
+import { isSalesStage } from "../../core/sales-stage";
 import {
     getFirstLinkedRecordId,
     getLarkBoolean,
@@ -13,14 +15,7 @@ import type {
     DashboardLarkRecord,
 } from "./dashboard-read.types";
 
-const CUSTOMER_STAGES = new Set<DashboardCustomerSnapshot["current_stage"]>([
-    "New Lead",
-    "Interested",
-    "Negotiating",
-    "Closing",
-    "Won",
-    "Lost",
-]);
+
 
 export function nullableText(value: unknown): string | null {
     const text = getLarkText(value, "").trim();
@@ -54,8 +49,8 @@ export function normalizeChannel(value: unknown): DashboardChannel {
 export function normalizeCustomerStage(
     value: unknown
 ): DashboardCustomerSnapshot["current_stage"] {
-    const stage = getLarkText(value, "New Lead").trim() as DashboardCustomerSnapshot["current_stage"];
-    return CUSTOMER_STAGES.has(stage) ? stage : "New Lead";
+    const stage = getLarkText(value, "New Lead").trim();
+    return isSalesStage(stage) ? stage : "New Lead";
 }
 
 export function extractLarkUrl(value: unknown): string | null {
@@ -118,7 +113,9 @@ export function buildCustomerSnapshot(
         channel: normalizeChannel(fields[CUSTOMER_FIELDS.CHANNEL]),
         phone: nullableText(fields[CUSTOMER_FIELDS.PHONE]),
         current_stage: normalizeCustomerStage(fields[CUSTOMER_FIELDS.CURRENT_STAGE]),
-        lead_score: Math.min(100, Math.max(0, getLarkNumber(fields[CUSTOMER_FIELDS.LEAD_SCORE], 0))),
+        lead_score: normalizeLeadScore(
+            getLarkNumber(fields[CUSTOMER_FIELDS.LEAD_SCORE], 0)
+        ),
         hot_lead: getLarkBoolean(fields[CUSTOMER_FIELDS.HOT_LEAD], false),
         ai_summary: nullableText(fields[CUSTOMER_FIELDS.AI_SUMMARY]),
         last_message: nullableText(fields[CUSTOMER_FIELDS.LAST_MESSAGE]),

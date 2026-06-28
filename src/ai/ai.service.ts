@@ -1,4 +1,5 @@
 import type { Env } from "../config/env";
+import { isOpenSalesStage } from "../core/sales-stage";
 import type { MessageType } from "../modules/conversations/conversation.types";
 import { analyzeTextWithGemini, isGeminiTextAIConfigured } from "./gemini";
 import { analyzeImage } from "./image-ai.service";
@@ -50,14 +51,6 @@ const BUYER_INTENTS = new Set<BuyerIntent>([
     "Interested",
     "Purchase Intent",
     "Ready To Buy",
-]);
-
-const CUSTOMER_STAGES = new Set<CustomerStage>([
-    "New Lead",
-    "Interested",
-    "Negotiating",
-    "Closing",
-    "Lost",
 ]);
 
 const QUANTITY_ACTIONS = new Set<QuantityAction>([
@@ -133,9 +126,9 @@ function normalizeBuyerIntent(value: unknown): BuyerIntent {
 }
 
 function normalizeCustomerStage(value: unknown): CustomerStage {
-    return typeof value === "string" &&
-        CUSTOMER_STAGES.has(value as CustomerStage)
-        ? (value as CustomerStage)
+    // Text AI may classify active stages or Lost, but never closes a sale as Won.
+    return isOpenSalesStage(value) || value === "Lost"
+        ? value
         : "New Lead";
 }
 

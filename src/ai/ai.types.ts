@@ -1,3 +1,4 @@
+import type { SalesStage } from "../core/sales-stage";
 import type {
     ImageAnalysisResult,
 } from "./image-ai.types";
@@ -33,13 +34,7 @@ export type BuyerIntent =
     | "Purchase Intent"
     | "Ready To Buy";
 
-export type CustomerStage =
-    | "New Lead"
-    | "Interested"
-    | "Negotiating"
-    | "Closing"
-    | "Won"
-    | "Lost";
+export type CustomerStage = SalesStage;
 
 export type AIProviderName =
     | "rule_engine"

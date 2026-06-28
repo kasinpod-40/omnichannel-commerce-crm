@@ -363,4 +363,39 @@ describe("CASE 19.3 customer phone merge", () => {
         );
     });
 
+    it("repairs an out-of-range legacy lead score on the next update", async () => {
+        const legacyCustomer = {
+            ...existingCustomer,
+            fields: {
+                ...existingCustomer.fields,
+                [CUSTOMER_FIELDS.CURRENT_STAGE]: "Negotiating",
+                [CUSTOMER_FIELDS.LEAD_SCORE]: 140,
+            },
+        };
+
+        await upsertCustomer({} as Env, {
+            channel: "LINE",
+            channel_customer_id: "line_user_001",
+            last_message: "ขอคิดดูก่อนครับ",
+            existing_customer: legacyCustomer,
+            ai: {
+                intent: "ask_discount",
+                buyer_intent: "Purchase Intent",
+                customer_stage: "Negotiating",
+                lead_score: 70,
+                hot_lead: false,
+                ai_summary: "ลูกค้าขอพิจารณาราคา",
+            },
+        });
+
+        expect(customerRepository.updateCustomer).toHaveBeenCalledWith(
+            expect.anything(),
+            legacyCustomer.record_id,
+            expect.objectContaining({
+                current_stage: "Negotiating",
+                lead_score: 100,
+            })
+        );
+    });
+
 });

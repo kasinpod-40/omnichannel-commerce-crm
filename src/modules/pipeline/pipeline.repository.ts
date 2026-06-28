@@ -19,15 +19,34 @@ export type LarkPipelineRecord = {
     fields: Record<string, unknown>;
 };
 
-function normalizePipelineRecord(result: unknown): LarkPipelineRecord {
-    const data = result as any;
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
 
-    if (data?.record?.record_id) {
-        return data.record as LarkPipelineRecord;
+function toPipelineRecord(value: unknown): LarkPipelineRecord | null {
+    if (!isObjectRecord(value) || typeof value.record_id !== "string") {
+        return null;
     }
 
-    if (data?.record_id) {
-        return data as LarkPipelineRecord;
+    return {
+        record_id: value.record_id,
+        fields: isObjectRecord(value.fields) ? value.fields : {},
+    };
+}
+
+function normalizePipelineRecord(result: unknown): LarkPipelineRecord {
+    if (isObjectRecord(result)) {
+        const nestedRecord = toPipelineRecord(result.record);
+
+        if (nestedRecord) {
+            return nestedRecord;
+        }
+    }
+
+    const directRecord = toPipelineRecord(result);
+
+    if (directRecord) {
+        return directRecord;
     }
 
     throw new Error(`Invalid Lark pipeline record: ${JSON.stringify(result)}`);
@@ -161,8 +180,9 @@ export async function getPipelineByRecordId(
         return null;
     }
 
-    return result as LarkPipelineRecord;
+    return normalizePipelineRecord(result);
 }
+
 export async function listPipelines(
     env: Env
 ): Promise<LarkPipelineRecord[]> {

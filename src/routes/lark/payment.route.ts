@@ -1,56 +1,11 @@
 import type { Env } from "../../config/env";
 import { verifyPayment } from "../../usecases/verify-payment.usecase";
 import { jsonResponse } from "../../utils/response";
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return typeof value === "object" && value !== null;
-}
-
-function getString(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
-}
-
-function getWorkflowToken(
-    request: Request,
-    body: UnknownRecord
-): string {
-    const authorization =
-        request.headers.get("authorization")?.trim() ?? "";
-
-    if (/^Bearer\s+/i.test(authorization)) {
-        return authorization.replace(/^Bearer\s+/i, "").trim();
-    }
-
-    return (
-        request.headers.get("x-lark-workflow-token")?.trim() ||
-        request.headers.get("x-workflow-token")?.trim() ||
-        getString(body.token) ||
-        getString(body.workflow_token)
-    );
-}
-
-function getOrderRecordId(body: UnknownRecord): string {
-    const direct =
-        getString(body.order_record_id) ||
-        getString(body.orderRecordId) ||
-        getString(body.record_id);
-
-    if (direct) {
-        return direct;
-    }
-
-    if (isRecord(body.fields)) {
-        return (
-            getString(body.fields.order_record_id) ||
-            getString(body.fields.orderRecordId) ||
-            getString(body.fields.record_id)
-        );
-    }
-
-    return "";
-}
+import {
+    getOrderRecordId,
+    getWorkflowToken,
+    isWorkflowRequestBody,
+} from "./workflow-request";
 
 export async function handlePaymentVerifiedWebhook(
     request: Request,
@@ -94,7 +49,7 @@ export async function handlePaymentVerifiedWebhook(
         );
     }
 
-    if (!isRecord(body)) {
+    if (!isWorkflowRequestBody(body)) {
         return jsonResponse(
             {
                 ok: false,

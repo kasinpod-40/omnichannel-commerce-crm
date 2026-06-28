@@ -1,10 +1,11 @@
 import type {
     AIAnalysisResult,
-    ActionIntent,
     BuyerIntent,
 } from "../../ai/ai.types";
 import type { Env } from "../../config/env";
+import { normalizeLeadScore } from "../../core/lead-score";
 import { CUSTOMER_FIELDS } from "../../core/lark-fields";
+import { SALES_STAGE_RANK, isSalesStage } from "../../core/sales-stage";
 import {
     getLarkBoolean,
     getLarkNumber,
@@ -35,14 +36,7 @@ export type UpsertCustomerInput = {
     force_new_sales_cycle?: boolean;
 };
 
-const STAGE_RANK: Record<CustomerStage, number> = {
-    "New Lead": 0,
-    Interested: 1,
-    Negotiating: 2,
-    Closing: 3,
-    Won: 4,
-    Lost: 4,
-};
+
 
 const BUYER_INTENT_RANK: Record<BuyerIntent, number> = {
     "Just Browsing": 0,
@@ -54,23 +48,8 @@ const BUYER_INTENT_RANK: Record<BuyerIntent, number> = {
 function normalizeCustomerStage(
     value: unknown
 ): CustomerStage {
-    const stage = getLarkText(
-        value,
-        "New Lead"
-    );
-
-    if (
-        stage === "New Lead" ||
-        stage === "Interested" ||
-        stage === "Negotiating" ||
-        stage === "Closing" ||
-        stage === "Won" ||
-        stage === "Lost"
-    ) {
-        return stage;
-    }
-
-    return "New Lead";
+    const stage = getLarkText(value, "New Lead").trim();
+    return isSalesStage(stage) ? stage : "New Lead";
 }
 
 function normalizeBuyerIntent(
@@ -93,23 +72,8 @@ function normalizeBuyerIntent(
     return "Just Browsing";
 }
 
-export function isMeaningfulNewCycleIntent(
-    intent: ActionIntent
-): boolean {
-    return (
-        intent === "ask_price" ||
-        intent === "ask_discount" ||
-        intent === "product_info" ||
-        intent === "product_order" ||
-        intent === "payment_request" ||
-        intent === "payment_slip" ||
-        intent === "delivery_address"
-    );
-}
-
 export function isStartingNewSalesCycle(
-    existingStage: CustomerStage,
-    _ai: AIAnalysisResult
+    existingStage: CustomerStage
 ): boolean {
     /*
      * Closed customers must start with a clean sales context on the
@@ -132,19 +96,8 @@ function mergeCustomerStage(
     }
 
     if (
-        existingStage === "Won" ||
-        existingStage === "Lost"
-    ) {
-        if (isMeaningfulNewCycleIntent(ai.intent)) {
-            return ai.customer_stage;
-        }
-
-        return existingStage;
-    }
-
-    if (
-        STAGE_RANK[ai.customer_stage] >=
-        STAGE_RANK[existingStage]
+        SALES_STAGE_RANK[ai.customer_stage] >=
+        SALES_STAGE_RANK[existingStage]
     ) {
         return ai.customer_stage;
     }
@@ -154,22 +107,10 @@ function mergeCustomerStage(
 
 function mergeBuyerIntent(
     existingBuyerIntent: BuyerIntent,
-    existingStage: CustomerStage,
     ai: AIAnalysisResult
 ): BuyerIntent {
     if (ai.intent === "lost") {
         return "Just Browsing";
-    }
-
-    if (
-        existingStage === "Won" ||
-        existingStage === "Lost"
-    ) {
-        if (isMeaningfulNewCycleIntent(ai.intent)) {
-            return ai.buyer_intent;
-        }
-
-        return existingBuyerIntent;
     }
 
     if (
@@ -184,45 +125,21 @@ function mergeBuyerIntent(
 
 function mergeLeadScore(
     existingScore: number,
-    existingStage: CustomerStage,
     ai: AIAnalysisResult
 ): number {
     if (ai.intent === "lost") {
         return 0;
     }
 
-    if (isStartingNewSalesCycle(existingStage, ai)) {
-        return ai.lead_score;
-    }
-
-    if (
-        existingStage === "Won" ||
-        existingStage === "Lost"
-    ) {
-        return existingScore;
-    }
-
-    return Math.max(existingScore, ai.lead_score);
+    return normalizeLeadScore(Math.max(existingScore, ai.lead_score));
 }
 
 function mergeHotLead(
     existingHotLead: boolean,
-    existingStage: CustomerStage,
     ai: AIAnalysisResult
 ): boolean {
     if (ai.intent === "lost") {
         return false;
-    }
-
-    if (isStartingNewSalesCycle(existingStage, ai)) {
-        return ai.hot_lead;
-    }
-
-    if (
-        existingStage === "Won" ||
-        existingStage === "Lost"
-    ) {
-        return existingHotLead;
     }
 
     return existingHotLead || ai.hot_lead;
@@ -260,8 +177,9 @@ export async function upsertCustomer(
             buyer_intent:
                 input.ai?.buyer_intent ??
                 "Just Browsing",
-            lead_score:
-                input.ai?.lead_score ?? 0,
+            lead_score: normalizeLeadScore(
+                input.ai?.lead_score
+            ),
             hot_lead:
                 input.ai?.hot_lead ?? false,
             ai_summary:
@@ -308,11 +226,13 @@ export async function upsertCustomer(
             ]
         );
 
-    const existingLeadScore = getLarkNumber(
-        existingFields[
-            CUSTOMER_FIELDS.LEAD_SCORE
-        ],
-        0
+    const existingLeadScore = normalizeLeadScore(
+        getLarkNumber(
+            existingFields[
+                CUSTOMER_FIELDS.LEAD_SCORE
+            ],
+            0
+        )
     );
 
     const existingHotLead = getLarkBoolean(
@@ -335,8 +255,7 @@ export async function upsertCustomer(
         (input.force_new_sales_cycle === true ||
             (input.ai
                 ? isStartingNewSalesCycle(
-                      existingStage,
-                      input.ai
+                      existingStage
                   )
                 : false));
 
@@ -354,17 +273,15 @@ export async function upsertCustomer(
             ? input.ai.buyer_intent
             : mergeBuyerIntent(
                   existingBuyerIntent,
-                  existingStage,
                   input.ai
               )
         : existingBuyerIntent;
 
     const nextLeadScore = input.ai
         ? startingNewSalesCycle
-            ? input.ai.lead_score
+            ? normalizeLeadScore(input.ai.lead_score)
             : mergeLeadScore(
                   existingLeadScore,
-                  existingStage,
                   input.ai
               )
         : existingLeadScore;
@@ -374,7 +291,6 @@ export async function upsertCustomer(
             ? input.ai.hot_lead
             : mergeHotLead(
                   existingHotLead,
-                  existingStage,
                   input.ai
               )
         : existingHotLead;

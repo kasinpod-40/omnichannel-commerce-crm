@@ -190,7 +190,7 @@ export async function findCustomerByChannelCustomerId(
         return null;
     }
 
-    return records[0] as LarkCustomerRecord;
+    return normalizeCustomerRecord(records[0]);
 }
 
 export async function updateCustomer(

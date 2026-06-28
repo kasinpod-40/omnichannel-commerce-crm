@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env";
+import { isSalesStage } from "../../core/sales-stage";
 import { AuthError, isAuthError } from "../../modules/auth/auth.error";
 import { verifyAuthSession } from "../../modules/auth/auth.session";
 import {
@@ -69,19 +70,11 @@ function parseListQuery(request: Request): CustomerListQuery {
     const rawChannel = searchParams.get("channel");
     const rawStage = searchParams.get("stage");
     const allowedChannels = new Set(["LINE", "Shopee", "Lazada", "TikTok Shop"]);
-    const allowedStages = new Set([
-        "New Lead",
-        "Interested",
-        "Negotiating",
-        "Closing",
-        "Won",
-        "Lost",
-    ]);
 
     return {
         search: searchParams.get("search") ?? "",
         channel: rawChannel && allowedChannels.has(rawChannel) ? rawChannel : null,
-        stage: rawStage && allowedStages.has(rawStage) ? rawStage : null,
+        stage: isSalesStage(rawStage) ? rawStage : null,
         hot_lead: parseBoolean(searchParams.get("hot_lead")),
         sort,
         page: parsePositiveInteger(searchParams.get("page"), 1, 100_000),

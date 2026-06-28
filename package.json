@@ -1,6 +1,6 @@
 {
   "name": "omnichannel-commerce-crm",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
@@ -9,11 +9,13 @@
     "start": "wrangler dev",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:run",
-    "test:run": "node scripts/run-regression-tests.mjs",
+    "test:run": "npm run test:unit && npm run test:integration",
     "check": "npm run typecheck && npm run test:run && npm run deploy:dry",
     "cf-typegen": "wrangler types",
-    "test:unit": "node scripts/run-regression-tests.mjs --unit-only",
-    "test:integration": "vitest run --config vitest.integration.config.mts"
+    "test:unit": "npm run test:unit:node && npm run test:unit:worker",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:unit:node": "vitest run --config vitest.config.mts",
+    "test:unit:worker": "vitest run --config vitest.worker-unit.config.mts"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.16.20",

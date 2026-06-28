@@ -4,67 +4,12 @@ import {
     runPaymentOverdueSweep,
 } from "../../modules/payments/payment-overdue.service";
 import { jsonResponse } from "../../utils/response";
-
-type UnknownRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is UnknownRecord {
-    return typeof value === "object" && value !== null;
-}
-
-function getString(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
-}
-
-function getBearerToken(request: Request): string {
-    const authorization =
-        request.headers.get("Authorization") ?? "";
-
-    return /^Bearer\s+/i.test(authorization)
-        ? authorization.replace(/^Bearer\s+/i, "").trim()
-        : request.headers
-              .get("X-Admin-Token")
-              ?.trim() ?? "";
-}
-
-function getWorkflowToken(
-    request: Request,
-    body: UnknownRecord
-): string {
-    const authorization =
-        request.headers.get("Authorization")?.trim() ?? "";
-
-    if (/^Bearer\s+/i.test(authorization)) {
-        return authorization.replace(/^Bearer\s+/i, "").trim();
-    }
-
-    return (
-        request.headers.get("X-Lark-Workflow-Token")?.trim() ||
-        request.headers.get("X-Workflow-Token")?.trim() ||
-        getString(body.token) ||
-        getString(body.workflow_token)
-    );
-}
-
-function getOrderRecordId(body: UnknownRecord): string {
-    const direct =
-        getString(body.order_record_id) ||
-        getString(body.orderRecordId) ||
-        getString(body.record_id);
-
-    if (direct) {
-        return direct;
-    }
-
-    if (isRecord(body.fields)) {
-        return (
-            getString(body.fields.order_record_id) ||
-            getString(body.fields.orderRecordId) ||
-            getString(body.fields.record_id)
-        );
-    }
-
-    return "";
-}
+import {
+    getOrderRecordId,
+    getWorkflowToken,
+    isWorkflowRequestBody,
+} from "./workflow-request";
+import { isAdminAuthorized } from "../shared/admin-auth";
 
 export async function handlePaymentOverdueWebhook(
     request: Request,
@@ -103,7 +48,7 @@ export async function handlePaymentOverdueWebhook(
         );
     }
 
-    if (!isRecord(body)) {
+    if (!isWorkflowRequestBody(body)) {
         return jsonResponse(
             { ok: false, message: "Invalid request body" },
             400
@@ -184,13 +129,7 @@ export async function handlePaymentOverdueRun(
         );
     }
 
-    const configuredToken =
-        env.NOTIFICATION_DISPATCH_TOKEN?.trim() ?? "";
-
-    if (
-        !configuredToken ||
-        getBearerToken(request) !== configuredToken
-    ) {
+    if (!isAdminAuthorized(request, env)) {
         return jsonResponse(
             {
                 ok: false,

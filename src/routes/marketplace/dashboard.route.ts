@@ -5,20 +5,13 @@ import {
 } from "../../modules/dashboard/marketplace-dashboard.service";
 import type { MarketplaceChannel } from "../../modules/marketplace/marketplace.types";
 import { jsonResponse } from "../../utils/response";
+import { isAdminAuthorized } from "../shared/admin-auth";
 
 const MARKETPLACE_CHANNELS = new Set<MarketplaceChannel>([
     "Shopee",
     "Lazada",
     "TikTok",
 ]);
-
-function getBearerToken(request: Request): string {
-    const authorization = request.headers.get("Authorization") ?? "";
-
-    return /^Bearer\s+/i.test(authorization)
-        ? authorization.replace(/^Bearer\s+/i, "").trim()
-        : request.headers.get("X-Admin-Token")?.trim() ?? "";
-}
 
 function parseDateBoundary(
     value: string | null,
@@ -87,9 +80,7 @@ export async function handleMarketplaceDashboard(
         );
     }
 
-    const configuredToken = env.NOTIFICATION_DISPATCH_TOKEN?.trim() ?? "";
-
-    if (!configuredToken || getBearerToken(request) !== configuredToken) {
+    if (!isAdminAuthorized(request, env)) {
         return jsonResponse(
             {
                 ok: false,

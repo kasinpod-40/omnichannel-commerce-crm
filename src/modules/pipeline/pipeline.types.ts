@@ -1,11 +1,7 @@
+import type { SalesStage } from "../../core/sales-stage";
 import type { Channel } from "../customers/customer.types";
 
-export type PipelineStage =
-    | "Interested"
-    | "Negotiating"
-    | "Closing"
-    | "Won"
-    | "Lost";
+export type PipelineStage = SalesStage;
 
 export type PipelineStatus =
     | "open"

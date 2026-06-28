@@ -1,19 +1,14 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
     test: {
-        // ชุด Unit/Service ไม่ต้องโหลด Worker entry ทั้งระบบ ช่วยให้รัน Regression ได้เสถียรและเร็วขึ้น
-        exclude: ["test/index.spec.ts", "**/node_modules/**"],
-        maxWorkers: 4,
+        // Unit/Service ปกติรันบน Node โดยตรง ไม่เปิด workerd ที่ไม่จำเป็น
+        exclude: [
+            "test/index.spec.ts",
+            "src/modules/conversations/conversation-image.service.test.ts",
+            "**/node_modules/**",
+        ],
+        fileParallelism: false,
+        maxWorkers: 1,
     },
-    plugins: [
-        cloudflareTest({
-            miniflare: {
-                compatibilityDate: "2026-06-16",
-                compatibilityFlags: ["nodejs_compat"],
-                kvNamespaces: ["MARKETPLACE_TOKENS"],
-            },
-        }),
-    ],
 });

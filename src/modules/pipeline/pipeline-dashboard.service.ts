@@ -1,5 +1,7 @@
 import type { Env } from "../../config/env";
+import { normalizeLeadScore } from "../../core/lead-score";
 import { PIPELINE_FIELDS } from "../../core/lark-fields";
+import { resolvePipelineStage, type SalesStage } from "../../core/sales-stage";
 import { getLarkNumber, getLarkText } from "../../utils/lark-field-value";
 import {
     buildCustomerLookup,
@@ -15,7 +17,7 @@ import {
 } from "../dashboard-read/dashboard-read.records";
 
 export type PipelineStatusResponse = "open" | "won" | "lost";
-export type PipelineStageResponse = "New Lead" | "Interested" | "Negotiating" | "Closing" | "Won" | "Lost";
+export type PipelineStageResponse = SalesStage;
 
 export type PipelineRecordResponse = {
     pipeline_id: string;
@@ -72,16 +74,6 @@ function normalizeStatus(value: unknown): PipelineStatusResponse {
     return "open";
 }
 
-function normalizeStage(value: unknown, status: PipelineStatusResponse): PipelineStageResponse {
-    if (status === "won") return "Won";
-    if (status === "lost") return "Lost";
-
-    const stage = getLarkText(value, "New Lead").trim() as PipelineStageResponse;
-    return new Set<PipelineStageResponse>([
-        "New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost",
-    ]).has(stage) ? stage : "New Lead";
-}
-
 function mapPipeline(
     record: LarkPipelineRecord,
     customers: ReturnType<typeof buildCustomerLookup>
@@ -93,12 +85,21 @@ function mapPipeline(
     const createdAt = readTimestamp(fields[PIPELINE_FIELDS.CREATED_AT]);
     const closedAt = readTimestamp(fields[PIPELINE_FIELDS.CLOSED_AT]);
     const pipelineOwner = getLarkText(fields[PIPELINE_FIELDS.SALES_OWNER], "").trim();
+    const linkedOrderId = getLinkedRecordId(fields[PIPELINE_FIELDS.ORDER]);
 
     return {
         pipeline_id: record.record_id,
         status,
-        stage: normalizeStage(fields[PIPELINE_FIELDS.STAGE], status),
-        lead_score: Math.min(100, Math.max(0, getLarkNumber(fields[PIPELINE_FIELDS.LEAD_SCORE], customer.lead_score))),
+        stage: resolvePipelineStage(
+            status,
+            getLarkText(fields[PIPELINE_FIELDS.STAGE], "").trim()
+        ),
+        lead_score: normalizeLeadScore(
+            getLarkNumber(
+                fields[PIPELINE_FIELDS.LEAD_SCORE],
+                customer.lead_score
+            )
+        ),
         ai_summary: getLarkText(fields[PIPELINE_FIELDS.AI_SUMMARY], "").trim() || null,
         created_at: toIso(createdAt),
         closed_at: closedAt > 0 ? toIso(closedAt) : null,
@@ -108,7 +109,7 @@ function mapPipeline(
             channel: customer.channel,
             phone: customer.phone,
             sales_owner: pipelineOwner || customer.sales_owner,
-            active_order_id: customer.active_order_id,
+            active_order_id: linkedOrderId ?? customer.active_order_id,
         },
     };
 }

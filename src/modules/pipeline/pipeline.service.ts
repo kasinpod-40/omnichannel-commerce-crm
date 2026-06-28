@@ -3,6 +3,13 @@ import {
     CUSTOMER_FIELDS,
     PIPELINE_FIELDS,
 } from "../../core/lark-fields";
+import { normalizeLeadScore } from "../../core/lead-score";
+import {
+    SALES_STAGE_RANK,
+    normalizeOpenSalesStage,
+    resolvePipelineStage,
+    type OpenSalesStage,
+} from "../../core/sales-stage";
 import {
     getLarkNumber,
     getLarkText,
@@ -46,34 +53,7 @@ export type MarkPipelineLostResult = {
     new_state: PipelineAuditState;
 };
 
-const PIPELINE_STAGE_RANK: Record<
-    PipelineStage,
-    number
-> = {
-    Interested: 0,
-    Negotiating: 1,
-    Closing: 2,
-    Won: 3,
-    Lost: 3,
-};
 
-function normalizePipelineStage(
-    value: unknown
-): PipelineStage {
-    const stage = getLarkText(value, "").trim();
-
-    if (
-        stage === "Interested" ||
-        stage === "Negotiating" ||
-        stage === "Closing" ||
-        stage === "Won" ||
-        stage === "Lost"
-    ) {
-        return stage;
-    }
-
-    return "Interested";
-}
 
 function normalizePipelineStatus(
     value: unknown
@@ -96,16 +76,25 @@ function normalizePipelineStatus(
 function getPipelineAuditState(
     pipeline: LarkPipelineRecord
 ): PipelineAuditState {
+    const status = normalizePipelineStatus(
+        pipeline.fields[PIPELINE_FIELDS.STATUS]
+    );
+    const stage = resolvePipelineStage(
+        status,
+        getLarkText(
+            pipeline.fields[PIPELINE_FIELDS.STAGE],
+            ""
+        ).trim()
+    );
+
     return {
-        stage: normalizePipelineStage(
-            pipeline.fields[PIPELINE_FIELDS.STAGE]
-        ),
-        status: normalizePipelineStatus(
-            pipeline.fields[PIPELINE_FIELDS.STATUS]
-        ),
-        lead_score: getLarkNumber(
-            pipeline.fields[PIPELINE_FIELDS.LEAD_SCORE],
-            0
+        stage,
+        status,
+        lead_score: normalizeLeadScore(
+            getLarkNumber(
+                pipeline.fields[PIPELINE_FIELDS.LEAD_SCORE],
+                0
+            )
         ),
     };
 }
@@ -122,12 +111,12 @@ function hasPipelineStateChanged(
 }
 
 function mergeOpenPipelineStage(
-    existingStage: PipelineStage,
-    incomingStage: PipelineStage
-): PipelineStage {
+    existingStage: OpenSalesStage,
+    incomingStage: OpenSalesStage
+): OpenSalesStage {
     if (
-        PIPELINE_STAGE_RANK[incomingStage] >=
-        PIPELINE_STAGE_RANK[existingStage]
+        SALES_STAGE_RANK[incomingStage] >=
+        SALES_STAGE_RANK[existingStage]
     ) {
         return incomingStage;
     }
@@ -139,7 +128,7 @@ export async function createOpenPipelineForCustomer(
     env: Env,
     input: {
         customer_record_id: string;
-        stage?: PipelineStage;
+        stage?: OpenSalesStage;
         lead_score?: number;
         ai_summary?: string;
         sales_owner?: string;
@@ -149,7 +138,7 @@ export async function createOpenPipelineForCustomer(
         customer_record_id: input.customer_record_id,
         stage: input.stage ?? "Interested",
         status: "open",
-        lead_score: input.lead_score ?? 0,
+        lead_score: normalizeLeadScore(input.lead_score),
         ai_summary: input.ai_summary ?? "",
         sales_owner: input.sales_owner ?? "Unassigned",
     });
@@ -159,7 +148,7 @@ export async function createPipelineIfNeeded(
     env: Env,
     customer: LarkCustomerRecord,
     input: {
-        stage: PipelineStage;
+        stage: OpenSalesStage;
         lead_score: number;
         ai_summary: string;
         sales_owner?: string;
@@ -261,13 +250,15 @@ export async function createPipelineIfNeeded(
 
         const newState: PipelineAuditState = {
             stage: mergeOpenPipelineStage(
-                oldState.stage,
+                normalizeOpenSalesStage(oldState.stage),
                 input.stage
             ),
             status: "open",
-            lead_score: Math.max(
-                oldState.lead_score,
-                input.lead_score
+            lead_score: normalizeLeadScore(
+                Math.max(
+                    oldState.lead_score,
+                    input.lead_score
+                )
             ),
         };
 
@@ -322,7 +313,7 @@ export async function createPipelineIfNeeded(
     const newState: PipelineAuditState = {
         stage: input.stage,
         status: "open",
-        lead_score: input.lead_score,
+        lead_score: normalizeLeadScore(input.lead_score),
     };
 
     const pipeline =
@@ -331,7 +322,7 @@ export async function createPipelineIfNeeded(
             {
                 customer_record_id:
                     customer.record_id,
-                stage: newState.stage,
+                stage: input.stage,
                 lead_score: newState.lead_score,
                 ai_summary: input.ai_summary,
                 sales_owner:

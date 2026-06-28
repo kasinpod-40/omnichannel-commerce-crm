@@ -3,7 +3,7 @@ import { parseMarketplaceOrderInput } from "../../modules/marketplace/marketplac
 import { upsertMarketplaceOrder } from "../../modules/marketplace/marketplace.service";
 import { jsonResponse } from "../../utils/response";
 
-import { getAdminToken } from "../shared/admin-auth";
+import { isAdminAuthorized } from "../shared/admin-auth";
 
 export async function handleMarketplaceOrderUpsert(
     request: Request,
@@ -16,13 +16,7 @@ export async function handleMarketplaceOrderUpsert(
         );
     }
 
-    const configuredToken =
-        env.NOTIFICATION_DISPATCH_TOKEN?.trim() ?? "";
-
-    if (
-        !configuredToken ||
-        getAdminToken(request) !== configuredToken
-    ) {
+    if (!isAdminAuthorized(request, env)) {
         return jsonResponse(
             {
                 ok: false,

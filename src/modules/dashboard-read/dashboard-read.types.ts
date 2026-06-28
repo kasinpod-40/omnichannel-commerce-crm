@@ -1,3 +1,5 @@
+import type { SalesStage } from "../../core/sales-stage";
+
 /**
  * ชนิดข้อมูลกลางสำหรับ API ฝั่ง Dashboard
  *
@@ -19,7 +21,7 @@ export type DashboardCustomerSnapshot = {
     customer_name: string;
     channel: DashboardChannel;
     phone: string | null;
-    current_stage: "New Lead" | "Interested" | "Negotiating" | "Closing" | "Won" | "Lost";
+    current_stage: SalesStage;
     lead_score: number;
     hot_lead: boolean;
     ai_summary: string | null;

@@ -5,6 +5,11 @@ import {
     PIPELINE_FIELDS,
 } from "../../core/lark-fields";
 import {
+    isSalesStage,
+    resolvePipelineStage,
+    type SalesPipelineStatus,
+} from "../../core/sales-stage";
+import {
     getLarkNumber,
     getLarkText,
 } from "../../utils/lark-field-value";
@@ -108,10 +113,13 @@ export async function buildDashboardSummary(
     let hotLeads = 0;
 
     for (const customer of customers) {
-        const stage = getLarkText(
+        const rawStage = getLarkText(
             customer.fields[CUSTOMER_FIELDS.CURRENT_STAGE],
             "New Lead"
-        );
+        ).trim();
+        const stage = isSalesStage(rawStage)
+            ? rawStage
+            : "New Lead";
         const owner = normalizeOwner(
             customer.fields[CUSTOMER_FIELDS.SALES_OWNER]
         );
@@ -140,16 +148,20 @@ export async function buildDashboardSummary(
     let pipelineLost = 0;
 
     for (const pipeline of pipelines) {
-        const stage = getLarkText(
-            pipeline.fields[PIPELINE_FIELDS.STAGE],
-            "Interested"
-        );
-        const status = getLarkText(
+        const rawStatus = getLarkText(
             pipeline.fields[PIPELINE_FIELDS.STATUS],
             "open"
         )
             .trim()
             .toLowerCase();
+        const status: SalesPipelineStatus =
+            rawStatus === "won" || rawStatus === "lost"
+                ? rawStatus
+                : "open";
+        const stage = resolvePipelineStage(
+            status,
+            pipeline.fields[PIPELINE_FIELDS.STAGE]
+        );
         const owner = normalizeOwner(
             pipeline.fields[PIPELINE_FIELDS.SALES_OWNER]
         );

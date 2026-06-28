@@ -59,7 +59,7 @@ import {
     type AutoDispatchNotificationResult,
 } from "../modules/notifications/notification.service";
 import type { NotificationSnapshot } from "../modules/notifications/notification.types";
-import type { PipelineStage } from "../modules/pipeline/pipeline.types";
+import type { OpenSalesStage } from "../core/sales-stage";
 import {
     getLarkBoolean,
     getLarkNumber,
@@ -94,7 +94,7 @@ export type ProcessIncomingMessageInput = {
 
 function getPipelineStage(
     ai: AIAnalysisResult
-): PipelineStage | null {
+): OpenSalesStage | null {
     if (ai.intent === "ask_discount") {
         return "Negotiating";
     }

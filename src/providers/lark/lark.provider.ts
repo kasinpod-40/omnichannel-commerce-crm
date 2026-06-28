@@ -228,9 +228,9 @@ export async function searchLarkRecords(
     env: Env,
     tableId: string,
     filter: Record<string, unknown>
-): Promise<any[]> {
+): Promise<unknown[]> {
     const token = await getTenantAccessToken(env);
-    const records: any[] = [];
+    const records: unknown[] = [];
     let pageToken = "";
 
     for (let page = 0; page < 100; page += 1) {
@@ -244,7 +244,7 @@ export async function searchLarkRecords(
 
         const data = await requestLarkJson<
             LarkApiResponse<{
-                items?: any[];
+                items?: unknown[];
                 has_more?: boolean;
                 page_token?: string;
             }>
@@ -290,9 +290,9 @@ export async function searchLarkRecords(
 export async function listLarkRecords(
     env: Env,
     tableId: string
-): Promise<any[]> {
+): Promise<unknown[]> {
     const token = await getTenantAccessToken(env);
-    const records: any[] = [];
+    const records: unknown[] = [];
     let pageToken = "";
 
     for (let page = 0; page < 100; page += 1) {
@@ -308,7 +308,7 @@ export async function listLarkRecords(
 
         const data = await requestLarkJson<
             LarkApiResponse<{
-                items?: any[];
+                items?: unknown[];
                 has_more?: boolean;
                 page_token?: string;
             }>
@@ -349,13 +349,13 @@ export async function getLarkRecord(
     env: Env,
     tableId: string,
     recordId: string
-): Promise<any> {
+): Promise<unknown | null> {
     const token = await getTenantAccessToken(env);
-    let data: LarkApiResponse<{ record?: any }>;
+    let data: LarkApiResponse<{ record?: unknown }>;
 
     try {
         data = await requestLarkJson<
-            LarkApiResponse<{ record?: any }>
+            LarkApiResponse<{ record?: unknown }>
         >(
             `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
             {

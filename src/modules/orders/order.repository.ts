@@ -347,7 +347,7 @@ export async function getOrderByRecordId(
         return null;
     }
 
-    return result as LarkOrderRecord;
+    return normalizeOrderRecord(result);
 }
 
 

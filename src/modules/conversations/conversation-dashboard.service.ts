@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env";
+import { normalizeLeadScore } from "../../core/lead-score";
 import { CONVERSATION_FIELDS } from "../../core/lark-fields";
 import {
     getLarkBoolean,
@@ -259,9 +260,14 @@ function buildListItem(
         hot_lead: latest
             ? getLarkBoolean(latestFields[CONVERSATION_FIELDS.HOT_LEAD], customer.hot_lead)
             : customer.hot_lead,
-        lead_score: Math.min(100, Math.max(0, latest
-            ? getLarkNumber(latestFields[CONVERSATION_FIELDS.LEAD_SCORE], customer.lead_score)
-            : customer.lead_score)),
+        lead_score: normalizeLeadScore(
+            latest
+                ? getLarkNumber(
+                      latestFields[CONVERSATION_FIELDS.LEAD_SCORE],
+                      customer.lead_score
+                  )
+                : customer.lead_score
+        ),
         process_status: normalizeProcessStatus(latestFields[CONVERSATION_FIELDS.PROCESS_STATUS]),
         assigned_to: customer.sales_owner,
     };

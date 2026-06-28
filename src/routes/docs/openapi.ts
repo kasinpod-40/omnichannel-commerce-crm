@@ -1245,7 +1245,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "session-recovery-th-28" },
+                version: { type: "string", example: "stage-consistency-th-29" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1856,7 +1856,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.6.4-th-28",
+            version: "1.6.5-th-29",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",

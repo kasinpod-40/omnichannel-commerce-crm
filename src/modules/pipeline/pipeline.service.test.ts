@@ -242,6 +242,117 @@ describe("active Pipeline reuse regression", () => {
         expect(pipelineRepository.updatePipeline).not.toHaveBeenCalled();
     });
 
+    it("preserves the real New Lead snapshot before advancing an open Pipeline", async () => {
+        const newLeadPipeline = {
+            ...negotiatingPipeline,
+            record_id: "rec_pipeline_new_lead",
+            fields: {
+                ...negotiatingPipeline.fields,
+                [PIPELINE_FIELDS.STAGE]: "New Lead",
+                [PIPELINE_FIELDS.LEAD_SCORE]: 5,
+            },
+        };
+        const customerWithActivePipeline = {
+            ...customer,
+            fields: {
+                ...customer.fields,
+                [CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID]:
+                    newLeadPipeline.record_id,
+            },
+        };
+
+        vi.mocked(
+            pipelineRepository.getPipelineByRecordId
+        ).mockResolvedValue(newLeadPipeline);
+        vi.mocked(pipelineRepository.updatePipeline).mockImplementation(
+            async (_env, recordId, fields) => ({
+                record_id: recordId,
+                fields: {
+                    ...newLeadPipeline.fields,
+                    [PIPELINE_FIELDS.STAGE]: fields.stage,
+                    [PIPELINE_FIELDS.STATUS]: fields.status,
+                    [PIPELINE_FIELDS.LEAD_SCORE]: fields.lead_score,
+                },
+            })
+        );
+
+        const result = await createPipelineIfNeeded(
+            {} as Env,
+            customerWithActivePipeline,
+            {
+                stage: "Interested",
+                lead_score: 35,
+                ai_summary: "ลูกค้าเริ่มสนใจสินค้า",
+            }
+        );
+
+        expect(result.old_state).toEqual({
+            stage: "New Lead",
+            status: "open",
+            lead_score: 5,
+        });
+        expect(result.new_state).toEqual({
+            stage: "Interested",
+            status: "open",
+            lead_score: 35,
+        });
+    });
+
+    it("never moves an open Pipeline backward when a weaker intent arrives", async () => {
+        const customerWithActivePipeline = {
+            ...customer,
+            fields: {
+                ...customer.fields,
+                [CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID]:
+                    negotiatingPipeline.record_id,
+            },
+        };
+
+        vi.mocked(
+            pipelineRepository.getPipelineByRecordId
+        ).mockResolvedValue({
+            ...negotiatingPipeline,
+            fields: {
+                ...negotiatingPipeline.fields,
+                [PIPELINE_FIELDS.STAGE]: "Closing",
+                [PIPELINE_FIELDS.LEAD_SCORE]: 90,
+            },
+        });
+        vi.mocked(pipelineRepository.updatePipeline).mockImplementation(
+            async (_env, recordId, fields) => ({
+                record_id: recordId,
+                fields: {
+                    ...negotiatingPipeline.fields,
+                    [PIPELINE_FIELDS.STAGE]: fields.stage,
+                    [PIPELINE_FIELDS.STATUS]: fields.status,
+                    [PIPELINE_FIELDS.LEAD_SCORE]: fields.lead_score,
+                },
+            })
+        );
+
+        const result = await createPipelineIfNeeded(
+            {} as Env,
+            customerWithActivePipeline,
+            {
+                stage: "Interested",
+                lead_score: 35,
+                ai_summary: "ข้อความสอบถามทั่วไป",
+            }
+        );
+
+        expect(result.old_state?.stage).toBe("Closing");
+        expect(result.new_state.stage).toBe("Closing");
+        expect(result.new_state.lead_score).toBe(90);
+        expect(pipelineRepository.updatePipeline).toHaveBeenCalledWith(
+            expect.anything(),
+            negotiatingPipeline.record_id,
+            expect.objectContaining({
+                stage: "Closing",
+                lead_score: 90,
+            })
+        );
+    });
+
     it("creates a Pipeline only when no active or recoverable open Pipeline exists", async () => {
         vi.mocked(
             pipelineRepository.findOpenPipelinesByCustomer

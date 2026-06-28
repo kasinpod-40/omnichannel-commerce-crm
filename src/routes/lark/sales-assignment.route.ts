@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env";
 import { assignSalesOwner } from "../../modules/sales/sales-assignment.service";
 import { jsonResponse } from "../../utils/response";
+import { getAdminToken, isAdminAuthorized } from "../shared/admin-auth";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -8,30 +9,17 @@ function getString(value: unknown): string {
     return typeof value === "string" ? value.trim() : "";
 }
 
-function getBearerToken(request: Request): string {
-    const authorization =
-        request.headers.get("Authorization")?.trim() ?? "";
-
-    return /^Bearer\s+/i.test(authorization)
-        ? authorization.replace(/^Bearer\s+/i, "").trim()
-        : "";
-}
-
 function isAuthorized(request: Request, env: Env): boolean {
+    if (isAdminAuthorized(request, env)) {
+        return true;
+    }
+
+    const workflowToken = env.LARK_WORKFLOW_TOKEN?.trim() ?? "";
     const provided =
-        getBearerToken(request) ||
-        request.headers
-            .get("X-Lark-Workflow-Token")
-            ?.trim() ||
-        request.headers.get("X-Admin-Token")?.trim() ||
-        "";
+        request.headers.get("X-Lark-Workflow-Token")?.trim() ||
+        getAdminToken(request);
 
-    const allowed = [
-        env.LARK_WORKFLOW_TOKEN?.trim() ?? "",
-        env.NOTIFICATION_DISPATCH_TOKEN?.trim() ?? "",
-    ].filter(Boolean);
-
-    return Boolean(provided && allowed.includes(provided));
+    return Boolean(workflowToken && provided === workflowToken);
 }
 
 export async function handleSalesOwnerAssignment(

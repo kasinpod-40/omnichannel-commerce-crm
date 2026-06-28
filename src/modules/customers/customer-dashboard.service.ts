@@ -1,4 +1,6 @@
 import type { Env } from "../../config/env";
+import type { SalesStage } from "../../core/sales-stage";
+import { normalizeLeadScore } from "../../core/lead-score";
 import {
     ACTIVITY_FIELDS,
     CONVERSATION_FIELDS,
@@ -85,7 +87,7 @@ export type CustomerDetailResponse = CustomerListItemResponse & {
 export type CustomerListQuery = {
     search: string;
     channel: string | null;
-    stage: string | null;
+    stage: SalesStage | null;
     hot_lead: boolean | null;
     sort: "updated_desc" | "lead_score_desc" | "name_asc";
     page: number;
@@ -114,9 +116,8 @@ function mapCustomer(record: LarkCustomerRecord): CustomerListItemResponse {
         ).trim(),
         phone: nullableText(fields[CUSTOMER_FIELDS.PHONE]),
         current_stage: normalizeCustomerStage(fields[CUSTOMER_FIELDS.CURRENT_STAGE]),
-        lead_score: Math.min(
-            100,
-            Math.max(0, getLarkNumber(fields[CUSTOMER_FIELDS.LEAD_SCORE], 0))
+        lead_score: normalizeLeadScore(
+            getLarkNumber(fields[CUSTOMER_FIELDS.LEAD_SCORE], 0)
         ),
         hot_lead: getLarkBoolean(fields[CUSTOMER_FIELDS.HOT_LEAD], false),
         ai_summary: nullableText(fields[CUSTOMER_FIELDS.AI_SUMMARY]),

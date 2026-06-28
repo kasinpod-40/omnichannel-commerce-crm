@@ -1,17 +1,7 @@
 import type { Env } from "../../config/env";
 import { auditAndRepairCustomerIntegrity } from "../../modules/maintenance/customer-integrity.service";
 import { jsonResponse } from "../../utils/response";
-
-function getBearerToken(request: Request): string {
-    const authorization =
-        request.headers.get("Authorization") ?? "";
-
-    return /^Bearer\s+/i.test(authorization)
-        ? authorization.replace(/^Bearer\s+/i, "").trim()
-        : request.headers
-              .get("X-Admin-Token")
-              ?.trim() ?? "";
-}
+import { isAdminAuthorized } from "../shared/admin-auth";
 
 export async function handleCustomerIntegrity(
     request: Request,
@@ -24,13 +14,7 @@ export async function handleCustomerIntegrity(
         );
     }
 
-    const configuredToken =
-        env.NOTIFICATION_DISPATCH_TOKEN?.trim() ?? "";
-
-    if (
-        !configuredToken ||
-        getBearerToken(request) !== configuredToken
-    ) {
+    if (!isAdminAuthorized(request, env)) {
         return jsonResponse(
             {
                 ok: false,

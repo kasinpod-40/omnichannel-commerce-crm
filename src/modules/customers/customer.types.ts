@@ -1,12 +1,7 @@
 import type { BuyerIntent } from "../../ai/ai.types";
+import type { SalesStage } from "../../core/sales-stage";
 
-export type CustomerStage =
-    | "New Lead"
-    | "Interested"
-    | "Negotiating"
-    | "Closing"
-    | "Won"
-    | "Lost";
+export type CustomerStage = SalesStage;
 
 export type Channel =
     | "LINE"

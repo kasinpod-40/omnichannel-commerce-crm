@@ -117,4 +117,43 @@ describe("dashboard summary", () => {
             ])
         );
     });
+    it("normalizes inconsistent legacy stage values before aggregation", async () => {
+        listCustomers.mockResolvedValue([
+            {
+                record_id: "legacy-customer",
+                fields: {
+                    [CUSTOMER_FIELDS.CURRENT_STAGE]: "Unexpected Stage",
+                    [CUSTOMER_FIELDS.SALES_OWNER]: "Unassigned",
+                    [CUSTOMER_FIELDS.HOT_LEAD]: false,
+                },
+            },
+        ]);
+        listPipelines.mockResolvedValue([
+            {
+                record_id: "legacy-won",
+                fields: {
+                    [PIPELINE_FIELDS.STAGE]: "Closing",
+                    [PIPELINE_FIELDS.STATUS]: "won",
+                    [PIPELINE_FIELDS.SALES_OWNER]: "Sales A",
+                },
+            },
+            {
+                record_id: "legacy-open",
+                fields: {
+                    [PIPELINE_FIELDS.STAGE]: "Won",
+                    [PIPELINE_FIELDS.STATUS]: "open",
+                    [PIPELINE_FIELDS.SALES_OWNER]: "Sales B",
+                },
+            },
+        ]);
+        listOrders.mockResolvedValue([]);
+
+        const result = await buildDashboardSummary(env);
+
+        expect(result.leads.by_stage).toEqual({ "New Lead": 1 });
+        expect(result.pipeline.by_stage).toEqual({ Won: 1, "New Lead": 1 });
+        expect(result.pipeline.won).toBe(1);
+        expect(result.pipeline.open).toBe(1);
+    });
+
 });

@@ -699,10 +699,7 @@ async function applyVerifiedPaymentLifecycle(
     const targetPipelineStatus = saleCompleted
         ? "won"
         : "open";
-    const targetPipelineLeadScore = Math.max(
-        100,
-        oldState.pipeline_lead_score
-    );
+    const targetPipelineLeadScore = 100;
 
     const pipelineChanged =
         oldState.pipeline_stage !== targetPipelineStage ||

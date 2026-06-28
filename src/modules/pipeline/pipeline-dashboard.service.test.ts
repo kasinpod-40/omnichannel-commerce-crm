@@ -66,4 +66,35 @@ describe("pipeline dashboard service", () => {
         expect(detail?.lead_score).toBe(94);
         expect(listPipelines).toHaveBeenCalledTimes(1);
     });
+    it("uses the Pipeline-linked Order after Customer active pointers are cleared", async () => {
+        listCustomers.mockResolvedValue([{
+            record_id: "rec_customer_1",
+            fields: {
+                [CUSTOMER_FIELDS.CUSTOMER_NAME]: "คุณมินท์",
+                [CUSTOMER_FIELDS.CHANNEL]: "LINE",
+                [CUSTOMER_FIELDS.ACTIVE_ORDER_ID]: "",
+            },
+        }]);
+        listPipelines.mockResolvedValue([{
+            record_id: "rec_pipeline_won",
+            fields: {
+                [PIPELINE_FIELDS.CUSTOMER]: ["rec_customer_1"],
+                [PIPELINE_FIELDS.ORDER]: ["rec_order_closed"],
+                [PIPELINE_FIELDS.STATUS]: "won",
+                [PIPELINE_FIELDS.STAGE]: "Won",
+                [PIPELINE_FIELDS.LEAD_SCORE]: 100,
+                [PIPELINE_FIELDS.CREATED_AT]: 1_780_000_000_000,
+            },
+        }]);
+
+        const result = await getPipelineList(env, {
+            search: "",
+            status: null,
+        });
+
+        expect(result.items[0]?.customer.active_order_id).toBe(
+            "rec_order_closed"
+        );
+    });
+
 });
