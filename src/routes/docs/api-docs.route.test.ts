@@ -21,6 +21,7 @@ function env(): Env {
         LARK_APP_SECRET: "secret",
         LARK_APP_TOKEN: "app_token",
         LARK_GROUP_WEBHOOK_URL: "https://example.com/webhook",
+        LARK_GROUP_WEBHOOK_KEYWORD: "OmniCommerce",
         NOTIFICATION_DISPATCH_TOKEN: "admin-token",
         CUSTOMERS_TABLE_ID: "tbl_customers",
         CONVERSATIONS_TABLE_ID: "tbl_conversations",

@@ -47,6 +47,32 @@ function getResponseMessage(data: unknown): string {
     return "";
 }
 
+const DEFAULT_WEBHOOK_KEYWORD = "CRM";
+const MAX_WEBHOOK_KEYWORD_LENGTH = 80;
+
+function getWebhookKeyword(env: Env): string {
+    /*
+     * Notification แบบข้อความเดิมขึ้นต้นด้วย [CRM] อยู่แล้ว และ Bot เดิมใช้คำนี้
+     * เป็น Security Keyword จึง fallback เป็น CRM เพื่อไม่บังคับให้ระบบ Production
+     * ต้องเปลี่ยนค่าใน Lark Console หลังอัปเกรดเป็น Interactive Card
+     */
+    const keyword = env.LARK_GROUP_WEBHOOK_KEYWORD?.trim() || DEFAULT_WEBHOOK_KEYWORD;
+
+    if (keyword.length > MAX_WEBHOOK_KEYWORD_LENGTH || /[\r\n]/u.test(keyword)) {
+        throw new OperationalError(
+            "LARK_GROUP_WEBHOOK_KEYWORD_INVALID",
+            "LARK_GROUP_WEBHOOK_KEYWORD must be a single line of 80 characters or fewer",
+            { retryable: false }
+        );
+    }
+
+    return keyword;
+}
+
+function includeWebhookKeyword(text: string, keyword: string): string {
+    return text.includes(keyword) ? text : `[${keyword}] ${text}`;
+}
+
 export type LarkGroupWebhookResult = {
     ok: true;
     response: unknown;
@@ -118,6 +144,14 @@ async function sendLarkGroupPayload(
     if (code !== null && code !== 0) {
         const message = getResponseMessage(responseData);
 
+        if (code === 19024) {
+            throw new OperationalError(
+                "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+                "Lark Group Webhook keyword mismatch (19024): LARK_GROUP_WEBHOOK_KEYWORD must exactly match one of the Custom Bot security keywords",
+                { retryable: false }
+            );
+        }
+
         const errorMessage =
             `Lark Group Webhook Error ${code}${
                 message ? `: ${message}` : ""
@@ -144,9 +178,10 @@ export async function sendLarkGroupText(
     env: Env,
     text: string
 ): Promise<LarkGroupWebhookResult> {
+    const keyword = getWebhookKeyword(env);
     return await sendLarkGroupPayload(env, {
         msg_type: "text",
-        content: { text },
+        content: { text: includeWebhookKeyword(text, keyword) },
     });
 }
 
@@ -163,6 +198,7 @@ export async function sendLarkGroupReviewCard(
     input: LarkReviewCardInput
 ): Promise<LarkGroupWebhookResult> {
     const buttonUrl = input.button_url.trim();
+    const keyword = getWebhookKeyword(env);
 
     if (!buttonUrl.startsWith("https://")) {
         throw new Error("Lark review card URL must start with https://");
@@ -179,7 +215,7 @@ export async function sendLarkGroupReviewCard(
                 template: "orange",
                 title: {
                     tag: "plain_text",
-                    content: input.title,
+                    content: includeWebhookKeyword(input.title, keyword),
                 },
             },
             elements: [
@@ -187,7 +223,7 @@ export async function sendLarkGroupReviewCard(
                     tag: "div",
                     text: {
                         tag: "lark_md",
-                        content: input.markdown,
+                        content: includeWebhookKeyword(input.markdown, keyword),
                     },
                 },
                 {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NOTIFICATION_FIELDS } from "../../core/lark-fields";
+import { OperationalError } from "../../utils/errors";
 
 const {
     findNotificationByEventId,
@@ -26,6 +27,45 @@ vi.mock("./notification.repository", async (importOriginal) => {
         getNotificationByRecordId,
         updateNotificationDelivery,
     };
+
+    it("ไม่ enqueue ซ้ำเมื่อ Lark ปฏิเสธ Keyword แบบถาวร", async () => {
+        findNotificationByEventId.mockResolvedValue(null);
+        createNotification.mockResolvedValue(paymentReviewRecord);
+        getNotificationByRecordId.mockResolvedValue(paymentReviewRecord);
+        sendLarkGroupReviewCard.mockRejectedValue(
+            new OperationalError(
+                "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+                "Lark Group Webhook keyword mismatch (19024)",
+                { retryable: false }
+            )
+        );
+        updateNotificationDelivery.mockResolvedValue({
+            ...paymentReviewRecord,
+            fields: {
+                ...paymentReviewRecord.fields,
+                [NOTIFICATION_FIELDS.STATUS]: "Failed",
+                [NOTIFICATION_FIELDS.ATTEMPT_COUNT]: 1,
+            },
+        });
+
+        const result = await recordAndDispatchNotificationOnce(
+            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            {
+                event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
+                notification_type: "PAYMENT_REVIEW",
+                customer_record_id: "cus1",
+                message: "review",
+            }
+        );
+
+        expect(result.delivery).toMatchObject({
+            ok: false,
+            retryable: false,
+            error_code: "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+        });
+        expect(enqueueNotificationDelivery).not.toHaveBeenCalled();
+    });
+
 });
 
 vi.mock("../../queues/notification.producer", () => ({
@@ -38,6 +78,45 @@ vi.mock("../../providers/lark/lark-group-webhook.provider", async (importOrigina
         ...original,
         sendLarkGroupReviewCard,
     };
+
+    it("ไม่ enqueue ซ้ำเมื่อ Lark ปฏิเสธ Keyword แบบถาวร", async () => {
+        findNotificationByEventId.mockResolvedValue(null);
+        createNotification.mockResolvedValue(paymentReviewRecord);
+        getNotificationByRecordId.mockResolvedValue(paymentReviewRecord);
+        sendLarkGroupReviewCard.mockRejectedValue(
+            new OperationalError(
+                "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+                "Lark Group Webhook keyword mismatch (19024)",
+                { retryable: false }
+            )
+        );
+        updateNotificationDelivery.mockResolvedValue({
+            ...paymentReviewRecord,
+            fields: {
+                ...paymentReviewRecord.fields,
+                [NOTIFICATION_FIELDS.STATUS]: "Failed",
+                [NOTIFICATION_FIELDS.ATTEMPT_COUNT]: 1,
+            },
+        });
+
+        const result = await recordAndDispatchNotificationOnce(
+            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            {
+                event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
+                notification_type: "PAYMENT_REVIEW",
+                customer_record_id: "cus1",
+                message: "review",
+            }
+        );
+
+        expect(result.delivery).toMatchObject({
+            ok: false,
+            retryable: false,
+            error_code: "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+        });
+        expect(enqueueNotificationDelivery).not.toHaveBeenCalled();
+    });
+
 });
 
 import { recordAndDispatchNotificationOnce } from "./notification.service";
@@ -161,4 +240,43 @@ describe("notification idempotency and payment review delivery", () => {
         expect(result.delivery?.ok).toBe(false);
         expect(enqueueNotificationDelivery).toHaveBeenCalledOnce();
     });
+
+    it("ไม่ enqueue ซ้ำเมื่อ Lark ปฏิเสธ Keyword แบบถาวร", async () => {
+        findNotificationByEventId.mockResolvedValue(null);
+        createNotification.mockResolvedValue(paymentReviewRecord);
+        getNotificationByRecordId.mockResolvedValue(paymentReviewRecord);
+        sendLarkGroupReviewCard.mockRejectedValue(
+            new OperationalError(
+                "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+                "Lark Group Webhook keyword mismatch (19024)",
+                { retryable: false }
+            )
+        );
+        updateNotificationDelivery.mockResolvedValue({
+            ...paymentReviewRecord,
+            fields: {
+                ...paymentReviewRecord.fields,
+                [NOTIFICATION_FIELDS.STATUS]: "Failed",
+                [NOTIFICATION_FIELDS.ATTEMPT_COUNT]: 1,
+            },
+        });
+
+        const result = await recordAndDispatchNotificationOnce(
+            { DASHBOARD_URL: "https://crm.example.com" } as any,
+            {
+                event_id: "PAYMENT_REVIEW:LINE:message-1:order1",
+                notification_type: "PAYMENT_REVIEW",
+                customer_record_id: "cus1",
+                message: "review",
+            }
+        );
+
+        expect(result.delivery).toMatchObject({
+            ok: false,
+            retryable: false,
+            error_code: "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+        });
+        expect(enqueueNotificationDelivery).not.toHaveBeenCalled();
+    });
+
 });

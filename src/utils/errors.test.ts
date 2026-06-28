@@ -64,4 +64,13 @@ describe("operational error classification", () => {
             ).retryable
         ).toBe(false);
     });
+
+    it("does not retry Lark webhook keyword mismatch 19024", () => {
+        expect(
+            classifyOperationalError(
+                new Error("Lark Group Webhook keyword mismatch (19024): Key Words Not Found")
+            )
+        ).toMatchObject({ retryable: false });
+    });
+
 });

@@ -29,6 +29,7 @@ export interface Env {
 
     LARK_APP_TOKEN: string;
     LARK_GROUP_WEBHOOK_URL: string;
+    LARK_GROUP_WEBHOOK_KEYWORD?: string;
     NOTIFICATION_DISPATCH_TOKEN: string;
     LARK_WORKFLOW_TOKEN?: string;
 

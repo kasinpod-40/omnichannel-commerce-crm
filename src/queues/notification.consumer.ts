@@ -16,6 +16,20 @@ export async function handleNotificationQueueBatch(
             );
 
             if (!result.ok && !result.already_sent) {
+                if (result.retryable === false) {
+                    console.error("NOTIFICATION_QUEUE_PERMANENT_FAILURE", {
+                        queue_message_id: message.id,
+                        attempts: message.attempts,
+                        notification_record_id: message.body?.notification_record_id,
+                        event_id: message.body?.event_id,
+                        code: result.error_code ?? "PERMANENT_NOTIFICATION_DELIVERY_ERROR",
+                        retryable: false,
+                        error: result.error_message,
+                    });
+                    message.ack();
+                    continue;
+                }
+
                 throw new Error(
                     result.error_message ||
                         `Notification delivery failed: ${message.body.notification_record_id}`

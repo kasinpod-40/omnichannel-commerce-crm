@@ -94,6 +94,9 @@ export function classifyOperationalError(
         normalized.includes("invalid json") ||
         normalized.includes("invalid workflow token") ||
         normalized.includes("not configured") ||
+        normalized.includes("lark_group_webhook_keyword") ||
+        normalized.includes("key words not found") ||
+        normalized.includes("keyword mismatch (19024)") ||
         normalized.includes("permission") ||
         normalized.includes("fieldnamenotfound") ||
         normalized.includes("field name not found") ||

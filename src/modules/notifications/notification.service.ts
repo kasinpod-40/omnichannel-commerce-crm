@@ -10,6 +10,7 @@ import {
     sendLarkGroupText,
 } from "../../providers/lark/lark-group-webhook.provider";
 import { enqueueNotificationDelivery } from "../../queues/notification.producer";
+import { classifyOperationalError } from "../../utils/errors";
 import {
     getFirstLinkedRecordId,
     getLarkNumber,
@@ -55,6 +56,8 @@ export type SendNotificationResult = {
     attempt_count: number;
     webhook_response?: unknown;
     error_message?: string;
+    error_code?: string;
+    retryable?: boolean;
     record?: LarkNotificationRecord;
 };
 
@@ -821,19 +824,21 @@ export async function recordAndDispatchNotificationOnce(
                 };
             }
 
-            try {
-                await enqueueNotificationDelivery(env, {
-                    schema_version: 1,
-                    notification_record_id: recorded.record.record_id,
-                    event_id: notification.event_id,
-                    created_at: Date.now(),
-                });
-            } catch (queueError) {
-                return {
-                    ...recorded,
-                    delivery,
-                    dispatch_error: `${delivery.error_message ?? "Payment review delivery failed"}; queue: ${getErrorMessage(queueError)}`,
-                };
+            if (delivery.retryable !== false) {
+                try {
+                    await enqueueNotificationDelivery(env, {
+                        schema_version: 1,
+                        notification_record_id: recorded.record.record_id,
+                        event_id: notification.event_id,
+                        created_at: Date.now(),
+                    });
+                } catch (queueError) {
+                    return {
+                        ...recorded,
+                        delivery,
+                        dispatch_error: `${delivery.error_message ?? "Payment review delivery failed"}; queue: ${getErrorMessage(queueError)}`,
+                    };
+                }
             }
 
             return {
@@ -1191,8 +1196,8 @@ export async function sendNotificationByRecordId(
             record: updated,
         };
     } catch (error) {
-        const errorMessage =
-            getErrorMessage(error);
+        const classification = classifyOperationalError(error);
+        const errorMessage = classification.message;
 
         let updated:
             | LarkNotificationRecord
@@ -1226,6 +1231,8 @@ export async function sendNotificationByRecordId(
             already_sent: false,
             attempt_count: nextAttemptCount,
             error_message: errorMessage,
+            error_code: classification.code,
+            retryable: classification.retryable,
             record: updated,
         };
     }
