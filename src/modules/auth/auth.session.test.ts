@@ -37,7 +37,9 @@ describe("auth session", () => {
 
     it("ปฏิเสธ Session ที่ถูกแก้ไขหลังลงลายเซ็น", async () => {
         const created = await createAuthSession(env, user, 1_000_000);
-        const tampered = `${created.token.slice(0, -1)}x`;
+        const [payload, signature = ""] = created.token.split(".");
+        const first = signature.startsWith("A") ? "B" : "A";
+        const tampered = `${payload}.${first}${signature.slice(1)}`;
 
         await expect(
             verifyAuthSession(env, tampered, 1_500_000)

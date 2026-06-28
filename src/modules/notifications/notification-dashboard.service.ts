@@ -6,6 +6,7 @@ import {
 } from "../../utils/lark-field-value";
 import {
     buildCustomerLookup,
+    normalizeChannel,
     readTimestamp,
     toIso,
     unknownCustomer,
@@ -146,9 +147,9 @@ function mapNotification(
                 snapshot?.customer_name?.trim() ||
                 customer.customer_name ||
                 "ไม่ทราบชื่อลูกค้า",
-            channel:
-                snapshot?.channel?.trim() ||
-                customer.channel,
+            channel: normalizeChannel(
+                snapshot?.channel || customer.channel
+            ),
         },
         order_record_id: resolveOrderRecordId(record, type),
         order_number: snapshot?.order_number?.trim() || null,
