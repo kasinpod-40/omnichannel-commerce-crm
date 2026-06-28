@@ -34,6 +34,7 @@ export type UpsertCustomerInput = {
     increment_message_count?: boolean;
     existing_customer?: LarkCustomerRecord | null;
     force_new_sales_cycle?: boolean;
+    force_sales_state_reset?: boolean;
 };
 
 
@@ -259,8 +260,18 @@ export async function upsertCustomer(
                   )
                 : false));
 
+    /*
+     * ใช้ซ่อม Customer aggregate ที่ค้าง Closing/คะแนนสูง ทั้งที่ Record จริง
+     * รองรับเพียง Pipeline ระดับต่ำกว่า Closing โดยยังคง Active pointers เดิม
+     * ต่างจาก startingNewSalesCycle ซึ่งต้องล้าง pointer และ pending context
+     */
+    const resettingSalesState =
+        startingNewSalesCycle ||
+        (!isLostTransition &&
+            input.force_sales_state_reset === true);
+
     const nextStage = input.ai
-        ? startingNewSalesCycle
+        ? resettingSalesState
             ? input.ai.customer_stage
             : mergeCustomerStage(
                   existingStage,
@@ -269,7 +280,7 @@ export async function upsertCustomer(
         : existingStage;
 
     const nextBuyerIntent = input.ai
-        ? startingNewSalesCycle
+        ? resettingSalesState
             ? input.ai.buyer_intent
             : mergeBuyerIntent(
                   existingBuyerIntent,
@@ -278,7 +289,7 @@ export async function upsertCustomer(
         : existingBuyerIntent;
 
     const nextLeadScore = input.ai
-        ? startingNewSalesCycle
+        ? resettingSalesState
             ? normalizeLeadScore(input.ai.lead_score)
             : mergeLeadScore(
                   existingLeadScore,
@@ -287,7 +298,7 @@ export async function upsertCustomer(
         : existingLeadScore;
 
     const nextHotLead = input.ai
-        ? startingNewSalesCycle
+        ? resettingSalesState
             ? input.ai.hot_lead
             : mergeHotLead(
                   existingHotLead,
@@ -371,7 +382,7 @@ export async function upsertCustomer(
                       ""
                   ),
 
-            product_qty: startingNewSalesCycle
+            product_qty: resettingSalesState
                 ? input.ai?.quantity ?? 0
                 : input.ai?.quantity ??
                   getLarkNumber(
@@ -381,7 +392,7 @@ export async function upsertCustomer(
                       0
                   ),
 
-            product_unit: startingNewSalesCycle
+            product_unit: resettingSalesState
                 ? input.ai?.product_unit ?? ""
                 : input.ai?.product_unit ??
                   getLarkText(

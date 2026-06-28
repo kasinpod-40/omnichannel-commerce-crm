@@ -1,5 +1,8 @@
 import { analyzeIncomingContent } from "../ai/ai.service";
-import type { AIAnalysisResult } from "../ai/ai.types";
+import type {
+    AIAnalysisResult,
+    BuyerIntent,
+} from "../ai/ai.types";
 import type {
     ImageAnalysisOverride,
     ImageAnalysisResult,
@@ -9,6 +12,7 @@ import {
     CUSTOMER_FIELDS,
     ORDER_FIELDS,
 } from "../core/lark-fields";
+import { normalizeLeadScore } from "../core/lead-score";
 import {
     recordActivityOnce,
     type RecordActivityResult,
@@ -55,11 +59,18 @@ import {
 } from "../modules/pipeline/pipeline.service";
 import { finalizeLostSale } from "../modules/sales/lost-sale.service";
 import {
+    resolveLineInboundSalesContext,
+    type InboundSalesContext,
+} from "../modules/sales/inbound-sales-context.service";
+import {
     recordAndDispatchNotificationOnce,
     type AutoDispatchNotificationResult,
 } from "../modules/notifications/notification.service";
 import type { NotificationSnapshot } from "../modules/notifications/notification.types";
-import type { OpenSalesStage } from "../core/sales-stage";
+import {
+    SALES_STAGE_RANK,
+    type OpenSalesStage,
+} from "../core/sales-stage";
 import {
     getLarkBoolean,
     getLarkNumber,
@@ -69,6 +80,7 @@ import {
     extractPhoneNumber,
     normalizePhoneNumber,
 } from "../utils/phone";
+import { shouldSendHotLeadNotification } from "./incoming-message-notification.rules";
 
 export type ProcessIncomingMessageInput = {
     channel: Channel;
@@ -91,6 +103,51 @@ export type ProcessIncomingMessageInput = {
     webhook_event_id?: string;
     is_redelivery?: boolean;
 };
+
+const BUYER_INTENT_BY_STAGE: Record<
+    OpenSalesStage,
+    BuyerIntent
+> = {
+    "New Lead": "Just Browsing",
+    Interested: "Interested",
+    Negotiating: "Purchase Intent",
+    Closing: "Ready To Buy",
+};
+
+function reconcileAiWithInboundSalesContext(
+    ai: AIAnalysisResult,
+    context: InboundSalesContext
+): AIAnalysisResult {
+    if (!context.pipeline_stage) {
+        return ai;
+    }
+
+    const customerStage =
+        SALES_STAGE_RANK[context.pipeline_stage] >
+        SALES_STAGE_RANK[ai.customer_stage]
+            ? context.pipeline_stage
+            : ai.customer_stage;
+    const leadScore = normalizeLeadScore(
+        Math.max(
+            ai.lead_score,
+            context.pipeline_lead_score
+        )
+    );
+
+    return {
+        ...ai,
+        customer_stage: customerStage,
+        buyer_intent:
+            SALES_STAGE_RANK[context.pipeline_stage] >
+            SALES_STAGE_RANK[ai.customer_stage]
+                ? BUYER_INTENT_BY_STAGE[
+                      context.pipeline_stage
+                  ]
+                : ai.buyer_intent,
+        lead_score: leadScore,
+        hot_lead: ai.hot_lead || leadScore >= 80,
+    };
+}
 
 function getPipelineStage(
     ai: AIAnalysisResult
@@ -364,11 +421,32 @@ export async function processIncomingMessage(
         : "";
 
     /*
-     * Regression guard: ลูกค้าเดิมที่ปิดรอบขายแล้วต้องเริ่ม Context ใหม่
-     * โดยไม่ยกชื่อสินค้า จำนวน คะแนน หรือ Stage จากรอบเก่ามาใช้ต่อ
-     *
-     * เงื่อนไข Closing + ไม่มี Active IDs รองรับข้อมูลเก่าที่เคยปิดการขาย
-     * ก่อนแก้ Payment Workflow แต่ Customer ไม่ถูกเปลี่ยนเป็น Won
+     * LINE active IDs เป็นเพียง text cache จึงต้องยืนยันกับ Pipeline/Order
+     * Record จริงก่อนใช้ Closing/100/Hot Lead เดิมต่อไป ส่วน Marketplace
+     * ไม่ผ่าน Use Case นี้และไม่ใช้ตัวตรวจสถานะชุดนี้
+     */
+    const inboundSalesContext =
+        ai.intent !== "lost" &&
+        input.channel === "LINE" &&
+        previousCustomer !== null &&
+        previousCustomerStage === "Closing"
+            ? await resolveLineInboundSalesContext(
+                  env,
+                  previousCustomer
+              )
+            : null;
+
+    const hasPersistedActivePointer =
+        Boolean(previousActiveOrderId) ||
+        Boolean(previousActivePipelineId);
+    const hasActiveSalesContext = inboundSalesContext
+        ? inboundSalesContext.has_active_context
+        : hasPersistedActivePointer;
+
+    /*
+     * ไม่มี Active Record จริง = รอบขายเก่าจบแล้วและต้องเริ่ม Context ใหม่
+     * แต่ถ้ายังมี Open Pipeline ระดับ Interested/Negotiating ให้ซ่อมเฉพาะ
+     * Customer aggregate โดยคง pointer เดิมไว้ เพื่อไม่สร้าง Pipeline ซ้ำ
      */
     const startingNewSalesCycle =
         ai.intent !== "lost" &&
@@ -376,8 +454,21 @@ export async function processIncomingMessage(
         (previousCustomerStage === "Won" ||
             previousCustomerStage === "Lost" ||
             (previousCustomerStage === "Closing" &&
-                !previousActiveOrderId &&
-                !previousActivePipelineId));
+                !hasActiveSalesContext));
+
+    const repairingStaleClosingState =
+        ai.intent !== "lost" &&
+        previousCustomerStage === "Closing" &&
+        inboundSalesContext !== null &&
+        inboundSalesContext.has_active_context &&
+        !inboundSalesContext.supports_closing_state;
+
+    const customerAi = repairingStaleClosingState
+        ? reconcileAiWithInboundSalesContext(
+              ai,
+              inboundSalesContext
+          )
+        : ai;
 
     const resolvedPhone =
         normalizePhoneNumber(input.phone) ??
@@ -459,12 +550,14 @@ export async function processIncomingMessage(
                 resolvedCustomerName || undefined,
             phone: resolvedPhone,
             last_message: customerLastMessage,
-            ai,
+            ai: customerAi,
             increment_message_count:
                 !conversationResult.resumed,
             existing_customer: previousCustomer,
             force_new_sales_cycle:
                 startingNewSalesCycle,
+            force_sales_state_reset:
+                repairingStaleClosingState,
         });
 
     let latestCustomer = upsertedCustomer;
@@ -1427,7 +1520,14 @@ export async function processIncomingMessage(
      * Notification ซ้ำให้รบกวนกลุ่ม Lark
      */
     if (notifications.length === 0) {
-        if (ai.hot_lead && !wasHotLead) {
+        if (
+            shouldSendHotLeadNotification({
+                current_hot_lead: ai.hot_lead,
+                previous_hot_lead: wasHotLead,
+                starting_new_sales_cycle:
+                    startingNewSalesCycle,
+            })
+        ) {
             const hotLeadNotification =
                 await recordAndDispatchNotificationOnce(
                     env,

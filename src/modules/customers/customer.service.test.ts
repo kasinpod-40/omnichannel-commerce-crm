@@ -173,6 +173,63 @@ describe("CASE 19.3 customer phone merge", () => {
         );
     });
 
+
+    it("repairs stale Closing aggregate without clearing a valid active Pipeline", async () => {
+        const staleClosingCustomer = {
+            ...existingCustomer,
+            fields: {
+                ...existingCustomer.fields,
+                [CUSTOMER_FIELDS.CURRENT_STAGE]: "Closing",
+                [CUSTOMER_FIELDS.BUYER_INTENT]: "Ready To Buy",
+                [CUSTOMER_FIELDS.LEAD_SCORE]: 100,
+                [CUSTOMER_FIELDS.HOT_LEAD]: true,
+                [CUSTOMER_FIELDS.PRODUCT_NAME]: "ชุดฟุตบอลสีดำแดง",
+                [CUSTOMER_FIELDS.PRODUCT_QTY]: 8,
+                [CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID]:
+                    "pipeline-interested",
+                [CUSTOMER_FIELDS.ACTIVE_ORDER_ID]: "",
+            },
+        };
+
+        await upsertCustomer({} as Env, {
+            channel: "LINE",
+            channel_customer_id: "line_user_001",
+            last_message: "มีสีนี้ไหม",
+            existing_customer: staleClosingCustomer,
+            force_sales_state_reset: true,
+            ai: {
+                intent: "product_info",
+                buyer_intent: "Interested",
+                customer_stage: "Interested",
+                lead_score: 55,
+                hot_lead: false,
+                ai_summary: "ลูกค้าสอบถามสีสินค้า",
+            },
+        });
+
+        const writtenFields = vi.mocked(
+            customerRepository.updateCustomer
+        ).mock.calls.at(-1)?.[2];
+
+        expect(writtenFields).toEqual(
+            expect.objectContaining({
+                current_stage: "Interested",
+                buyer_intent: "Interested",
+                lead_score: 55,
+                hot_lead: false,
+                product_name: "ชุดฟุตบอลสีดำแดง",
+                product_qty: 0,
+                product_unit: "",
+            })
+        );
+        expect(writtenFields).not.toHaveProperty(
+            "active_pipeline_id"
+        );
+        expect(writtenFields).not.toHaveProperty(
+            "active_order_id"
+        );
+    });
+
     it("resets won customer context even when the next message is only a greeting", async () => {
         const wonCustomer = {
             ...existingCustomer,
