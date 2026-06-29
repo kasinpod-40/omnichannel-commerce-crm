@@ -5,11 +5,7 @@ import {
     getCommerceDashboardSummary,
     type DashboardLanguage,
 } from "../../modules/dashboard/commerce-dashboard.service";
-import {
-    defaultDashboardPeriod,
-    parseDashboardPeriod,
-    type DashboardPeriodMode,
-} from "../../modules/dashboard/dashboard-period";
+import { parseDashboardPeriodInput } from "../../modules/dashboard/dashboard-period";
 import {
     clearSessionCookie,
 } from "../auth/auth-cookie";
@@ -31,14 +27,10 @@ function parseLanguage(request: Request): DashboardLanguage {
 
 function parsePeriod(request: Request) {
     const params = new URL(request.url).searchParams;
-    const rawMode = params.get("period_mode");
-    const mode: DashboardPeriodMode = rawMode === "month" || rawMode === "year"
-        ? rawMode
-        : "day";
-    const rawValue = params.get("period_value")?.trim();
-    return rawValue
-        ? parseDashboardPeriod(mode, rawValue)
-        : defaultDashboardPeriod(mode);
+    return parseDashboardPeriodInput({
+        mode: params.get("period_mode"),
+        value: params.get("period_value"),
+    });
 }
 
 /** ตรวจ HttpOnly Session ก่อนให้หน้า Dashboard อ่านข้อมูล Lark Base */

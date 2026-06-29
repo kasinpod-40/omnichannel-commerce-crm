@@ -308,6 +308,19 @@ function validateWebhookUrl(env: Env): URL {
 }
 
 function periodLabel(period: CommerceDashboardSummary["period"], language: DashboardLanguage): string {
+    if (period.mode === "range") {
+        const [startValue = "", endValue = ""] = period.value.split("..");
+        const format = (value: string) => {
+            const [year, month, day] = value.split("-").map(Number);
+            return new Intl.DateTimeFormat(language === "th" ? "th-TH-u-ca-gregory" : "en-US", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+                timeZone: "Asia/Bangkok",
+            }).format(new Date(Date.UTC(year, (month || 1) - 1, day || 1)));
+        };
+        return `${format(startValue)} – ${format(endValue)}`;
+    }
     if (period.mode === "year") return language === "th" ? `ปี ${period.value}` : period.value;
     if (period.mode === "month") {
         const [year, month] = period.value.split("-").map(Number);

@@ -1,5 +1,5 @@
-export type DashboardPeriodMode = "day" | "month" | "year";
-export type DashboardTrendGranularity = "hour" | "day" | "month";
+export type DashboardPeriodMode = "day" | "month" | "year" | "range";
+export type DashboardTrendGranularity = "hour" | "day" | "week" | "month";
 
 export type DashboardPeriod = {
     mode: DashboardPeriodMode;
@@ -13,6 +13,8 @@ export type DashboardPeriod = {
 
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1_000;
 const DAY_MS = 24 * 60 * 60 * 1_000;
+const WEEK_MS = 7 * DAY_MS;
+const MAX_CUSTOM_RANGE_DAYS = 366;
 
 function bangkokParts(now: number): { year: number; month: number; day: number } {
     const shifted = new Date(now + BANGKOK_OFFSET_MS);
@@ -40,11 +42,81 @@ function validDate(year: number, month: number, day: number): boolean {
     );
 }
 
+function parseDateValue(value: string): {
+    year: number;
+    month: number;
+    day: number;
+    normalized: string;
+    start: number;
+} | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (year < 2000 || year > 2100 || !validDate(year, month, day)) return null;
+    return {
+        year,
+        month,
+        day,
+        normalized: `${year}-${pad(month)}-${pad(day)}`,
+        start: startBangkok(year, month, day),
+    };
+}
+
+function formatDateValue(timestamp: number): string {
+    const parts = bangkokParts(timestamp);
+    return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`;
+}
+
+function rangeGranularity(dayCount: number): DashboardTrendGranularity {
+    if (dayCount <= 1) return "hour";
+    if (dayCount <= 31) return "day";
+    if (dayCount <= 180) return "week";
+    return "month";
+}
+
+function parseRangeValue(rawValue: string, now: number): DashboardPeriod {
+    const [rawStart = "", rawEnd = "", extra] = rawValue.split("..");
+    if (extra !== undefined) throw new Error("INVALID_DASHBOARD_PERIOD");
+    const startDate = parseDateValue(rawStart);
+    const endDate = parseDateValue(rawEnd);
+    if (!startDate || !endDate || startDate.start > endDate.start) {
+        throw new Error("INVALID_DASHBOARD_PERIOD");
+    }
+
+    const today = bangkokParts(now);
+    const todayStart = startBangkok(today.year, today.month, today.day);
+    if (endDate.start > todayStart) throw new Error("INVALID_DASHBOARD_PERIOD");
+
+    const endExclusive = endDate.start + DAY_MS;
+    const duration = endExclusive - startDate.start;
+    const dayCount = duration / DAY_MS;
+    if (!Number.isInteger(dayCount) || dayCount < 1 || dayCount > MAX_CUSTOM_RANGE_DAYS) {
+        throw new Error("INVALID_DASHBOARD_PERIOD");
+    }
+
+    return {
+        mode: "range",
+        value: `${startDate.normalized}..${endDate.normalized}`,
+        start_at: startDate.start,
+        end_at: endExclusive,
+        previous_start_at: startDate.start - duration,
+        previous_end_at: startDate.start,
+        granularity: rangeGranularity(dayCount),
+    };
+}
+
 export function defaultDashboardPeriod(
     mode: DashboardPeriodMode,
     now = Date.now()
 ): DashboardPeriod {
     const parts = bangkokParts(now);
+    if (mode === "range") {
+        const end = startBangkok(parts.year, parts.month, parts.day);
+        const start = end - 6 * DAY_MS;
+        return parseDashboardPeriod("range", `${formatDateValue(start)}..${formatDateValue(end)}`, now);
+    }
     const value = mode === "day"
         ? `${parts.year}-${pad(parts.month)}-${pad(parts.day)}`
         : mode === "month"
@@ -59,6 +131,8 @@ export function parseDashboardPeriod(
     now = Date.now()
 ): DashboardPeriod {
     const fallback = bangkokParts(now);
+
+    if (mode === "range") return parseRangeValue(rawValue, now);
 
     if (mode === "day") {
         const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawValue);
@@ -119,6 +193,18 @@ export function parseDashboardPeriod(
     };
 }
 
+export function parseDashboardPeriodInput(
+    input: { mode?: unknown; value?: unknown },
+    now = Date.now()
+): DashboardPeriod {
+    const mode: DashboardPeriodMode =
+        input.mode === "month" || input.mode === "year" || input.mode === "range"
+            ? input.mode
+            : "day";
+    const rawValue = typeof input.value === "string" ? input.value.trim() : "";
+    return rawValue ? parseDashboardPeriod(mode, rawValue, now) : defaultDashboardPeriod(mode, now);
+}
+
 export function isInPeriod(timestamp: number, start: number, end: number): boolean {
     return timestamp >= start && timestamp < end;
 }
@@ -157,33 +243,32 @@ export function buildPeriodBuckets(period: DashboardPeriod, previous = false): A
         return buckets;
     }
 
-    if (period.granularity === "day") {
-        for (let cursor = start; cursor < end; cursor += DAY_MS) {
+    if (period.granularity === "day" || period.granularity === "week") {
+        const step = period.granularity === "week" ? WEEK_MS : DAY_MS;
+        for (let cursor = start; cursor < end; cursor += step) {
             buckets.push({
-                key: formatBangkokBucketKey(cursor, "day"),
+                key: formatBangkokBucketKey(cursor, period.granularity),
                 start_at: cursor,
-                end_at: Math.min(cursor + DAY_MS, end),
+                end_at: Math.min(cursor + step, end),
             });
         }
         return buckets;
     }
 
-    const shifted = new Date(start + BANGKOK_OFFSET_MS);
-    let year = shifted.getUTCFullYear();
-    let month = shifted.getUTCMonth() + 1;
-    while (true) {
-        const bucketStart = startBangkok(year, month, 1);
-        if (bucketStart >= end) break;
+    let cursor = start;
+    while (cursor < end) {
+        const shifted = new Date(cursor + BANGKOK_OFFSET_MS);
+        const year = shifted.getUTCFullYear();
+        const month = shifted.getUTCMonth() + 1;
         const nextYear = month === 12 ? year + 1 : year;
         const nextMonth = month === 12 ? 1 : month + 1;
-        const bucketEnd = startBangkok(nextYear, nextMonth, 1);
+        const nextMonthStart = startBangkok(nextYear, nextMonth, 1);
         buckets.push({
-            key: formatBangkokBucketKey(bucketStart, "month"),
-            start_at: bucketStart,
-            end_at: Math.min(bucketEnd, end),
+            key: formatBangkokBucketKey(cursor, "month"),
+            start_at: cursor,
+            end_at: Math.min(nextMonthStart, end),
         });
-        year = nextYear;
-        month = nextMonth;
+        cursor = Math.min(nextMonthStart, end);
     }
     return buckets;
 }

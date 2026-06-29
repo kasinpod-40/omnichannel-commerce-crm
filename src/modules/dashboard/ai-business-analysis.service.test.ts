@@ -90,6 +90,29 @@ describe("async AI business analysis", () => {
         });
     });
 
+    it("sends a readable custom-range label to Lark AI", async () => {
+        const env = createEnv();
+        getCommerceDashboardSummary.mockResolvedValueOnce({
+            ...summaryFixture,
+            period: {
+                ...summaryFixture.period,
+                mode: "range",
+                value: "2026-06-01..2026-06-29",
+                granularity: "day",
+            },
+        });
+        await startAiBusinessAnalysis(env, {
+            language: "th",
+            scope: "all",
+            period: parseDashboardPeriod("range", "2026-06-01..2026-06-29"),
+        });
+        const request = vi.mocked(fetch).mock.calls[0]?.[1];
+        const body = JSON.parse(String(request?.body)) as Record<string, unknown>;
+        expect(body.period_type).toBe("range");
+        expect(body.period_label).toContain("1 มิ.ย. 2026");
+        expect(body.period_label).toContain("29 มิ.ย. 2026");
+    });
+
     it("completes the same job idempotently after the Lark callback", async () => {
         const env = createEnv();
         const started = await startAiBusinessAnalysis(env, {

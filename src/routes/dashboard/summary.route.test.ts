@@ -121,6 +121,33 @@ describe("GET /dashboard/summary", () => {
             updated_at: "2026-06-26T00:00:00.000Z",
         });
     });
+    it("รองรับช่วงวันที่กำหนดเองและเลือก granularity ตามระยะเวลา", async () => {
+        const session = await createAuthSession(env, user);
+        const response = await handleCommerceDashboardSummary(
+            new Request(
+                "https://api.example.com/dashboard/summary?period_mode=range&period_value=2026-01-01..2026-04-15",
+                {
+                    headers: {
+                        Origin: "https://crm.example.com",
+                        Cookie: `crm_session=${encodeURIComponent(session.token)}`,
+                    },
+                }
+            ),
+            env
+        );
+
+        expect(response.status).toBe(200);
+        expect(getCommerceDashboardSummary).toHaveBeenCalledWith(
+            env,
+            "th",
+            expect.objectContaining({
+                mode: "range",
+                value: "2026-01-01..2026-04-15",
+                granularity: "week",
+            })
+        );
+    });
+
     it("คืน 400 เมื่อช่วงเวลาจาก URL ไม่ถูกต้อง", async () => {
         const session = await createAuthSession(env, user);
         const response = await handleCommerceDashboardSummary(

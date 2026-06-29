@@ -7,11 +7,7 @@ import {
     startAiBusinessAnalysis,
     type AiAnalysisScope,
 } from "../../modules/dashboard/ai-business-analysis.service";
-import {
-    defaultDashboardPeriod,
-    parseDashboardPeriod,
-    type DashboardPeriodMode,
-} from "../../modules/dashboard/dashboard-period";
+import { parseDashboardPeriodInput } from "../../modules/dashboard/dashboard-period";
 import { addAuthCorsHeaders } from "../auth/auth-http";
 import {
     assertDashboardSession,
@@ -97,15 +93,12 @@ export async function handleAiBusinessAnalysisStart(
         const scope: AiAnalysisScope = body.scope === "line" || body.scope === "marketplaces"
             ? body.scope
             : "all";
-        const mode: DashboardPeriodMode = body.period_mode === "month" || body.period_mode === "year"
-            ? body.period_mode
-            : "day";
-        const rawValue = typeof body.period_value === "string" ? body.period_value.trim() : "";
         let period;
         try {
-            period = rawValue
-                ? parseDashboardPeriod(mode, rawValue)
-                : defaultDashboardPeriod(mode);
+            period = parseDashboardPeriodInput({
+                mode: body.period_mode,
+                value: body.period_value,
+            });
         } catch {
             return addAuthCorsHeaders(
                 dashboardJson({

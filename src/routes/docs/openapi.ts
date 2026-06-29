@@ -216,8 +216,8 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
                 false,
                 "th"
             ),
-            query("period_mode", "ระดับเวลา", { type: "string", enum: ["day", "month", "year"], default: "day" }, false, "month"),
-            query("period_value", "วันที่ YYYY-MM-DD, เดือน YYYY-MM หรือปี YYYY ให้ตรงกับ period_mode", { type: "string" }, false, "2026-06"),
+            query("period_mode", "ระดับเวลา", { type: "string", enum: ["day", "month", "year", "range"], default: "day" }, false, "month"),
+            query("period_value", "วันที่ YYYY-MM-DD, เดือน YYYY-MM, ปี YYYY หรือช่วง YYYY-MM-DD..YYYY-MM-DD ให้ตรงกับ period_mode", { type: "string" }, false, "2026-06"),
         ],
         responseSchema: "DashboardSummaryResponse",
     },
@@ -1379,7 +1379,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "dashboard-async-lark-ai-th-39" },
+                version: { type: "string", example: "dashboard-custom-range-progress-th-40" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1417,7 +1417,7 @@ function schemas(): Record<string, unknown> {
             required: ["language", "period_mode", "period_value", "scope"],
             properties: {
                 language: { type: "string", enum: ["th", "en"] },
-                period_mode: { type: "string", enum: ["day", "month", "year"] },
+                period_mode: { type: "string", enum: ["day", "month", "year", "range"] },
                 period_value: { type: "string" },
                 scope: { type: "string", enum: ["all", "line", "marketplaces"] },
             },
@@ -1512,13 +1512,13 @@ function schemas(): Record<string, unknown> {
             type: "object",
             required: ["mode", "value", "start_at", "end_at", "previous_start_at", "previous_end_at", "granularity"],
             properties: {
-                mode: { type: "string", enum: ["day", "month", "year"] },
+                mode: { type: "string", enum: ["day", "month", "year", "range"] },
                 value: { type: "string" },
                 start_at: { type: "string", format: "date-time" },
                 end_at: { type: "string", format: "date-time" },
                 previous_start_at: { type: "string", format: "date-time" },
                 previous_end_at: { type: "string", format: "date-time" },
-                granularity: { type: "string", enum: ["hour", "day", "month"] },
+                granularity: { type: "string", enum: ["hour", "day", "week", "month"] },
             },
         },
         DashboardSummaryResponse: {
@@ -1565,7 +1565,7 @@ function schemas(): Record<string, unknown> {
                     type: "object",
                     required: ["granularity", "current_period", "previous_period", "change_percent"],
                     properties: {
-                        granularity: { type: "string", enum: ["hour", "day", "month"] },
+                        granularity: { type: "string", enum: ["hour", "day", "week", "month"] },
                         current_period: { type: "array", items: { $ref: "#/components/schemas/DashboardTrendPoint" } },
                         previous_period: { type: "array", items: { $ref: "#/components/schemas/DashboardTrendPoint" } },
                         change_percent: { type: "number" },
@@ -2238,7 +2238,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.7.9-th-39",
+            version: "1.8.0-th-40",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",

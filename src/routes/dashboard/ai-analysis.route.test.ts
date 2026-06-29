@@ -102,6 +102,25 @@ describe("async /dashboard/ai-analysis routes", () => {
         });
     });
 
+    it("starts an AI job for a validated custom date range", async () => {
+        const response = await handleAiBusinessAnalysisStart(await authenticatedRequest({
+            language: "th",
+            scope: "all",
+            period_mode: "range",
+            period_value: "2026-06-01..2026-06-29",
+        }), env);
+        expect(response.status).toBe(202);
+        expect(startAiBusinessAnalysis).toHaveBeenCalledWith(env, {
+            language: "th",
+            scope: "all",
+            period: expect.objectContaining({
+                mode: "range",
+                value: "2026-06-01..2026-06-29",
+                granularity: "day",
+            }),
+        });
+    });
+
     it("returns a protected job status", async () => {
         const id = "11111111-1111-4111-8111-111111111111";
         const response = await handleAiBusinessAnalysisStatus(
