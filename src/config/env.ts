@@ -32,10 +32,10 @@ export interface Env {
     LARK_GROUP_WEBHOOK_KEYWORD?: string;
     NOTIFICATION_DISPATCH_TOKEN: string;
     LARK_WORKFLOW_TOKEN?: string;
-    // Webhook Trigger ของ Lark Workflow ที่มี AI-generated text/AI Agent และ synchronous callback
+    // Webhook Trigger ของ Lark Base Automation และ Token สำหรับ Callback แบบ Async
     LARK_AI_WORKFLOW_WEBHOOK_URL?: string;
     LARK_AI_WORKFLOW_TOKEN?: string;
-    LARK_AI_WORKFLOW_TIMEOUT_MS?: string;
+    LARK_AI_CALLBACK_TOKEN?: string;
 
     CUSTOMERS_TABLE_ID: string;
     CONVERSATIONS_TABLE_ID: string;
@@ -94,5 +94,6 @@ export interface Env {
     DOCUMENT_PRICE_INCLUDES_VAT?: string;
     DOCUMENT_TAX_FORM_EXPIRES_MINUTES?: string;
 
+    AI_ANALYSIS_JOBS?: KVNamespace;
     MARKETPLACE_TOKENS?: KVNamespace;
 }

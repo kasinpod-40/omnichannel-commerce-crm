@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { generateAiBusinessAnalysis } from "./ai-business-analysis.service";
+import {
+    completeAiBusinessAnalysis,
+    getAiBusinessAnalysisJob,
+    startAiBusinessAnalysis,
+} from "./ai-business-analysis.service";
 import { parseDashboardPeriod } from "./dashboard-period";
 
 const { getCommerceDashboardSummary } = vi.hoisted(() => ({
@@ -24,12 +28,31 @@ const summaryFixture = {
 
 vi.mock("./commerce-dashboard.service", () => ({ getCommerceDashboardSummary }));
 
-const env = {
-    LARK_AI_WORKFLOW_WEBHOOK_URL: "https://example.com/workflow",
-} as never;
+function memoryKv(): KVNamespace {
+    const values = new Map<string, string>();
+    return {
+        get: vi.fn(async (key: string) => values.get(key) ?? null),
+        put: vi.fn(async (key: string, value: string) => { values.set(key, value); }),
+        delete: vi.fn(async (key: string) => { values.delete(key); }),
+        list: vi.fn(async () => ({ keys: [], list_complete: true, cacheStatus: null })),
+        getWithMetadata: vi.fn(async (key: string) => ({ value: values.get(key) ?? null, metadata: null, cacheStatus: null })),
+    } as unknown as KVNamespace;
+}
+
+function createEnv() {
+    return {
+        LARK_AI_WORKFLOW_WEBHOOK_URL: "https://example.com/workflow",
+        LARK_AI_WORKFLOW_TOKEN: "trigger-secret",
+        LARK_AI_CALLBACK_TOKEN: "callback-secret",
+        MARKETPLACE_TOKENS: memoryKv(),
+    } as never;
+}
 
 beforeEach(() => {
     getCommerceDashboardSummary.mockResolvedValue(summaryFixture);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ code: 0, msg: "", data: {} }), {
+        headers: { "content-type": "application/json" },
+    })));
 });
 
 afterEach(() => {
@@ -37,20 +60,13 @@ afterEach(() => {
     vi.clearAllMocks();
 });
 
-describe("generateAiBusinessAnalysis", () => {
-    it("sends real metrics to Lark Workflow and accepts strict narrative JSON", async () => {
-        vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-            headline: "ยอดขายดีขึ้น",
-            executive_summary: "มีงานค้างสองรายการ",
-            priority_items: ["ตรวจสลิป"], opportunity_items: ["ติดตาม Hot Lead"],
-            sales_items: [], risk_items: [],
-            recommended_actions: [{ title: "ตรวจสลิป", description: "ตรวจรายการค้าง", target_work_queue: "payment_review" }],
-        }), { headers: { "content-type": "application/json" } })));
-        const result = await generateAiBusinessAnalysis(env, {
+describe("async AI business analysis", () => {
+    it("creates a processing job and sends the Lark-compatible flat payload", async () => {
+        const env = createEnv();
+        const started = await startAiBusinessAnalysis(env, {
             language: "th", scope: "all", period: parseDashboardPeriod("day", "2026-06-29"),
         });
-        expect(result.metrics.urgent_actions).toBe(2);
-        expect(result.recommended_actions[0]?.target_work_queue).toBe("payment_review");
+        expect(started.status).toBe("processing");
         expect(getCommerceDashboardSummary).toHaveBeenCalledWith(
             env,
             "th",
@@ -58,18 +74,70 @@ describe("generateAiBusinessAnalysis", () => {
             expect.any(Number),
             "all"
         );
-
         const request = vi.mocked(fetch).mock.calls[0]?.[1];
         const body = JSON.parse(String(request?.body)) as Record<string, unknown>;
         expect(body).toMatchObject({
+            request_id: started.request_id,
             prompt_version: "lark-business-analysis-v1",
-            analytics_payload: expect.objectContaining({ scope: "all" }),
+            language: "th",
+            period_type: "day",
+            scope: "all",
+        });
+        expect(typeof body.analytics_json).toBe("string");
+        expect(new Headers(request?.headers).get("authorization")).toBe("Bearer trigger-secret");
+        await expect(getAiBusinessAnalysisJob(env, started.request_id)).resolves.toMatchObject({
+            status: "processing",
         });
     });
 
-    it("fails clearly when workflow is not configured", async () => {
-        await expect(generateAiBusinessAnalysis({} as never, {
+    it("completes the same job idempotently after the Lark callback", async () => {
+        const env = createEnv();
+        const started = await startAiBusinessAnalysis(env, {
+            language: "th", scope: "all", period: parseDashboardPeriod("day", "2026-06-29"),
+        });
+        const payload = {
+            analysis_json: JSON.stringify({
+                headline: "ยอดขายดีขึ้น",
+                executive_summary: "มีงานค้างสองรายการ",
+                priority_items: ["ตรวจสลิป"], opportunity_items: ["ติดตาม Hot Lead"],
+                sales_items: [], risk_items: [],
+                recommended_actions: [{ title: "ตรวจสลิป", description: "ตรวจรายการค้าง", target_work_queue: "payment_review" }],
+            }),
+        };
+        const first = await completeAiBusinessAnalysis(env, started.request_id, payload);
+        const second = await completeAiBusinessAnalysis(env, started.request_id, payload);
+        expect(first.metrics.urgent_actions).toBe(2);
+        expect(first.recommended_actions[0]?.target_work_queue).toBe("payment_review");
+        expect(second).toEqual(first);
+        await expect(getAiBusinessAnalysisJob(env, started.request_id)).resolves.toMatchObject({
+            status: "completed",
+            result: { headline: "ยอดขายดีขึ้น" },
+        });
+    });
+
+    it("marks the job failed when Lark returns invalid JSON instead of polling forever", async () => {
+        const env = createEnv();
+        const started = await startAiBusinessAnalysis(env, {
+            language: "th", scope: "all", period: parseDashboardPeriod("day", "2026-06-29"),
+        });
+        await expect(completeAiBusinessAnalysis(env, started.request_id, {
+            analysis_json: "not-json",
+        })).rejects.toMatchObject({ code: "LARK_AI_RESPONSE_INVALID" });
+        await expect(getAiBusinessAnalysisJob(env, started.request_id)).resolves.toMatchObject({
+            status: "failed",
+            error: { code: "LARK_AI_RESPONSE_INVALID" },
+        });
+    });
+
+    it("fails clearly when workflow or callback security is not configured", async () => {
+        await expect(startAiBusinessAnalysis({ MARKETPLACE_TOKENS: memoryKv() } as never, {
             language: "th", scope: "all", period: parseDashboardPeriod("day", "2026-06-29"),
         })).rejects.toMatchObject({ code: "LARK_AI_WORKFLOW_NOT_CONFIGURED" });
+        await expect(startAiBusinessAnalysis({
+            LARK_AI_WORKFLOW_WEBHOOK_URL: "https://example.com/workflow",
+            MARKETPLACE_TOKENS: memoryKv(),
+        } as never, {
+            language: "th", scope: "all", period: parseDashboardPeriod("day", "2026-06-29"),
+        })).rejects.toMatchObject({ code: "LARK_AI_CALLBACK_NOT_CONFIGURED" });
     });
 });

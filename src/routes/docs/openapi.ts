@@ -17,6 +17,7 @@ type SecurityKind =
     | "admin"
     | "workflow"
     | "workflowOrAdmin"
+    | "aiCallback"
     | "lineSignature"
     | "marketplaceSignature"
     | "signedLink"
@@ -224,12 +225,33 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         path: "/dashboard/ai-analysis",
         method: "post",
         tag: "Dashboard",
-        summary: "สร้างบทวิเคราะห์ธุรกิจด้วย Lark AI Workflow",
-        description: "ส่งเฉพาะ Analytics ที่ Backend คำนวณแล้วไปยัง Lark Workflow และตรวจรูปแบบผลลัพธ์ก่อนคืน Frontend",
+        summary: "เริ่มงานวิเคราะห์ธุรกิจด้วย Lark AI แบบ Async",
+        description: "คำนวณ Analytics จริง สร้าง Job ชั่วคราว และส่ง Webhook เข้า Lark Automation โดยตอบ 202 ให้ Frontend Poll สถานะต่อ",
         security: "cookie",
         requestSchema: "AiBusinessAnalysisRequest",
         requestExample: { language: "th", period_mode: "month", period_value: "2026-06", scope: "all" },
-        responseSchema: "AiBusinessAnalysisResponse",
+        responseSchema: "AiBusinessAnalysisStartResponse",
+        successStatus: 202,
+    },
+    {
+        path: "/dashboard/ai-analysis/{request_id}",
+        method: "get",
+        tag: "Dashboard",
+        summary: "อ่านสถานะงาน Lark AI",
+        description: "Frontend ใช้ Poll จนสถานะ completed, failed หรือ expired",
+        security: "cookie",
+        parameters: [pathParameter("request_id", "UUID ของงานวิเคราะห์", "11111111-1111-4111-8111-111111111111")],
+        responseSchema: "AiBusinessAnalysisJobResponse",
+    },
+    {
+        path: "/dashboard/ai-analysis/callback",
+        method: "post",
+        tag: "Dashboard",
+        summary: "รับผลวิเคราะห์กลับจาก Lark Automation",
+        description: "Callback ภายในที่ตรวจ Bearer LARK_AI_CALLBACK_TOKEN, request_id และ JSON schema พร้อมรองรับ Callback ซ้ำแบบ idempotent",
+        security: "aiCallback",
+        requestSchema: "AiBusinessAnalysisCallbackRequest",
+        responseSchema: "AiBusinessAnalysisCallbackResponse",
     },
     {
         path: "/customers",
@@ -1148,6 +1170,8 @@ function securityRequirement(kind: SecurityKind): Array<Record<string, string[]>
             return [{ adminBearer: [] }, { adminHeader: [] }];
         case "workflow":
             return [{ workflowBearer: [] }, { workflowHeader: [] }];
+        case "aiCallback":
+            return [{ aiCallbackBearer: [] }];
         case "workflowOrAdmin":
             return [
                 { workflowBearer: [] },
@@ -1355,7 +1379,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "dashboard-work-queues-period-ai-th-38" },
+                version: { type: "string", example: "dashboard-async-lark-ai-th-39" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1396,6 +1420,51 @@ function schemas(): Record<string, unknown> {
                 period_mode: { type: "string", enum: ["day", "month", "year"] },
                 period_value: { type: "string" },
                 scope: { type: "string", enum: ["all", "line", "marketplaces"] },
+            },
+        },
+        AiBusinessAnalysisStartResponse: {
+            type: "object",
+            required: ["request_id", "status", "poll_after_ms", "expires_at", "period", "scope", "language"],
+            properties: {
+                request_id: { type: "string", format: "uuid" },
+                status: { type: "string", const: "processing" },
+                poll_after_ms: { type: "integer", minimum: 500 },
+                expires_at: { type: "string", format: "date-time" },
+                period: { $ref: "#/components/schemas/DashboardPeriodResponse" },
+                scope: { type: "string", enum: ["all", "line", "marketplaces"] },
+                language: { type: "string", enum: ["th", "en"] },
+            },
+        },
+        AiBusinessAnalysisJobResponse: {
+            type: "object",
+            required: ["request_id", "status"],
+            properties: {
+                request_id: { type: "string", format: "uuid" },
+                status: { type: "string", enum: ["pending", "processing", "completed", "failed", "expired"] },
+                poll_after_ms: { type: "integer" },
+                expires_at: { type: "string", format: "date-time" },
+                result: { $ref: "#/components/schemas/AiBusinessAnalysisResponse" },
+                error: {
+                    type: "object",
+                    properties: { code: { type: "string" }, message: { type: "string" } },
+                },
+            },
+        },
+        AiBusinessAnalysisCallbackRequest: {
+            type: "object",
+            required: ["request_id", "analysis_json"],
+            properties: {
+                request_id: { type: "string", format: "uuid" },
+                analysis_json: { type: "string", description: "JSON string จาก AI-generated text" },
+            },
+        },
+        AiBusinessAnalysisCallbackResponse: {
+            type: "object",
+            required: ["code", "message", "request_id"],
+            properties: {
+                code: { type: "integer", const: 0 },
+                message: { type: "string", example: "ok" },
+                request_id: { type: "string", format: "uuid" },
             },
         },
         AiBusinessAnalysisResponse: {
@@ -2169,7 +2238,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.7.8-th-38",
+            version: "1.7.9-th-39",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",
@@ -2232,6 +2301,12 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
                     scheme: "bearer",
                     bearerFormat: "LARK_WORKFLOW_TOKEN",
                     description: "Token ที่ Lark Workflow ใช้เรียก Webhook",
+                },
+                aiCallbackBearer: {
+                    type: "http",
+                    scheme: "bearer",
+                    bearerFormat: "LARK_AI_CALLBACK_TOKEN",
+                    description: "Token ที่ Lark AI Automation ใช้ส่งผลวิเคราะห์กลับ Backend",
                 },
                 workflowHeader: {
                     type: "apiKey",

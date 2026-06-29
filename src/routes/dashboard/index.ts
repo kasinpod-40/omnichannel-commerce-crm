@@ -2,7 +2,11 @@ import type { Env } from "../../config/env";
 import { handleMarketplaceDashboard } from "../marketplace/dashboard.route";
 import { handleDashboardSummary } from "./executive.route";
 import { handleCommerceDashboardSummary } from "./summary.route";
-import { handleAiBusinessAnalysis } from "./ai-analysis.route";
+import {
+    handleAiBusinessAnalysisCallback,
+    handleAiBusinessAnalysisStart,
+    handleAiBusinessAnalysisStatus,
+} from "./ai-analysis.route";
 import { handleAuthPreflight } from "../auth/auth-http";
 
 export async function handleDashboardRoutes(
@@ -33,7 +37,16 @@ export async function handleDashboardRoutes(
     }
 
     if (pathname === "/dashboard/ai-analysis") {
-        return handleAiBusinessAnalysis(request, env);
+        return handleAiBusinessAnalysisStart(request, env);
+    }
+
+    if (pathname === "/dashboard/ai-analysis/callback") {
+        return handleAiBusinessAnalysisCallback(request, env);
+    }
+
+    const aiStatusMatch = /^\/dashboard\/ai-analysis\/([0-9a-f-]{36})$/i.exec(pathname);
+    if (aiStatusMatch) {
+        return handleAiBusinessAnalysisStatus(request, env, aiStatusMatch[1] ?? "");
     }
 
     if (pathname === "/admin/dashboard/summary") {
