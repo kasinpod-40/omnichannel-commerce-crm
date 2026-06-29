@@ -4,7 +4,7 @@ export function handleHealthRoute(env: { ENVIRONMENT?: string }): Response {
     return jsonResponse({
         ok: true,
         service: "omnichannel-commerce-crm",
-        version: "dashboard-custom-range-progress-th-40",
+        version: "dashboard-range-contract-th-41",
         environment: env.ENVIRONMENT ?? "local",
         timestamp: new Date().toISOString(),
     });

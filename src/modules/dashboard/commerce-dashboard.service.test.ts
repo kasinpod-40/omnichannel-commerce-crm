@@ -520,6 +520,32 @@ describe("commerce dashboard summary", () => {
         });
     });
 
+    it("includes real May and June records in a custom May-June range", async () => {
+        const range = parseDashboardPeriod(
+            "range",
+            "2026-05-01..2026-06-29",
+            Date.parse("2026-06-29T16:59:00.000Z")
+        );
+        const result = await getCommerceDashboardSummary(env, "th", range, now);
+
+        expect(result.period).toMatchObject({
+            mode: "range",
+            value: "2026-05-01..2026-06-29",
+            granularity: "week",
+        });
+        expect(result.totals).toMatchObject({
+            revenue_thb: 1_500,
+            paid_orders: 2,
+            total_leads: 2,
+        });
+        expect(
+            result.revenue_trend.current_period.reduce(
+                (sum, point) => sum + point.revenue_thb,
+                0
+            )
+        ).toBe(1_500);
+    });
+
     it("returns complete zero-state structures", async () => {
         listCustomers.mockResolvedValue([]);
         listPipelines.mockResolvedValue([]);

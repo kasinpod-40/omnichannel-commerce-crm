@@ -197,10 +197,16 @@ export function parseDashboardPeriodInput(
     input: { mode?: unknown; value?: unknown },
     now = Date.now()
 ): DashboardPeriod {
+    const rawMode = input.mode;
     const mode: DashboardPeriodMode =
-        input.mode === "month" || input.mode === "year" || input.mode === "range"
-            ? input.mode
-            : "day";
+        rawMode === undefined || rawMode === null || rawMode === ""
+            ? "day"
+            : rawMode === "day" || rawMode === "month" || rawMode === "year" || rawMode === "range"
+              ? rawMode
+              : (() => {
+                    // ห้าม fallback โหมดที่ไม่รู้จักเป็นรายวัน เพราะจะทำให้ Dashboard แสดงตัวเลขคนละช่วงอย่างเงียบ ๆ
+                    throw new Error("INVALID_DASHBOARD_PERIOD");
+                })();
     const rawValue = typeof input.value === "string" ? input.value.trim() : "";
     return rawValue ? parseDashboardPeriod(mode, rawValue, now) : defaultDashboardPeriod(mode, now);
 }

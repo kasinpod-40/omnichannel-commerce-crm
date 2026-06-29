@@ -42,6 +42,12 @@ describe("dashboard period", () => {
         expect(defaultDashboardPeriod("range", NOW).value).toBe("2026-06-23..2026-06-29");
     });
 
+    it("rejects an unknown period mode instead of silently falling back to a day", async () => {
+        const { parseDashboardPeriodInput } = await import("./dashboard-period");
+        expect(() => parseDashboardPeriodInput({ mode: "unsupported", value: "2026-06-29" }, NOW))
+            .toThrow("INVALID_DASHBOARD_PERIOD");
+    });
+
     it("rejects future, reversed and over-one-year custom ranges", () => {
         expect(() => parseDashboardPeriod("range", "2026-06-30..2026-06-30", NOW)).toThrow("INVALID_DASHBOARD_PERIOD");
         expect(() => parseDashboardPeriod("range", "2026-06-20..2026-06-10", NOW)).toThrow("INVALID_DASHBOARD_PERIOD");

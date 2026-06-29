@@ -148,6 +148,28 @@ describe("GET /dashboard/summary", () => {
         );
     });
 
+    it("คืน 400 เมื่อ period_mode ไม่รองรับแทนการ fallback เป็นรายวัน", async () => {
+        const session = await createAuthSession(env, user);
+        const response = await handleCommerceDashboardSummary(
+            new Request(
+                "https://api.example.com/dashboard/summary?period_mode=unsupported&period_value=2026-06-29",
+                {
+                    headers: {
+                        Origin: "https://crm.example.com",
+                        Cookie: `crm_session=${encodeURIComponent(session.token)}`,
+                    },
+                }
+            ),
+            env
+        );
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({
+            code: "INVALID_DASHBOARD_PERIOD",
+        });
+        expect(getCommerceDashboardSummary).not.toHaveBeenCalled();
+    });
+
     it("คืน 400 เมื่อช่วงเวลาจาก URL ไม่ถูกต้อง", async () => {
         const session = await createAuthSession(env, user);
         const response = await handleCommerceDashboardSummary(
