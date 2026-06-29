@@ -100,6 +100,8 @@ export const ORDER_FIELDS = {
     CURRENCY: "currency",
     TRACKING_NUMBER: "tracking_number",
     SHIPPING_PROVIDER: "shipping_provider",
+    // ฟิลด์เสริมแบบ optional: หาก Base ยังไม่มี ระบบจะ fallback ไปใช้ tracking/order status
+    FULFILLMENT_STATUS: "fulfillment_status",
 
     QUOTATION_URL: "quotation_url",
     INVOICE_URL: "invoice_url",

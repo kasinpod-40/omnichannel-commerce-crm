@@ -2,10 +2,12 @@ import type { Env } from "../../config/env";
 import {
     getOrderDetail,
     getOrderList,
+    type OrderDateBasis,
     type OrderListQuery,
     type OrderStatusResponse,
     type PaymentStatusResponse,
 } from "../../modules/orders/order-dashboard.service";
+import type { OrderWorkQueue } from "../../modules/orders/order-work-queue";
 import type { DashboardChannel } from "../../modules/dashboard-read/dashboard-read.types";
 import { addAuthCorsHeaders } from "../auth/auth-http";
 import {
@@ -19,12 +21,47 @@ import {
 const CHANNELS = new Set<DashboardChannel>(["LINE", "Shopee", "Lazada", "TikTok Shop"]);
 const ORDER_STATUSES = new Set<OrderStatusResponse>(["Draft", "Confirmed", "Completed", "Cancelled"]);
 const PAYMENT_STATUSES = new Set<PaymentStatusResponse>(["Pending", "Paid", "Overdue"]);
+const WORK_QUEUES = new Set<OrderWorkQueue>([
+    "payment_review",
+    "waiting_new_slip",
+    "waiting_payment",
+    "missing_delivery",
+    "ready_to_ship",
+    "marketplace_ready_to_ship",
+]);
+const DATE_BASES = new Set<OrderDateBasis>(["created_at", "paid_at", "updated_at"]);
+
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1_000;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+function parseDate(value: string | null, endExclusive = false): number | null {
+    if (!value?.trim()) return null;
+    const trimmed = value.trim();
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (dateOnly) {
+        const year = Number(dateOnly[1]);
+        const month = Number(dateOnly[2]);
+        const day = Number(dateOnly[3]);
+        const check = new Date(Date.UTC(year, month - 1, day));
+        if (
+            check.getUTCFullYear() !== year ||
+            check.getUTCMonth() !== month - 1 ||
+            check.getUTCDate() !== day
+        ) return null;
+        const start = Date.UTC(year, month - 1, day) - BANGKOK_OFFSET_MS;
+        return endExclusive ? start + DAY_MS : start;
+    }
+    const parsed = Date.parse(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+}
 
 function parseListQuery(request: Request): OrderListQuery {
     const params = new URL(request.url).searchParams;
     const channel = params.get("channel") as DashboardChannel | null;
     const orderStatus = params.get("order_status") as OrderStatusResponse | null;
     const paymentStatus = params.get("payment_status") as PaymentStatusResponse | null;
+    const workQueue = params.get("work_queue") as OrderWorkQueue | null;
+    const dateBasis = params.get("date_basis") as OrderDateBasis | null;
     const rawSort = params.get("sort");
     const sort = rawSort === "amount_desc" || rawSort === "created_desc"
         ? rawSort
@@ -35,6 +72,10 @@ function parseListQuery(request: Request): OrderListQuery {
         channel: channel && CHANNELS.has(channel) ? channel : null,
         order_status: orderStatus && ORDER_STATUSES.has(orderStatus) ? orderStatus : null,
         payment_status: paymentStatus && PAYMENT_STATUSES.has(paymentStatus) ? paymentStatus : null,
+        work_queue: workQueue && WORK_QUEUES.has(workQueue) ? workQueue : null,
+        date_basis: dateBasis && DATE_BASES.has(dateBasis) ? dateBasis : null,
+        date_from_ms: parseDate(params.get("date_from")),
+        date_to_ms: parseDate(params.get("date_to"), true),
         sort,
         page: parsePositiveInteger(params.get("page"), 1, 100_000),
         page_size: parsePositiveInteger(params.get("page_size"), 10, 100),

@@ -1,5 +1,6 @@
 import type { Env } from "../../config/env";
 import { isSalesStage } from "../../core/sales-stage";
+import type { CustomerWorkQueue } from "../../modules/customers/customer-work-queue";
 import { AuthError, isAuthError } from "../../modules/auth/auth.error";
 import { verifyAuthSession } from "../../modules/auth/auth.session";
 import {
@@ -76,6 +77,9 @@ function parseListQuery(request: Request): CustomerListQuery {
         channel: rawChannel && allowedChannels.has(rawChannel) ? rawChannel : null,
         stage: isSalesStage(rawStage) ? rawStage : null,
         hot_lead: parseBoolean(searchParams.get("hot_lead")),
+        work_queue: searchParams.get("work_queue") === "hot_lead"
+            ? ("hot_lead" as CustomerWorkQueue)
+            : null,
         sort,
         page: parsePositiveInteger(searchParams.get("page"), 1, 100_000),
         page_size: parsePositiveInteger(

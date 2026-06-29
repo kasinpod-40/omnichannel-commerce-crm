@@ -4,7 +4,9 @@ import {
     CONVERSATION_FIELDS,
     CUSTOMER_FIELDS,
     ORDER_FIELDS,
+    PIPELINE_FIELDS,
 } from "../../core/lark-fields";
+import { clearDashboardReadCache } from "../dashboard-read/dashboard-read.cache";
 
 const {
     listCustomers,
@@ -12,12 +14,14 @@ const {
     listConversations,
     listActivities,
     findOrdersByCustomer,
+    listPipelines,
 } = vi.hoisted(() => ({
     listCustomers: vi.fn(),
     getCustomerByRecordId: vi.fn(),
     listConversations: vi.fn(),
     listActivities: vi.fn(),
     findOrdersByCustomer: vi.fn(),
+    listPipelines: vi.fn(),
 }));
 
 vi.mock("./customer.repository", () => ({
@@ -32,6 +36,9 @@ vi.mock("../activities/activity.repository", () => ({
 }));
 vi.mock("../orders/order.repository", () => ({
     findOrdersByCustomer,
+}));
+vi.mock("../pipeline/pipeline.repository", () => ({
+    listPipelines,
 }));
 
 import {
@@ -64,6 +71,15 @@ const customer = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    clearDashboardReadCache();
+    listPipelines.mockResolvedValue([{
+        record_id: "rec_pipeline_001",
+        fields: {
+            [PIPELINE_FIELDS.CUSTOMER]: ["rec_customer_001"],
+            [PIPELINE_FIELDS.STATUS]: "open",
+            [PIPELINE_FIELDS.STAGE]: "Closing",
+        },
+    }]);
     listCustomers.mockResolvedValue([
         customer,
         {
@@ -182,4 +198,58 @@ describe("customer dashboard service", () => {
             ])
         );
     });
+
+    it("คืนเฉพาะ Hot Lead ที่มี Open Pipeline จริงเมื่อเปิดจาก Action Center", async () => {
+        listCustomers.mockResolvedValue([
+            customer,
+            {
+                record_id: "rec_customer_stale",
+                fields: {
+                    [CUSTOMER_FIELDS.CUSTOMER_NAME]: "Hot Lead เก่า",
+                    [CUSTOMER_FIELDS.CHANNEL]: "LINE",
+                    [CUSTOMER_FIELDS.CURRENT_STAGE]: "Won",
+                    [CUSTOMER_FIELDS.HOT_LEAD]: true,
+                    [CUSTOMER_FIELDS.ACTIVE_PIPELINE_ID]: "rec_pipeline_closed",
+                },
+            },
+        ]);
+        listPipelines.mockResolvedValue([
+            {
+                record_id: "rec_pipeline_001",
+                fields: {
+                    [PIPELINE_FIELDS.CUSTOMER]: ["rec_customer_001"],
+                    [PIPELINE_FIELDS.STATUS]: "open",
+                    [PIPELINE_FIELDS.STAGE]: "Closing",
+                },
+            },
+            {
+                record_id: "rec_pipeline_closed",
+                fields: {
+                    [PIPELINE_FIELDS.CUSTOMER]: ["rec_customer_stale"],
+                    [PIPELINE_FIELDS.STATUS]: "won",
+                    [PIPELINE_FIELDS.STAGE]: "Won",
+                },
+            },
+        ]);
+        clearDashboardReadCache();
+
+        const result = await getCustomerList(env, {
+            search: "",
+            channel: null,
+            stage: null,
+            hot_lead: null,
+            work_queue: "hot_lead",
+            sort: "lead_score_desc",
+            page: 1,
+            page_size: 20,
+        });
+
+        expect(result.total).toBe(1);
+        expect(result.items[0]).toMatchObject({
+            customer_id: "rec_customer_001",
+            work_queue: "hot_lead",
+        });
+        expect(result.items.some((item) => item.customer_id === "rec_customer_stale")).toBe(false);
+    });
+
 });

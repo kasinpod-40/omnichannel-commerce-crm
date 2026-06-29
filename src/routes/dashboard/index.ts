@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { handleMarketplaceDashboard } from "../marketplace/dashboard.route";
 import { handleDashboardSummary } from "./executive.route";
 import { handleCommerceDashboardSummary } from "./summary.route";
+import { handleAiBusinessAnalysis } from "./ai-analysis.route";
 import { handleAuthPreflight } from "../auth/auth-http";
 
 export async function handleDashboardRoutes(
@@ -29,6 +30,10 @@ export async function handleDashboardRoutes(
 
     if (pathname === "/dashboard/summary") {
         return handleCommerceDashboardSummary(request, env);
+    }
+
+    if (pathname === "/dashboard/ai-analysis") {
+        return handleAiBusinessAnalysis(request, env);
     }
 
     if (pathname === "/admin/dashboard/summary") {

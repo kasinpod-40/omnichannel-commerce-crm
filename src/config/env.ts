@@ -32,6 +32,10 @@ export interface Env {
     LARK_GROUP_WEBHOOK_KEYWORD?: string;
     NOTIFICATION_DISPATCH_TOKEN: string;
     LARK_WORKFLOW_TOKEN?: string;
+    // Webhook Trigger ของ Lark Workflow ที่มี AI-generated text/AI Agent และ synchronous callback
+    LARK_AI_WORKFLOW_WEBHOOK_URL?: string;
+    LARK_AI_WORKFLOW_TOKEN?: string;
+    LARK_AI_WORKFLOW_TIMEOUT_MS?: string;
 
     CUSTOMERS_TABLE_ID: string;
     CONVERSATIONS_TABLE_ID: string;

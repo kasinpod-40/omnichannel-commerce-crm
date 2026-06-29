@@ -204,8 +204,8 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         path: "/dashboard/summary",
         method: "get",
         tag: "Dashboard",
-        summary: "ข้อมูลภาพรวมสำหรับ React Dashboard",
-        description: "ดึง Customers, Sales Pipeline, Orders และ Activities จาก Lark Base แล้วคำนวณ KPI",
+        summary: "ข้อมูลภาพรวมตามวัน เดือน หรือปี",
+        description: "คำนวณ KPI และกราฟจากข้อมูลจริงใน Lark Base ตาม Asia/Bangkok ขณะที่ Action Center และ Pipeline เป็นสถานะปัจจุบัน",
         security: "cookie",
         parameters: [
             query(
@@ -215,8 +215,21 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
                 false,
                 "th"
             ),
+            query("period_mode", "ระดับเวลา", { type: "string", enum: ["day", "month", "year"], default: "day" }, false, "month"),
+            query("period_value", "วันที่ YYYY-MM-DD, เดือน YYYY-MM หรือปี YYYY ให้ตรงกับ period_mode", { type: "string" }, false, "2026-06"),
         ],
         responseSchema: "DashboardSummaryResponse",
+    },
+    {
+        path: "/dashboard/ai-analysis",
+        method: "post",
+        tag: "Dashboard",
+        summary: "สร้างบทวิเคราะห์ธุรกิจด้วย Lark AI Workflow",
+        description: "ส่งเฉพาะ Analytics ที่ Backend คำนวณแล้วไปยัง Lark Workflow และตรวจรูปแบบผลลัพธ์ก่อนคืน Frontend",
+        security: "cookie",
+        requestSchema: "AiBusinessAnalysisRequest",
+        requestExample: { language: "th", period_mode: "month", period_value: "2026-06", scope: "all" },
+        responseSchema: "AiBusinessAnalysisResponse",
     },
     {
         path: "/customers",
@@ -230,6 +243,7 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
             query("channel", "กรองช่องทาง", { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] }),
             query("stage", "กรอง Customer stage", { type: "string", enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"] }),
             query("hot_lead", "กรอง Hot Lead", { type: "boolean" }),
+            query("work_queue", "กรอง Queue ที่ต้องติดตามจริง", { type: "string", enum: ["hot_lead"] }),
             query("sort", "ลำดับข้อมูล", { type: "string", enum: ["updated_desc", "lead_score_desc", "name_asc"], default: "updated_desc" }),
             query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
             query("page_size", "จำนวนรายการต่อหน้า สูงสุด 100", { type: "integer", enum: [10, 20, 50], default: 10 }),
@@ -341,6 +355,10 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
             query("channel", "กรองช่องทาง", { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] }),
             query("order_status", "กรองสถานะ Order ที่ normalize สำหรับ UI", { type: "string", enum: ["Draft", "Confirmed", "Completed", "Cancelled"] }),
             query("payment_status", "กรองสถานะชำระเงิน", { type: "string", enum: ["Pending", "Paid", "Overdue"] }),
+            query("work_queue", "กรองรายการตาม Action Center ด้วยตัวจำแนกชุดเดียวกับ Dashboard", { type: "string", enum: ["payment_review", "waiting_new_slip", "waiting_payment", "missing_delivery", "ready_to_ship", "marketplace_ready_to_ship"] }),
+            query("date_basis", "ฟิลด์วันที่สำหรับ Drill-down", { type: "string", enum: ["created_at", "paid_at", "updated_at"] }),
+            query("date_from", "วันเริ่มต้นตาม Asia/Bangkok รวมวันดังกล่าว", { type: "string", format: "date" }),
+            query("date_to", "วันสิ้นสุดตาม Asia/Bangkok รวมวันดังกล่าว", { type: "string", format: "date" }),
             query("sort", "ลำดับข้อมูล", { type: "string", enum: ["updated_desc", "amount_desc", "created_desc"], default: "updated_desc" }),
             query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
             query("page_size", "จำนวนรายการต่อหน้า สูงสุด 100", { type: "integer", enum: [10, 20, 50], default: 10 }),
@@ -1337,7 +1355,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "dashboard-real-analytics-th-37" },
+                version: { type: "string", example: "dashboard-work-queues-period-ai-th-38" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1370,37 +1388,94 @@ function schemas(): Record<string, unknown> {
                 code: { type: "string", minLength: 1 },
             },
         },
+        AiBusinessAnalysisRequest: {
+            type: "object",
+            required: ["language", "period_mode", "period_value", "scope"],
+            properties: {
+                language: { type: "string", enum: ["th", "en"] },
+                period_mode: { type: "string", enum: ["day", "month", "year"] },
+                period_value: { type: "string" },
+                scope: { type: "string", enum: ["all", "line", "marketplaces"] },
+            },
+        },
+        AiBusinessAnalysisResponse: {
+            type: "object",
+            required: ["request_id", "generated_at", "data_updated_at", "prompt_version", "period", "scope", "language", "metrics", "headline", "executive_summary", "priority_items", "opportunity_items", "sales_items", "risk_items", "recommended_actions"],
+            properties: {
+                request_id: { type: "string", format: "uuid" },
+                generated_at: { type: "string", format: "date-time" },
+                data_updated_at: { type: "string", format: "date-time" },
+                prompt_version: { type: "string", example: "lark-business-analysis-v1" },
+                period: { $ref: "#/components/schemas/DashboardPeriodResponse" },
+                scope: { type: "string", enum: ["all", "line", "marketplaces"] },
+                language: { type: "string", enum: ["th", "en"] },
+                metrics: {
+                    type: "object",
+                    required: ["urgent_actions", "hot_leads", "revenue_change_percent", "data_confidence_percent"],
+                    properties: {
+                        urgent_actions: { type: "integer", minimum: 0 },
+                        hot_leads: { type: "integer", minimum: 0 },
+                        revenue_change_percent: { type: "number" },
+                        data_confidence_percent: { type: "number", minimum: 0, maximum: 100 },
+                    },
+                },
+                headline: { type: "string" },
+                executive_summary: { type: "string" },
+                priority_items: { type: "array", items: { type: "string" } },
+                opportunity_items: { type: "array", items: { type: "string" } },
+                sales_items: { type: "array", items: { type: "string" } },
+                risk_items: { type: "array", items: { type: "string" } },
+                recommended_actions: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        required: ["title", "description", "target_work_queue"],
+                        properties: {
+                            title: { type: "string" },
+                            description: { type: "string" },
+                            target_work_queue: { type: ["string", "null"], enum: ["payment_review", "waiting_new_slip", "waiting_payment", "missing_delivery", "ready_to_ship", "hot_lead", "marketplace_ready_to_ship", null] },
+                        },
+                    },
+                },
+            },
+        },
+        DashboardPeriodResponse: {
+            type: "object",
+            required: ["mode", "value", "start_at", "end_at", "previous_start_at", "previous_end_at", "granularity"],
+            properties: {
+                mode: { type: "string", enum: ["day", "month", "year"] },
+                value: { type: "string" },
+                start_at: { type: "string", format: "date-time" },
+                end_at: { type: "string", format: "date-time" },
+                previous_start_at: { type: "string", format: "date-time" },
+                previous_end_at: { type: "string", format: "date-time" },
+                granularity: { type: "string", enum: ["hour", "day", "month"] },
+            },
+        },
         DashboardSummaryResponse: {
             type: "object",
-            required: [
-                "totals",
-                "changes",
-                "channels",
-                "revenue_trend",
-                "action_counts",
-                "pipeline_stages",
-                "sales_performance",
-                "order_statuses",
-                "recent_activities",
-                "updated_at",
-            ],
+            required: ["period", "totals", "changes", "channels", "revenue_trend", "action_counts", "pipeline_stages", "sales_performance", "order_statuses", "recent_activities", "data_quality", "updated_at"],
             properties: {
+                period: { $ref: "#/components/schemas/DashboardPeriodResponse" },
                 totals: {
                     type: "object",
-                    required: ["revenue_thb", "total_leads", "close_rate_percent", "pending_orders"],
+                    required: ["revenue_thb", "total_leads", "close_rate_percent", "paid_orders", "pending_orders"],
                     properties: {
                         revenue_thb: { type: "number", minimum: 0 },
                         total_leads: { type: "integer", minimum: 0 },
                         close_rate_percent: { type: "number", minimum: 0, maximum: 100 },
+                        paid_orders: { type: "integer", minimum: 0 },
                         pending_orders: { type: "integer", minimum: 0 },
                     },
                 },
                 changes: {
                     type: "object",
+                    required: ["revenue_percent", "leads_percent", "close_rate_percent", "paid_orders_percent", "pending_orders_percent"],
                     properties: {
                         revenue_percent: { type: "number" },
                         leads_percent: { type: "number" },
                         close_rate_percent: { type: "number" },
+                        paid_orders_percent: { type: "number" },
                         pending_orders_percent: { type: "number" },
                     },
                 },
@@ -1419,53 +1494,20 @@ function schemas(): Record<string, unknown> {
                 },
                 revenue_trend: {
                     type: "object",
-                    required: ["period_days", "current_period", "previous_period", "change_percent"],
+                    required: ["granularity", "current_period", "previous_period", "change_percent"],
                     properties: {
-                        period_days: { type: "integer", const: 7 },
-                        current_period: {
-                            type: "array",
-                            minItems: 7,
-                            maxItems: 7,
-                            items: {
-                                type: "object",
-                                required: ["date", "revenue_thb", "paid_orders"],
-                                properties: {
-                                    date: { type: "string", format: "date" },
-                                    revenue_thb: { type: "number", minimum: 0 },
-                                    paid_orders: { type: "integer", minimum: 0 },
-                                },
-                            },
-                        },
-                        previous_period: {
-                            type: "array",
-                            minItems: 7,
-                            maxItems: 7,
-                            items: {
-                                type: "object",
-                                required: ["date", "revenue_thb", "paid_orders"],
-                                properties: {
-                                    date: { type: "string", format: "date" },
-                                    revenue_thb: { type: "number", minimum: 0 },
-                                    paid_orders: { type: "integer", minimum: 0 },
-                                },
-                            },
-                        },
+                        granularity: { type: "string", enum: ["hour", "day", "month"] },
+                        current_period: { type: "array", items: { $ref: "#/components/schemas/DashboardTrendPoint" } },
+                        previous_period: { type: "array", items: { $ref: "#/components/schemas/DashboardTrendPoint" } },
                         change_percent: { type: "number" },
                     },
                 },
                 action_counts: {
                     type: "object",
-                    required: [
-                        "payment_review",
-                        "waiting_payment",
-                        "missing_delivery",
-                        "ready_to_ship",
-                        "hot_leads",
-                        "marketplace_ready_to_ship",
-                        "total",
-                    ],
+                    required: ["payment_review", "waiting_new_slip", "waiting_payment", "missing_delivery", "ready_to_ship", "hot_leads", "marketplace_ready_to_ship", "total"],
                     properties: {
                         payment_review: { type: "integer", minimum: 0 },
+                        waiting_new_slip: { type: "integer", minimum: 0 },
                         waiting_payment: { type: "integer", minimum: 0 },
                         missing_delivery: { type: "integer", minimum: 0 },
                         ready_to_ship: { type: "integer", minimum: 0 },
@@ -1476,70 +1518,39 @@ function schemas(): Record<string, unknown> {
                 },
                 pipeline_stages: {
                     type: "array",
-                    items: {
-                        type: "object",
-                        required: ["stage", "count"],
-                        properties: {
-                            stage: {
-                                type: "string",
-                                enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"],
-                            },
-                            count: { type: "integer", minimum: 0 },
-                        },
-                    },
+                    items: { type: "object", required: ["stage", "count"], properties: { stage: { type: "string", enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"] }, count: { type: "integer", minimum: 0 } } },
                 },
                 sales_performance: {
                     type: "array",
-                    items: {
-                        type: "object",
-                        required: ["sales_owner", "revenue_thb", "paid_orders", "active_leads", "hot_leads"],
-                        properties: {
-                            sales_owner: { type: ["string", "null"] },
-                            revenue_thb: { type: "number", minimum: 0 },
-                            paid_orders: { type: "integer", minimum: 0 },
-                            active_leads: { type: "integer", minimum: 0 },
-                            hot_leads: { type: "integer", minimum: 0 },
-                        },
-                    },
+                    items: { type: "object", required: ["sales_owner", "revenue_thb", "paid_orders", "active_leads", "hot_leads"], properties: { sales_owner: { type: ["string", "null"] }, revenue_thb: { type: "number", minimum: 0 }, paid_orders: { type: "integer", minimum: 0 }, active_leads: { type: "integer", minimum: 0 }, hot_leads: { type: "integer", minimum: 0 } } },
                 },
                 order_statuses: {
                     type: "array",
-                    items: {
-                        type: "object",
-                        required: ["status", "count"],
-                        properties: {
-                            status: {
-                                type: "string",
-                                enum: [
-                                    "pending_review",
-                                    "waiting_payment",
-                                    "waiting_delivery",
-                                    "ready_to_ship",
-                                    "in_progress",
-                                    "completed",
-                                    "cancelled",
-                                ],
-                            },
-                            count: { type: "integer", minimum: 0 },
-                        },
-                    },
+                    items: { type: "object", required: ["status", "count"], properties: { status: { type: "string", enum: ["pending_review", "waiting_new_slip", "waiting_payment", "waiting_delivery", "ready_to_ship", "in_progress", "completed", "cancelled"] }, count: { type: "integer", minimum: 0 } } },
                 },
                 recent_activities: {
                     type: "array",
-                    maxItems: 4,
-                    items: {
-                        type: "object",
-                        required: ["id", "title", "detail", "created_at", "type"],
-                        properties: {
-                            id: { type: "string" },
-                            title: { type: "string" },
-                            detail: { type: "string" },
-                            created_at: { type: "string", format: "date-time" },
-                            type: { type: "string", enum: ["lead", "order", "payment", "system"] },
-                        },
+                    maxItems: 6,
+                    items: { type: "object", required: ["id", "title", "detail", "created_at", "type"], properties: { id: { type: "string" }, title: { type: "string" }, detail: { type: "string" }, created_at: { type: "string", format: "date-time" }, type: { type: "string", enum: ["lead", "order", "payment", "system"] } } },
+                },
+                data_quality: {
+                    type: "object",
+                    required: ["paid_orders_missing_paid_at", "unknown_channel_orders"],
+                    properties: {
+                        paid_orders_missing_paid_at: { type: "integer", minimum: 0 },
+                        unknown_channel_orders: { type: "integer", minimum: 0 },
                     },
                 },
                 updated_at: { type: "string", format: "date-time" },
+            },
+        },
+        DashboardTrendPoint: {
+            type: "object",
+            required: ["key", "revenue_thb", "paid_orders"],
+            properties: {
+                key: { type: "string" },
+                revenue_thb: { type: "number", minimum: 0 },
+                paid_orders: { type: "integer", minimum: 0 },
             },
         },
         CustomerListItemResponse: {
@@ -2158,7 +2169,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.7.7-th-37",
+            version: "1.7.8-th-38",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",

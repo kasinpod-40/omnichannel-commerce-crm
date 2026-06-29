@@ -88,6 +88,7 @@ describe("Customers routes", () => {
             channel: "LINE",
             stage: null,
             hot_lead: true,
+            work_queue: null,
             sort: "lead_score_desc",
             page: 2,
             page_size: 20,

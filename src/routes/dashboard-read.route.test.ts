@@ -248,6 +248,24 @@ describe("dashboard read routes", () => {
         }));
     });
 
+    it("normalizes exact work queue and Bangkok date drill-down filters", async () => {
+        const response = await handleOrderList(
+            new Request(
+                "https://api.example.com/orders?work_queue=missing_delivery&date_basis=paid_at&date_from=2026-06-01&date_to=2026-06-30",
+                { headers: await authHeaders() }
+            ),
+            env
+        );
+
+        expect(response.status).toBe(200);
+        expect(getOrderList).toHaveBeenCalledWith(env, expect.objectContaining({
+            work_queue: "missing_delivery",
+            date_basis: "paid_at",
+            date_from_ms: Date.UTC(2026, 5, 1) - 7 * 60 * 60 * 1_000,
+            date_to_ms: Date.UTC(2026, 6, 1) - 7 * 60 * 60 * 1_000,
+        }));
+    });
+
     it("returns marketplace status for authenticated users", async () => {
         const response = await handleMarketplaceStatus(
             new Request("https://api.example.com/marketplaces/status", {

@@ -21,12 +21,13 @@ import {
     toIso,
 } from "../dashboard-read/dashboard-read.shared";
 import type { DashboardChannel } from "../dashboard-read/dashboard-read.types";
+import { getDashboardCustomers, getDashboardPipelines } from "../dashboard-read/dashboard-read.records";
 import { listActivities } from "../activities/activity.repository";
 import { listConversations } from "../conversations/conversation.repository";
 import { findOrdersByCustomer } from "../orders/order.repository";
+import { classifyCustomerWorkQueue, type CustomerWorkQueue } from "./customer-work-queue";
 import {
     getCustomerByRecordId,
-    listCustomers,
     type LarkCustomerRecord,
 } from "./customer.repository";
 import type { CustomerStage } from "./customer.types";
@@ -45,6 +46,7 @@ export type CustomerListItemResponse = {
     current_stage: CustomerStage;
     lead_score: number;
     hot_lead: boolean;
+    work_queue: CustomerWorkQueue;
     ai_summary: string | null;
     last_message: string | null;
     message_count: number;
@@ -89,6 +91,7 @@ export type CustomerListQuery = {
     channel: string | null;
     stage: SalesStage | null;
     hot_lead: boolean | null;
+    work_queue?: CustomerWorkQueue | null;
     sort: "updated_desc" | "lead_score_desc" | "name_asc";
     page: number;
     page_size: number;
@@ -100,7 +103,10 @@ type LarkRecord = {
 };
 
 /** แปลง Record จาก Lark ให้ตรง Contract snake_case ที่ Frontend mapper รออยู่ */
-function mapCustomer(record: LarkCustomerRecord): CustomerListItemResponse {
+function mapCustomer(
+    record: LarkCustomerRecord,
+    workQueue: CustomerWorkQueue = "none"
+): CustomerListItemResponse {
     const fields = record.fields;
     const createdAt = readTimestamp(fields[CUSTOMER_FIELDS.CREATED_AT]);
     const updatedAt = readTimestamp(fields[CUSTOMER_FIELDS.UPDATED_AT]) || createdAt;
@@ -120,6 +126,7 @@ function mapCustomer(record: LarkCustomerRecord): CustomerListItemResponse {
             getLarkNumber(fields[CUSTOMER_FIELDS.LEAD_SCORE], 0)
         ),
         hot_lead: getLarkBoolean(fields[CUSTOMER_FIELDS.HOT_LEAD], false),
+        work_queue: workQueue,
         ai_summary: nullableText(fields[CUSTOMER_FIELDS.AI_SUMMARY]),
         last_message: nullableText(fields[CUSTOMER_FIELDS.LAST_MESSAGE]),
         message_count: Math.max(
@@ -156,7 +163,8 @@ function matchesQuery(
         (!search || searchable.includes(search)) &&
         (!query.channel || item.channel === normalizeChannel(query.channel)) &&
         (!query.stage || item.current_stage === query.stage) &&
-        (query.hot_lead === null || item.hot_lead === query.hot_lead)
+        (query.hot_lead === null || item.hot_lead === query.hot_lead) &&
+        (!query.work_queue || item.work_queue === query.work_queue)
     );
 }
 
@@ -182,8 +190,13 @@ export async function getCustomerList(
     env: Env,
     query: CustomerListQuery
 ): Promise<CustomerListResponse> {
-    const records = await listCustomers(env);
-    const allItems = records.map(mapCustomer);
+    const [records, pipelines] = await Promise.all([
+        getDashboardCustomers(env),
+        getDashboardPipelines(env),
+    ]);
+    const allItems = records.map((record) =>
+        mapCustomer(record, classifyCustomerWorkQueue(record, pipelines))
+    );
     const filteredItems = sortCustomers(
         allItems.filter((item) => matchesQuery(item, query)),
         query.sort
@@ -197,7 +210,7 @@ export async function getCustomerList(
         // Summary ตั้งใจคำนวณจากฐานลูกค้าทั้งหมด ไม่เปลี่ยนตาม Filter ของตาราง
         summary: {
             total_customers: allItems.length,
-            hot_leads: allItems.filter((item) => item.hot_lead).length,
+            hot_leads: allItems.filter((item) => item.work_queue === "hot_lead").length,
             closing_customers: allItems.filter(
                 (item) => item.current_stage === "Closing"
             ).length,

@@ -6,6 +6,11 @@ import {
     type DashboardLanguage,
 } from "../../modules/dashboard/commerce-dashboard.service";
 import {
+    defaultDashboardPeriod,
+    parseDashboardPeriod,
+    type DashboardPeriodMode,
+} from "../../modules/dashboard/dashboard-period";
+import {
     clearSessionCookie,
 } from "../auth/auth-cookie";
 import { getDashboardSessionToken } from "../auth/auth-session-token";
@@ -21,9 +26,19 @@ function json(data: unknown, status = 200): Response {
 }
 
 function parseLanguage(request: Request): DashboardLanguage {
-    return new URL(request.url).searchParams.get("lang") === "en"
-        ? "en"
-        : "th";
+    return new URL(request.url).searchParams.get("lang") === "en" ? "en" : "th";
+}
+
+function parsePeriod(request: Request) {
+    const params = new URL(request.url).searchParams;
+    const rawMode = params.get("period_mode");
+    const mode: DashboardPeriodMode = rawMode === "month" || rawMode === "year"
+        ? rawMode
+        : "day";
+    const rawValue = params.get("period_value")?.trim();
+    return rawValue
+        ? parseDashboardPeriod(mode, rawValue)
+        : defaultDashboardPeriod(mode);
 }
 
 /** ตรวจ HttpOnly Session ก่อนให้หน้า Dashboard อ่านข้อมูล Lark Base */
@@ -118,11 +133,22 @@ export async function handleCommerceDashboardSummary(
         await assertDashboardSession(request, env);
         const summary = await getCommerceDashboardSummary(
             env,
-            parseLanguage(request)
+            parseLanguage(request),
+            parsePeriod(request)
         );
 
         return addAuthCorsHeaders(json(summary), request, env);
     } catch (error) {
+        if (error instanceof Error && error.message === "INVALID_DASHBOARD_PERIOD") {
+            return addAuthCorsHeaders(
+                json({
+                    code: "INVALID_DASHBOARD_PERIOD",
+                    message: "Invalid dashboard period",
+                }, 400),
+                request,
+                env
+            );
+        }
         return errorResponse(request, env, error);
     }
 }

@@ -1,7 +1,6 @@
 import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
 import {
-    getLarkAttachmentTokens,
     getLarkBoolean,
     getLarkNumber,
     getLarkText,
@@ -15,15 +14,23 @@ import {
     toIso,
     unknownCustomer,
 } from "../dashboard-read/dashboard-read.shared";
-import type { LarkOrderRecord } from "./order.repository";
 import {
+    getDashboardActivities,
     getDashboardCustomers,
     getDashboardOrders,
 } from "../dashboard-read/dashboard-read.records";
+import type { LarkOrderRecord } from "./order.repository";
+import {
+    buildOrderActivityIndex,
+    classifyOrderWorkQueue,
+    type MissingDeliveryField,
+    type OrderWorkQueue,
+} from "./order-work-queue";
 
 export type OrderStatusResponse = "Draft" | "Confirmed" | "Completed" | "Cancelled";
 export type PaymentStatusResponse = "Pending" | "Paid" | "Overdue";
 export type OrderSyncStatusResponse = "synced" | "pending" | "failed";
+export type OrderDateBasis = "created_at" | "paid_at" | "updated_at";
 
 export type OrderRecordResponse = {
     order_id: string;
@@ -45,6 +52,8 @@ export type OrderRecordResponse = {
     tracking_number: string | null;
     payment_verified: boolean;
     payment_review_available: boolean;
+    work_queue: OrderWorkQueue;
+    missing_delivery_fields: MissingDeliveryField[];
     sync_status: OrderSyncStatusResponse;
     sync_error: string | null;
     created_at: string;
@@ -66,6 +75,12 @@ export type OrderListResponse = {
     page_size: number;
     total_pages: number;
     updated_at: string;
+    applied_filters: {
+        work_queue: OrderWorkQueue | null;
+        date_basis: OrderDateBasis | null;
+        date_from: string | null;
+        date_to: string | null;
+    };
 };
 
 export type OrderListQuery = {
@@ -73,6 +88,10 @@ export type OrderListQuery = {
     channel: OrderRecordResponse["channel"] | null;
     order_status: OrderStatusResponse | null;
     payment_status: PaymentStatusResponse | null;
+    work_queue?: OrderWorkQueue | null;
+    date_basis?: OrderDateBasis | null;
+    date_from_ms?: number | null;
+    date_to_ms?: number | null;
     sort: "updated_desc" | "amount_desc" | "created_desc";
     page: number;
     page_size: number;
@@ -81,14 +100,16 @@ export type OrderListQuery = {
 type OrderReadData = {
     customers: Awaited<ReturnType<typeof getDashboardCustomers>>;
     orders: Awaited<ReturnType<typeof getDashboardOrders>>;
+    activities: Awaited<ReturnType<typeof getDashboardActivities>>;
 };
 
 async function loadOrderReadData(env: Env): Promise<OrderReadData> {
-    const [customers, orders] = await Promise.all([
+    const [customers, orders, activities] = await Promise.all([
         getDashboardCustomers(env),
         getDashboardOrders(env),
+        getDashboardActivities(env),
     ]);
-    return { customers, orders };
+    return { customers, orders, activities };
 }
 
 function normalizeOrderStatus(value: unknown): OrderStatusResponse {
@@ -120,12 +141,19 @@ function normalizeSyncStatus(
 
 function mapOrder(
     record: LarkOrderRecord,
-    customers: ReturnType<typeof buildCustomerLookup>
+    customers: ReturnType<typeof buildCustomerLookup>,
+    customerRecordMap: ReadonlyMap<string, OrderReadData["customers"][number]>,
+    activityIndex: ReturnType<typeof buildOrderActivityIndex>
 ): OrderRecordResponse {
     const fields = record.fields;
     const channel = normalizeChannel(fields[ORDER_FIELDS.CHANNEL]);
     const customerId = getLinkedRecordId(fields[ORDER_FIELDS.CUSTOMER]);
     const customer = customers.get(customerId ?? "") ?? unknownCustomer(customerId, channel);
+    const classification = classifyOrderWorkQueue(
+        record,
+        customerRecordMap,
+        activityIndex.get(record.record_id) ?? []
+    );
     const createdAt = readTimestamp(fields[ORDER_FIELDS.CREATED_AT]);
     const updatedAt = readTimestamp(fields[ORDER_FIELDS.UPDATED_AT], createdAt);
     const paidAt = readTimestamp(fields[ORDER_FIELDS.PAID_AT]);
@@ -134,14 +162,6 @@ function mapOrder(
     const orderPhone = nullableText(fields[ORDER_FIELDS.PHONE]);
     const orderOwner = nullableText(fields[ORDER_FIELDS.SALES_OWNER]);
     const syncStatus = normalizeSyncStatus(fields, channel);
-    const paymentReviewAvailable =
-        !getLarkBoolean(fields[ORDER_FIELDS.PAYMENT_VERIFIED], false) &&
-        (
-            getLarkAttachmentTokens(fields[ORDER_FIELDS.SLIP_ATTACHMENT]).length > 0 ||
-            Boolean(getLarkText(fields[ORDER_FIELDS.SLIP_IMAGE_URL], "").trim()) ||
-            getLarkNumber(fields[ORDER_FIELDS.SLIP_AMOUNT], 0) > 0 ||
-            Boolean(getLarkText(fields[ORDER_FIELDS.SLIP_BANK], "").trim())
-        );
 
     return {
         order_id: record.record_id,
@@ -162,7 +182,9 @@ function mapOrder(
         address: nullableText(fields[ORDER_FIELDS.ADDRESS]),
         tracking_number: nullableText(fields[ORDER_FIELDS.TRACKING_NUMBER]),
         payment_verified: getLarkBoolean(fields[ORDER_FIELDS.PAYMENT_VERIFIED], false),
-        payment_review_available: paymentReviewAvailable,
+        payment_review_available: classification.work_queue === "payment_review",
+        work_queue: classification.work_queue,
+        missing_delivery_fields: classification.missing_delivery_fields,
         sync_status: syncStatus,
         sync_error: syncStatus === "failed" ? "MARKETPLACE_SYNC_FAILED" : null,
         created_at: toIso(createdAt),
@@ -172,6 +194,12 @@ function mapOrder(
             ? toIso(updatedAt, createdAt)
             : null,
     };
+}
+
+function dateValue(item: OrderRecordResponse, basis: OrderDateBasis): number {
+    if (basis === "paid_at") return item.paid_at ? Date.parse(item.paid_at) : 0;
+    if (basis === "updated_at") return Date.parse(item.updated_at);
+    return Date.parse(item.created_at);
 }
 
 function matchesQuery(item: OrderRecordResponse, query: OrderListQuery): boolean {
@@ -184,12 +212,21 @@ function matchesQuery(item: OrderRecordResponse, query: OrderListQuery): boolean
         item.product_name ?? "",
         item.tracking_number ?? "",
     ].join(" ").toLocaleLowerCase("th-TH");
+    const dateBasis = query.date_basis ?? "created_at";
+    const dateFrom = query.date_from_ms ?? null;
+    const dateTo = query.date_to_ms ?? null;
+    const eventAt = dateFrom !== null || dateTo !== null ? dateValue(item, dateBasis) : 0;
+    const afterStart = dateFrom === null || (eventAt > 0 && eventAt >= dateFrom);
+    const beforeEnd = dateTo === null || (eventAt > 0 && eventAt < dateTo);
 
     return (
         (!search || text.includes(search)) &&
         (!query.channel || item.channel === query.channel) &&
         (!query.order_status || item.order_status === query.order_status) &&
-        (!query.payment_status || item.payment_status === query.payment_status)
+        (!query.payment_status || item.payment_status === query.payment_status) &&
+        (!query.work_queue || item.work_queue === query.work_queue) &&
+        afterStart &&
+        beforeEnd
     );
 }
 
@@ -207,7 +244,13 @@ export async function getOrderList(
 ): Promise<OrderListResponse> {
     const data = await loadOrderReadData(env);
     const customers = buildCustomerLookup(data.customers);
-    const allItems = data.orders.map((record) => mapOrder(record, customers));
+    const activityIndex = buildOrderActivityIndex(data.activities);
+    const customerRecordMap = new Map(
+        data.customers.map((item) => [item.record_id, item] as const)
+    );
+    const allItems = data.orders.map((record) =>
+        mapOrder(record, customers, customerRecordMap, activityIndex)
+    );
     const prepared = sortOrders(allItems.filter((item) => matchesQuery(item, query)), query.sort);
     const totalPages = Math.max(1, Math.ceil(prepared.length / query.page_size));
     const safePage = Math.min(query.page, totalPages);
@@ -217,10 +260,12 @@ export async function getOrderList(
         items: prepared.slice(start, start + query.page_size),
         summary: {
             total_orders: allItems.length,
-            pending_payment_orders: allItems.filter((item) => item.payment_status === "Pending").length,
+            pending_payment_orders: allItems.filter((item) =>
+                item.work_queue === "waiting_payment" || item.work_queue === "waiting_new_slip"
+            ).length,
             paid_orders: allItems.filter((item) => item.payment_status === "Paid").length,
             needs_attention_orders: allItems.filter((item) =>
-                item.payment_status === "Overdue" || item.sync_status === "failed"
+                item.work_queue !== "none" || item.payment_status === "Overdue" || item.sync_status === "failed"
             ).length,
         },
         total: prepared.length,
@@ -228,6 +273,12 @@ export async function getOrderList(
         page_size: query.page_size,
         total_pages: totalPages,
         updated_at: new Date().toISOString(),
+        applied_filters: {
+            work_queue: query.work_queue ?? null,
+            date_basis: query.date_basis ?? null,
+            date_from: query.date_from_ms == null ? null : new Date(query.date_from_ms).toISOString(),
+            date_to: query.date_to_ms == null ? null : new Date(query.date_to_ms).toISOString(),
+        },
     };
 }
 
@@ -238,5 +289,10 @@ export async function getOrderDetail(
     const data = await loadOrderReadData(env);
     const record = data.orders.find((item) => item.record_id === orderId);
     if (!record) return null;
-    return mapOrder(record, buildCustomerLookup(data.customers));
+    return mapOrder(
+        record,
+        buildCustomerLookup(data.customers),
+        new Map(data.customers.map((item) => [item.record_id, item] as const)),
+        buildOrderActivityIndex(data.activities)
+    );
 }
