@@ -21,7 +21,8 @@ export type ActivityAction =
     | "MARKETPLACE_ORDER_UPDATED"
     | "ORDER_AMOUNT_UPDATED"
     | "ORDER_AMOUNT_UPDATE_FAILED"
-    | "DOCUMENT_CREATED";
+    | "DOCUMENT_CREATED"
+    | "DOCUMENT_DELETED";
 
 export type ActivityValue =
     | string

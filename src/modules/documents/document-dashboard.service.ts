@@ -1,7 +1,9 @@
 import type { Env } from "../../config/env";
+import { updateLarkRecord } from "../../providers/lark/lark.provider";
 import { ACTIVITY_FIELDS, ORDER_FIELDS } from "../../core/lark-fields";
 import {
     getFirstLinkedRecordId,
+    getLarkNumber,
     getLarkText,
 } from "../../utils/lark-field-value";
 import { AuthError } from "../auth/auth.error";
@@ -15,11 +17,13 @@ import { clearDashboardReadCache } from "../dashboard-read/dashboard-read.cache"
 import { getDashboardOrders } from "../dashboard-read/dashboard-read.records";
 import { readTimestamp, toIso } from "../dashboard-read/dashboard-read.shared";
 import { getOrderByRecordId, type LarkOrderRecord } from "../orders/order.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import {
     createSignedDocumentLink,
     generateAndSaveDocumentLink,
 } from "./document-link.service";
 import {
+    buildDocumentNumberFromRecord,
     buildDocumentViewModelFromRecord,
 } from "./document.service";
 import type { DocumentType, DocumentViewModel } from "./document.types";
@@ -191,7 +195,21 @@ function mapExistingDocument(
     url: string,
     activities: readonly LarkActivityRecord[]
 ): DashboardDocumentListItem {
-    const model = buildDocumentViewModelFromRecord(env, order, type);
+    let model: DocumentViewModel | null = null;
+    try {
+        model = buildDocumentViewModelFromRecord(env, order, type);
+    } catch (error) {
+        // เอกสารที่สร้างไว้ยังต้องปรากฏใน List เพื่อให้ผู้ใช้ลบได้ แม้ข้อมูลภาษีภายหลังไม่ครบ
+        console.error("Document list uses safe fallback", {
+            document_type: type,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
+    const identity = resolveOrderBusinessIdentity(
+        order.fields,
+        getLarkText(order.fields[ORDER_FIELDS.CHANNEL], "LINE")
+    );
+    const safeOrderNumber = identity.displayOrderNumber || "-";
     const matches = matchingDocumentActivities(activities, order.record_id, type);
     const orderCreatedAt = readTimestamp(order.fields[ORDER_FIELDS.CREATED_AT]);
     const orderUpdatedAt = readTimestamp(order.fields[ORDER_FIELDS.UPDATED_AT], orderCreatedAt);
@@ -203,13 +221,17 @@ function mapExistingDocument(
         : 0;
     return {
         document_id: documentId(order.record_id, type),
-        document_number: model.document_number,
+        document_number: model?.document_number ?? buildDocumentNumberFromRecord(order, type),
         document_type: type,
-        customer_name: model.customer.name,
+        customer_name: model?.customer.name ?? (
+            getLarkText(order.fields[ORDER_FIELDS.TAX_NAME], "") ||
+            getLarkText(order.fields[ORDER_FIELDS.CUSTOMER_NAME], "-") ||
+            "-"
+        ),
         order_id: order.record_id,
-        order_number: model.order.order_number,
-        amount: model.grand_total,
-        currency: model.order.currency,
+        order_number: model?.order.order_number ?? safeOrderNumber,
+        amount: model?.grand_total ?? Math.max(0, getLarkNumber(order.fields[ORDER_FIELDS.TOTAL_AMOUNT], 0)),
+        currency: model?.order.currency ?? (getLarkText(order.fields[ORDER_FIELDS.CURRENCY], "THB") || "THB"),
         status: documentStatus(url),
         created_at: toIso(earliestActivityAt || orderUpdatedAt || orderCreatedAt),
         updated_at: toIso(latestActivityAt || orderUpdatedAt || orderCreatedAt),
@@ -281,6 +303,35 @@ export async function getDashboardDocumentList(
     };
 }
 
+
+type LocatedDashboardDocument = {
+    order: LarkOrderRecord;
+    type: DocumentType;
+    url: string;
+    documentNumber: string;
+};
+
+function locateDocumentByNumber(
+    _env: Env,
+    orders: readonly LarkOrderRecord[],
+    documentNumber: string
+): LocatedDashboardDocument | null {
+    const normalized = documentNumber.trim().toLocaleLowerCase("th-TH");
+    if (!normalized) return null;
+
+    for (const order of orders) {
+        for (const type of DOCUMENT_TYPES) {
+            const url = readHyperlink(order.fields[DOCUMENT_FIELDS[type]]);
+            if (!url) continue;
+            const candidateNumber = buildDocumentNumberFromRecord(order, type);
+            if (candidateNumber.toLocaleLowerCase("th-TH") === normalized) {
+                return { order, type, url, documentNumber: candidateNumber };
+            }
+        }
+    }
+    return null;
+}
+
 async function previewDashboardDocumentFromOrder(
     env: Env,
     requestUrl: string,
@@ -335,34 +386,110 @@ export async function previewDashboardDocument(
 
 export async function getDashboardDocumentByNumber(
     env: Env,
+    documentNumber: string
+): Promise<DashboardDocumentDetail | null> {
+    const { orders, activities } = await loadDocuments(env);
+    const located = locateDocumentByNumber(env, orders, documentNumber);
+    if (!located) return null;
+
+    // Detail ต้องเปิดได้แม้ระบบ Signed URL ขัดข้อง เพื่อให้ผู้ใช้ยังตรวจข้อมูลหรือลบเอกสารเสียได้
+    const model = buildDocumentViewModelFromRecord(env, located.order, located.type);
+    const base = mapExistingDocument(env, located.order, located.type, located.url, activities);
+    const matches = matchingDocumentActivities(activities, located.order.record_id, located.type);
+    return {
+        ...base,
+        preview_url: null,
+        model,
+        history: matches.map((activity) => ({
+            action: "created",
+            created_at: toIso(readTimestamp(activity.fields[ACTIVITY_FIELDS.CREATED_AT])),
+            ...documentActivitySummary(activity),
+        })),
+    };
+}
+
+export async function refreshDashboardDocumentPreviewByNumber(
+    env: Env,
     requestUrl: string,
     documentNumber: string
 ): Promise<DashboardDocumentDetail | null> {
-    const normalized = documentNumber.trim().toLocaleLowerCase("th-TH");
-    if (!normalized) return null;
-
     const { orders, activities } = await loadDocuments(env);
-    for (const order of orders) {
-        for (const type of DOCUMENT_TYPES) {
-            const existingUrl = readHyperlink(order.fields[DOCUMENT_FIELDS[type]]);
-            if (!existingUrl) continue;
-            let model: DocumentViewModel;
-            try {
-                model = buildDocumentViewModelFromRecord(env, order, type);
-            } catch (error) {
-                console.error("Document lookup item skipped", {
-                    document_type: type,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-                continue;
-            }
-            if (model.document_number.toLocaleLowerCase("th-TH") !== normalized) continue;
-            // เมื่อพบเลขเอกสารที่ตรงแล้ว ต้องส่งต่อ validation/signing error จริงให้ UI
-            // ห้ามกลืน error แล้วแสดงเป็น DOCUMENT_NOT_FOUND ซึ่งทำให้ผู้ใช้แก้ปัญหาไม่ถูกจุด
-            return previewDashboardDocumentFromOrder(env, requestUrl, order, type, activities);
-        }
+    const located = locateDocumentByNumber(env, orders, documentNumber);
+    if (!located) return null;
+    // Signed URL สร้างเฉพาะตอนผู้ใช้กดเปิดเอกสาร จึงไม่ผูกการเปิด Drawer กับอายุลิงก์เดิม
+    return previewDashboardDocumentFromOrder(
+        env,
+        requestUrl,
+        located.order,
+        located.type,
+        activities
+    );
+}
+
+export async function deleteDashboardDocument(input: {
+    env: Env;
+    documentNumber: string;
+    idempotencyKey: string;
+    actor: { userId: string; name: string; role: string };
+}): Promise<{ deleted: true; document_number: string; idempotent: boolean }> {
+    if (!IDEMPOTENCY_PATTERN.test(input.idempotencyKey)) {
+        throw new AuthError(
+            "IDEMPOTENCY_KEY_INVALID",
+            "A valid idempotency key is required",
+            400
+        );
     }
-    return null;
+
+    const eventId = `document-delete:${input.idempotencyKey}`;
+    if (await findActivityByEventId(input.env, eventId)) {
+        return { deleted: true, document_number: input.documentNumber, idempotent: true };
+    }
+
+    const orders = await getDashboardOrders(input.env);
+    const located = locateDocumentByNumber(input.env, orders, input.documentNumber);
+    if (!located) {
+        throw new AuthError("DOCUMENT_NOT_FOUND", "Document was not found", 404);
+    }
+    const customerId = getFirstLinkedRecordId(located.order.fields[ORDER_FIELDS.CUSTOMER]);
+    if (!customerId) {
+        throw new AuthError(
+            "ORDER_CUSTOMER_MISSING",
+            "The order is not linked to a customer",
+            409
+        );
+    }
+
+    await updateLarkRecord(
+        input.env,
+        input.env.ORDERS_TABLE_ID,
+        located.order.record_id,
+        {
+            [DOCUMENT_FIELDS[located.type]]: null,
+            [ORDER_FIELDS.UPDATED_AT]: Date.now(),
+        }
+    );
+    await recordActivityOnce(input.env, {
+        event_id: eventId,
+        customer_record_id: customerId,
+        action: "DOCUMENT_DELETED",
+        old_value: {
+            document_number: located.documentNumber,
+            document_type: located.type,
+        },
+        new_value: {
+            order_record_id: located.order.record_id,
+            document_type: located.type,
+            document_number: located.documentNumber,
+            actor: input.actor,
+            result: "success",
+        },
+    });
+    clearDashboardReadCache();
+    return {
+        deleted: true,
+        document_number: located.documentNumber,
+        idempotent: false,
+    };
 }
 
 export async function createDashboardDocument(input: {

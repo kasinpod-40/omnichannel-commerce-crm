@@ -3,17 +3,21 @@ import type { Env } from "../../config/env";
 import { AuthError } from "../../modules/auth/auth.error";
 import { createAuthSession } from "../../modules/auth/auth.session";
 
-const { getDashboardDocumentByNumber, getDashboardDocumentList, previewDashboardDocument, createDashboardDocument } = vi.hoisted(() => ({
+const { getDashboardDocumentByNumber, getDashboardDocumentList, refreshDashboardDocumentPreviewByNumber, previewDashboardDocument, createDashboardDocument, deleteDashboardDocument } = vi.hoisted(() => ({
     getDashboardDocumentByNumber: vi.fn(),
     getDashboardDocumentList: vi.fn(),
+    refreshDashboardDocumentPreviewByNumber: vi.fn(),
     previewDashboardDocument: vi.fn(),
     createDashboardDocument: vi.fn(),
+    deleteDashboardDocument: vi.fn(),
 }));
 vi.mock("../../modules/documents/document-dashboard.service", () => ({
     getDashboardDocumentByNumber,
     getDashboardDocumentList,
+    refreshDashboardDocumentPreviewByNumber,
     previewDashboardDocument,
     createDashboardDocument,
+    deleteDashboardDocument,
 }));
 
 import { handleDashboardDocumentRoutes } from "./dashboard.route";
@@ -34,14 +38,15 @@ const user = (role: "admin" | "manager" | "sales") => ({
     role,
     sales_owner_name: null,
 });
-async function requestFor(role: "admin" | "manager" | "sales", method: string, path: string, body?: object) {
+async function requestFor(role: "admin" | "manager" | "sales", method: string, path: string, body?: object, idempotencyKey?: string) {
     const session = await createAuthSession(env, user(role));
     return new Request(`https://api.example.com${path}`, {
         method,
         headers: {
             Origin: "https://crm.example.com",
             Cookie: `crm_session=${encodeURIComponent(session.token)}`,
-            ...(body ? { "Content-Type": "application/json", "Idempotency-Key": "document-key-001" } : {}),
+            ...(body ? { "Content-Type": "application/json" } : {}),
+            ...((body || idempotencyKey) ? { "Idempotency-Key": idempotencyKey ?? "document-key-001" } : {}),
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
     });
@@ -54,8 +59,10 @@ describe("Dashboard Documents routes", () => {
         vi.clearAllMocks();
         getDashboardDocumentList.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1, updated_at: "2026-06-30T00:00:00.000Z" });
         getDashboardDocumentByNumber.mockResolvedValue(detail);
+        refreshDashboardDocumentPreviewByNumber.mockResolvedValue(detail);
         previewDashboardDocument.mockResolvedValue(detail);
         createDashboardDocument.mockResolvedValue({ document: detail, idempotent: false });
+        deleteDashboardDocument.mockResolvedValue({ deleted: true, document_number: "QT-001", idempotent: false });
     });
 
     it("ส่ง filter list รวม date และ order ไป service", async () => {
@@ -81,7 +88,6 @@ describe("Dashboard Documents routes", () => {
         expect(response?.status).toBe(200);
         expect(getDashboardDocumentByNumber).toHaveBeenCalledWith(
             env,
-            "https://api.example.com/dashboard/documents/number/QT-20260601-0001",
             "QT-20260601-0001",
         );
     });
@@ -138,4 +144,43 @@ describe("Dashboard Documents routes", () => {
             details: { missing: ["tax_id", "tax_address"] },
         });
     });
+
+    it("ขอ fresh signed URL ด้วย Document Number ทุกครั้ง", async () => {
+        const response = await handleDashboardDocumentRoutes(
+            await requestFor("admin", "POST", "/dashboard/documents/number/QT-001/preview-link"),
+            env,
+            "/dashboard/documents/number/QT-001/preview-link",
+        );
+        expect(response?.status).toBe(200);
+        expect(refreshDashboardDocumentPreviewByNumber).toHaveBeenCalledWith(
+            env,
+            "https://api.example.com/dashboard/documents/number/QT-001/preview-link",
+            "QT-001",
+        );
+    });
+
+    it("ลบเอกสารด้วย Document Number, actor และ idempotency key", async () => {
+        const response = await handleDashboardDocumentRoutes(
+            await requestFor("manager", "DELETE", "/dashboard/documents/number/QT-001", undefined, "document-delete-001"),
+            env,
+            "/dashboard/documents/number/QT-001",
+        );
+        expect(response?.status).toBe(200);
+        expect(deleteDashboardDocument).toHaveBeenCalledWith(expect.objectContaining({
+            documentNumber: "QT-001",
+            idempotencyKey: "document-delete-001",
+            actor: { userId: "user-manager", name: "manager", role: "manager" },
+        }));
+    });
+
+    it("ปฏิเสธ Sales role ที่ลบเอกสาร", async () => {
+        const response = await handleDashboardDocumentRoutes(
+            await requestFor("sales", "DELETE", "/dashboard/documents/number/QT-001", undefined, "document-delete-002"),
+            env,
+            "/dashboard/documents/number/QT-001",
+        );
+        expect(response?.status).toBe(403);
+        expect(deleteDashboardDocument).not.toHaveBeenCalled();
+    });
+
 });

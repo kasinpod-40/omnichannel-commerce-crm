@@ -53,7 +53,7 @@ describe("document service", () => {
             Date.UTC(2026, 5, 23)
         );
 
-        expect(model.document_number).toBe("INV-ORD-001");
+        expect(model.document_number).toBe("INV-LZ-1001");
         expect(model.items).toHaveLength(1);
         expect(model.subtotal).toBe(9);
         expect(model.adjustment).toBe(29);

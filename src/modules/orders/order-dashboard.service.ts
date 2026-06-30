@@ -21,6 +21,7 @@ import {
 } from "../dashboard-read/dashboard-read.records";
 import type { LarkOrderRecord } from "./order.repository";
 import { resolveOrderAmountEditPolicy, type OrderAmountEditBlockReason } from "./order-amount-policy";
+import { resolveOrderBusinessIdentity } from "./order-business-identity";
 import { resolveOrderPaymentDisplayState, type OrderPaymentDisplayState } from "./order-payment-state";
 import {
     buildOrderActivityIndex,
@@ -39,6 +40,7 @@ export type OrderRecordResponse = {
     order_id: string;
     order_number: string;
     external_order_id: string | null;
+    display_order_number: string;
     pipeline_id: string | null;
     channel: "LINE" | "Shopee" | "Lazada" | "TikTok Shop";
     customer: {
@@ -180,11 +182,13 @@ function mapOrder(
         workQueue: classification.work_queue,
     });
     const amountEditPolicy = resolveOrderAmountEditPolicy(record, classification);
+    const identity = resolveOrderBusinessIdentity(fields, channel);
 
     return {
         order_id: record.record_id,
-        order_number: getLarkText(fields[ORDER_FIELDS.ORDER_NUMBER], "").trim(),
-        external_order_id: nullableText(fields[ORDER_FIELDS.EXTERNAL_ORDER_ID]),
+        order_number: identity.orderNumber,
+        external_order_id: identity.externalOrderId,
+        display_order_number: identity.displayOrderNumber,
         pipeline_id: getLinkedRecordId(fields[ORDER_FIELDS.PIPELINE]),
         channel,
         customer: {

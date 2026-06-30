@@ -19,6 +19,7 @@ import {
 } from "../../utils/lark-field-value";
 import { getCustomerByRecordId } from "../customers/customer.repository";
 import { getOrderByRecordId } from "../orders/order.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import { getPipelineByRecordId } from "../pipeline/pipeline.repository";
 import {
     createNotification,
@@ -464,10 +465,12 @@ async function captureNotificationSnapshot(
                 "Unassigned"
             )
         ).trim(),
-        order_number: getLarkText(
-            order?.fields[ORDER_FIELDS.ORDER_NUMBER],
-            ""
-        ).trim(),
+        order_number: order
+            ? resolveOrderBusinessIdentity(
+                  order.fields,
+                  getLarkText(order.fields[ORDER_FIELDS.CHANNEL], "LINE")
+              ).displayOrderNumber
+            : "",
         product_name: getLarkText(
             order?.fields[ORDER_FIELDS.PRODUCT_NAME],
             ""

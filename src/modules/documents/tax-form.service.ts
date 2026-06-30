@@ -3,6 +3,7 @@ import { ORDER_FIELDS } from "../../core/lark-fields";
 import { updateLarkRecord } from "../../providers/lark/lark.provider";
 import { getLarkText } from "../../utils/lark-field-value";
 import { getOrderByRecordId } from "../orders/order.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import { documentLinkSecret } from "./document-link.service";
 import { signTaxFormLink } from "./tax-form.signature";
 
@@ -57,9 +58,10 @@ export async function getTaxFormViewModel(
 
     return {
         order_record_id: record.record_id,
-        order_number:
-            getLarkText(record.fields[ORDER_FIELDS.ORDER_NUMBER], "") ||
-            record.record_id,
+        order_number: resolveOrderBusinessIdentity(
+            record.fields,
+            getLarkText(record.fields[ORDER_FIELDS.CHANNEL], "LINE")
+        ).displayOrderNumber || "-",
         channel: getLarkText(record.fields[ORDER_FIELDS.CHANNEL], "-"),
         customer_name: customerName,
         tax_name:

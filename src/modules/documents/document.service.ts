@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
 import { getOrderByRecordId, type LarkOrderRecord } from "../orders/order.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import { getLarkNumber, getLarkText } from "../../utils/lark-field-value";
 import type {
     DocumentCustomer,
@@ -147,6 +148,18 @@ function documentNumber(type: DocumentType, orderNumber: string): string {
     return `${title.prefix}-${safeOrder}`;
 }
 
+/** สร้างเลขเอกสารจาก Business Order Number โดยไม่บังคับ validate ข้อมูลภาษี เพื่อให้ค้นหา/ลบเอกสารเสียได้ */
+export function buildDocumentNumberFromRecord(
+    record: LarkOrderRecord,
+    type: DocumentType
+): string {
+    const orderNumber = resolveOrderBusinessIdentity(
+        record.fields,
+        getLarkText(record.fields[ORDER_FIELDS.CHANNEL], "LINE")
+    ).displayOrderNumber || "ORDER";
+    return documentNumber(type, orderNumber);
+}
+
 function calculateTax(
     type: DocumentType,
     grandTotal: number,
@@ -194,9 +207,10 @@ export function buildDocumentViewModelFromRecord(
     now = Date.now()
 ): DocumentViewModel {
     const title = TITLES[type];
-    const orderNumber =
-        getLarkText(record.fields[ORDER_FIELDS.ORDER_NUMBER], "") ||
-        record.record_id;
+    const orderNumber = resolveOrderBusinessIdentity(
+        record.fields,
+        getLarkText(record.fields[ORDER_FIELDS.CHANNEL], "LINE")
+    ).displayOrderNumber || "ORDER";
     const grandTotal = roundMoney(
         Math.max(0, getLarkNumber(record.fields[ORDER_FIELDS.TOTAL_AMOUNT], 0))
     );
@@ -243,7 +257,7 @@ export function buildDocumentViewModelFromRecord(
         type,
         title_th: title.th,
         title_en: title.en,
-        document_number: documentNumber(type, orderNumber),
+        document_number: buildDocumentNumberFromRecord(record, type),
         issue_at: now,
         valid_until:
             type === "quotation" ? now + validDays * 86_400_000 : undefined,

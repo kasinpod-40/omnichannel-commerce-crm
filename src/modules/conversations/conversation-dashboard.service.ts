@@ -23,6 +23,7 @@ import {
     getDashboardOrders,
 } from "../dashboard-read/dashboard-read.records";
 import { getCustomerByRecordId } from "../customers/customer.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import {
     listConversationsByCustomer,
     type LarkConversationRecord,
@@ -377,12 +378,15 @@ export async function getConversationDetail(
                 ?.fields[CONVERSATION_FIELDS.AI_SUMMARY]
         ),
         active_order_id: customer.active_order_id,
-        active_order_number: customer.active_order_id
-            ? getLarkText(
-                  orders.find((order) => order.record_id === customer.active_order_id)?.fields[ORDER_FIELDS.ORDER_NUMBER],
-                  ""
-              ).trim() || null
-            : null,
+        active_order_number: (() => {
+            if (!customer.active_order_id) return null;
+            const activeOrder = orders.find((order) => order.record_id === customer.active_order_id);
+            if (!activeOrder) return null;
+            return resolveOrderBusinessIdentity(
+                activeOrder.fields,
+                getLarkText(activeOrder.fields[ORDER_FIELDS.CHANNEL], "LINE")
+            ).displayOrderNumber || null;
+        })(),
         messages: latestPage.items,
         next_cursor: latestPage.next_cursor,
         has_more_messages: latestPage.has_more,

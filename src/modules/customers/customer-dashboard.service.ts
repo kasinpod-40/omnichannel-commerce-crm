@@ -25,6 +25,7 @@ import { getDashboardCustomers, getDashboardPipelines } from "../dashboard-read/
 import { listActivities } from "../activities/activity.repository";
 import { listConversations } from "../conversations/conversation.repository";
 import { findOrdersByCustomer } from "../orders/order.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import { classifyCustomerWorkQueue, type CustomerWorkQueue } from "./customer-work-queue";
 import {
     getCustomerByRecordId,
@@ -344,10 +345,10 @@ function timelineFromOrder(
     record: LarkRecord,
     language: CustomerDashboardLanguage
 ): CustomerTimelineItemResponse {
-    const orderNumber =
-        getLarkText(record.fields[ORDER_FIELDS.ORDER_NUMBER], "").trim() ||
-        getLarkText(record.fields[ORDER_FIELDS.EXTERNAL_ORDER_ID], "").trim() ||
-        record.record_id;
+    const orderNumber = resolveOrderBusinessIdentity(
+        record.fields,
+        getLarkText(record.fields[ORDER_FIELDS.CHANNEL], "LINE")
+    ).displayOrderNumber || (language === "th" ? "ไม่ระบุเลขคำสั่งซื้อ" : "Order number unavailable");
     const product = getLarkText(
         record.fields[ORDER_FIELDS.PRODUCT_NAME],
         language === "th" ? "ไม่ระบุสินค้า" : "Unspecified product"
@@ -431,11 +432,14 @@ export async function getCustomerDetail(
         .slice(0, 30);
 
     const activeOrderId = nullableText(customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID]);
-    const activeOrderNumber = activeOrderId
-        ? getLarkText(
-              orders.find((order) => order.record_id === activeOrderId)?.fields[ORDER_FIELDS.ORDER_NUMBER],
-              ""
-          ).trim() || null
+    const activeOrderRecord = activeOrderId
+        ? orders.find((order) => order.record_id === activeOrderId)
+        : undefined;
+    const activeOrderNumber = activeOrderRecord
+        ? resolveOrderBusinessIdentity(
+              activeOrderRecord.fields,
+              getLarkText(activeOrderRecord.fields[ORDER_FIELDS.CHANNEL], "LINE")
+          ).displayOrderNumber || null
         : null;
 
     return {

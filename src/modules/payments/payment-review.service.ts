@@ -26,6 +26,7 @@ import { clearDashboardReadCache } from "../dashboard-read/dashboard-read.cache"
 import { normalizeChannel, readTimestamp, toIso } from "../dashboard-read/dashboard-read.shared";
 import { markPaymentReviewNotificationsRead } from "../notifications/notification-dashboard.service";
 import { getOrderByRecordId, updateOrder } from "../orders/order.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import { getPipelineByRecordId } from "../pipeline/pipeline.repository";
 import { verifyPayment } from "../../usecases/verify-payment.usecase";
 
@@ -278,9 +279,10 @@ export async function getPaymentReviewDetail(
 
     return {
         order_record_id: order.record_id,
-        order_number:
-            getLarkText(orderFields[ORDER_FIELDS.ORDER_NUMBER], "").trim() ||
-            order.record_id,
+        order_number: resolveOrderBusinessIdentity(
+            orderFields,
+            getLarkText(orderFields[ORDER_FIELDS.CHANNEL], "LINE")
+        ).displayOrderNumber || "-",
         channel: normalizeChannel(orderFields[ORDER_FIELDS.CHANNEL]),
         customer: {
             customer_id: customer.record_id,

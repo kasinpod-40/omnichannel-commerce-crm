@@ -487,6 +487,7 @@ const ACTIVITY_TITLES: Record<ActivityAction, { th: string; en: string }> = {
     ORDER_AMOUNT_UPDATED: { th: "แก้ไขยอดเงินคำสั่งซื้อ", en: "Order amount updated" },
     ORDER_AMOUNT_UPDATE_FAILED: { th: "แก้ไขยอดเงินคำสั่งซื้อไม่สำเร็จ", en: "Order amount update failed" },
     DOCUMENT_CREATED: { th: "สร้างเอกสารคำสั่งซื้อ", en: "Order document created" },
+    DOCUMENT_DELETED: { th: "ลบเอกสารคำสั่งซื้อ", en: "Order document deleted" },
 };
 
 function mapRecentActivities(

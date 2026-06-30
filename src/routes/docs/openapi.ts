@@ -10,7 +10,7 @@
  * - Endpoint ทดสอบต้องระบุ ENABLE_TEST_ROUTES=true เสมอ
  */
 
-type HttpMethod = "get" | "post";
+type HttpMethod = "get" | "post" | "delete";
 type SecurityKind =
     | "none"
     | "cookie"
@@ -942,12 +942,37 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         method: "get",
         tag: "Documents",
         summary: "รายละเอียดเอกสารด้วย Document Number",
-        description: "เส้นทางหลักสำหรับ Dashboard ใช้เลขเอกสารที่ผู้ใช้เห็น โดย Backend resolve Order record ภายในและสร้าง signed preview ชั่วคราว",
+        description: "เส้นทางหลักสำหรับ Dashboard ใช้เลขเอกสารที่ผู้ใช้เห็น โดย Backend resolve Order record ภายในและคืนรายละเอียดโดยไม่พึ่ง signed URL เพื่อให้เปิดหรือลบเอกสารเสียได้",
         security: "cookie",
         parameters: [
             pathParameter("documentNumber", "เลขเอกสารที่ผู้ใช้เห็น เช่น QT-20260601-0001", "QT-20260601-0001"),
         ],
         responseSchema: "DashboardDocumentDetailResponse",
+    },
+    {
+        path: "/dashboard/documents/number/{documentNumber}/preview-link",
+        method: "post",
+        tag: "Documents",
+        summary: "สร้างลิงก์ Preview ใหม่ด้วย Document Number",
+        description: "ออก signed URL ใหม่ทุกครั้งที่ผู้ใช้กดเปิด เพื่อไม่ใช้ลิงก์เก่าที่หมดอายุใน Lark Base",
+        security: "cookie",
+        parameters: [
+            pathParameter("documentNumber", "เลขเอกสารที่ผู้ใช้เห็น", "QT-ORD-20260630-0001"),
+        ],
+        responseSchema: "DashboardDocumentDetailResponse",
+    },
+    {
+        path: "/dashboard/documents/number/{documentNumber}",
+        method: "delete",
+        tag: "Documents",
+        summary: "ลบเอกสารด้วย Document Number",
+        description: "Admin/Manager ล้างเฉพาะ URL field ของเอกสาร พร้อม idempotency, Activity audit และ cache invalidation โดยไม่ลบ Order หรือ Customer",
+        security: "cookie",
+        parameters: [
+            pathParameter("documentNumber", "เลขเอกสารที่ผู้ใช้เห็น", "QT-ORD-20260630-0001"),
+            header("Idempotency-Key", "คีย์ป้องกันการลบซ้ำ", true),
+        ],
+        responseSchema: "DashboardDocumentDeleteResponse",
     },
     {
         path: "/dashboard/documents/order/{orderId}/{documentType}",
@@ -1469,7 +1494,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "documents-reports-identity-th-43" },
+                version: { type: "string", example: "order-documents-export-th-44" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1909,10 +1934,11 @@ function schemas(): Record<string, unknown> {
         },
         OrderRecordResponse: {
             type: "object",
-            required: ["order_id", "order_number", "channel", "customer", "quantity", "total_amount", "order_status", "payment_status", "payment_display_status", "payment_verified", "payment_review_available", "work_queue", "missing_delivery_fields", "amount_edit_allowed", "sync_status", "created_at", "updated_at"],
+            required: ["order_id", "order_number", "display_order_number", "channel", "customer", "quantity", "total_amount", "order_status", "payment_status", "payment_display_status", "payment_verified", "payment_review_available", "work_queue", "missing_delivery_fields", "amount_edit_allowed", "sync_status", "created_at", "updated_at"],
             properties: {
                 order_id: { type: "string", description: "Internal record identifier; do not display to end users" },
-                order_number: { type: "string" },
+                order_number: { type: "string", description: "เลขภายในสำหรับ LINE/Internal order" },
+                display_order_number: { type: "string", description: "เลขคำสั่งซื้อที่ UI ต้องแสดง: LINE ใช้ order_number, Marketplace ใช้ external_order_id" },
                 external_order_id: { type: ["string", "null"] },
                 pipeline_id: { type: ["string", "null"] },
                 channel: { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] },
@@ -2045,6 +2071,15 @@ function schemas(): Record<string, unknown> {
             required: ["document", "idempotent"],
             properties: {
                 document: { $ref: "#/components/schemas/DashboardDocumentDetailResponse" },
+                idempotent: { type: "boolean" },
+            },
+        },
+        DashboardDocumentDeleteResponse: {
+            type: "object",
+            required: ["deleted", "document_number", "idempotent"],
+            properties: {
+                deleted: { type: "boolean", enum: [true] },
+                document_number: { type: "string" },
                 idempotent: { type: "boolean" },
             },
         },
@@ -2434,7 +2469,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.8.3-th-43",
+            version: "1.8.4-th-44",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",

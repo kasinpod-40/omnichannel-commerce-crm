@@ -53,6 +53,7 @@ beforeEach(() => {
             fields: {
                 [ORDER_FIELDS.CUSTOMER]: ["rec_customer_1"],
                 [ORDER_FIELDS.CHANNEL]: "LINE",
+                [ORDER_FIELDS.ORDER_NUMBER]: [{ text: "ORD-20260630-024117-6F9E27" }],
                 [ORDER_FIELDS.PRODUCT_NAME]: "สินค้า A",
                 [ORDER_FIELDS.QUANTITY]: 2,
                 [ORDER_FIELDS.TOTAL_AMOUNT]: 1000,
@@ -67,7 +68,8 @@ beforeEach(() => {
             fields: {
                 [ORDER_FIELDS.CUSTOMER]: ["rec_customer_1"],
                 [ORDER_FIELDS.CHANNEL]: "TikTok",
-                [ORDER_FIELDS.EXTERNAL_ORDER_ID]: "tt-001",
+                [ORDER_FIELDS.ORDER_NUMBER]: "ORD-INTERNAL-MARKETPLACE-001",
+                [ORDER_FIELDS.EXTERNAL_ORDER_ID]: { value: "tt-001" },
                 [ORDER_FIELDS.PRODUCT_NAME]: "สินค้า B",
                 [ORDER_FIELDS.QUANTITY]: 1,
                 [ORDER_FIELDS.TOTAL_AMOUNT]: 500,
@@ -88,12 +90,17 @@ describe("order dashboard service", () => {
         expect(result.items).toEqual(expect.arrayContaining([
             expect.objectContaining({
                 order_id: "rec_order_1",
+                order_number: "ORD-20260630-024117-6F9E27",
+                display_order_number: "ORD-20260630-024117-6F9E27",
                 order_status: "Draft",
                 payment_status: "Pending",
             }),
             expect.objectContaining({
                 order_id: "rec_order_2",
                 channel: "TikTok Shop",
+                order_number: "ORD-INTERNAL-MARKETPLACE-001",
+                external_order_id: "tt-001",
+                display_order_number: "tt-001",
                 order_status: "Completed",
                 sync_status: "synced",
             }),

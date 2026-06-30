@@ -41,8 +41,13 @@ export function getLarkText(
             return texts.length > 0 ? texts.join("") : fallback;
         }
 
-        if (Array.isArray(value.value)) {
-            return getLarkText(value.value, fallback);
+        if (value.value !== undefined) {
+            const nested = getLarkText(value.value, "");
+            if (nested) return nested;
+        }
+
+        if (typeof value.name === "string") {
+            return value.name;
         }
     }
 

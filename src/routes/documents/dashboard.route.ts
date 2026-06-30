@@ -2,8 +2,10 @@ import type { Env } from "../../config/env";
 import { AuthError } from "../../modules/auth/auth.error";
 import {
     createDashboardDocument,
+    deleteDashboardDocument,
     getDashboardDocumentByNumber,
     getDashboardDocumentList,
+    refreshDashboardDocumentPreviewByNumber,
     previewDashboardDocument,
     type DashboardDocumentStatus,
 } from "../../modules/documents/document-dashboard.service";
@@ -101,6 +103,10 @@ function errorResponse(request: Request, env: Env, error: unknown): Response {
     });
 }
 
+function readIdempotencyKey(request: Request): string {
+    return request.headers.get("Idempotency-Key")?.trim() ?? "";
+}
+
 async function readDocumentBody(request: Request): Promise<{
     orderId: string;
     type: DocumentType;
@@ -157,13 +163,31 @@ export async function handleDashboardDocumentRoutes(
             return addAuthCorsHeaders(dashboardJson(response), request, env);
         }
 
+        const previewNumberMatch = pathname.match(
+            /^\/dashboard\/documents\/number\/([^/]+)\/preview-link$/
+        );
+        if (previewNumberMatch?.[1] && request.method === "POST") {
+            const response = await refreshDashboardDocumentPreviewByNumber(
+                env,
+                request.url,
+                decodeURIComponent(previewNumberMatch[1])
+            );
+            if (!response) {
+                throw new AuthError(
+                    "DOCUMENT_NOT_FOUND",
+                    "Document was not found",
+                    404
+                );
+            }
+            return addAuthCorsHeaders(dashboardJson(response), request, env);
+        }
+
         const numberMatch = pathname.match(
             /^\/dashboard\/documents\/number\/([^/]+)$/
         );
         if (numberMatch?.[1] && request.method === "GET") {
             const response = await getDashboardDocumentByNumber(
                 env,
-                request.url,
                 decodeURIComponent(numberMatch[1])
             );
             if (!response) {
@@ -173,6 +197,26 @@ export async function handleDashboardDocumentRoutes(
                     404
                 );
             }
+            return addAuthCorsHeaders(dashboardJson(response), request, env);
+        }
+        if (numberMatch?.[1] && request.method === "DELETE") {
+            if (session.user.role !== "admin" && session.user.role !== "manager") {
+                throw new AuthError(
+                    "DOCUMENT_PERMISSION_DENIED",
+                    "This account cannot delete documents",
+                    403
+                );
+            }
+            const response = await deleteDashboardDocument({
+                env,
+                documentNumber: decodeURIComponent(numberMatch[1]),
+                idempotencyKey: readIdempotencyKey(request),
+                actor: {
+                    userId: session.user.user_id,
+                    name: session.user.name,
+                    role: session.user.role,
+                },
+            });
             return addAuthCorsHeaders(dashboardJson(response), request, env);
         }
 

@@ -11,6 +11,7 @@ import {
     unknownCustomer,
 } from "../dashboard-read/dashboard-read.shared";
 import type { LarkPipelineRecord } from "./pipeline.repository";
+import { resolveOrderBusinessIdentity } from "../orders/order-business-identity";
 import {
     getDashboardCustomers,
     getDashboardOrders,
@@ -141,7 +142,10 @@ export async function getPipelineList(
     const customers = buildCustomerLookup(data.customers);
     const orderNumbers = new Map(data.orders.map((order) => [
         order.record_id,
-        getLarkText(order.fields[ORDER_FIELDS.ORDER_NUMBER], "").trim(),
+        resolveOrderBusinessIdentity(
+            order.fields,
+            getLarkText(order.fields[ORDER_FIELDS.CHANNEL], "LINE")
+        ).displayOrderNumber,
     ]));
     const allItems = data.pipelines.map((record) => mapPipeline(record, customers, orderNumbers))
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
@@ -169,7 +173,10 @@ export async function getPipelineDetail(
     if (!record) return null;
     const orderNumbers = new Map(data.orders.map((order) => [
         order.record_id,
-        getLarkText(order.fields[ORDER_FIELDS.ORDER_NUMBER], "").trim(),
+        resolveOrderBusinessIdentity(
+            order.fields,
+            getLarkText(order.fields[ORDER_FIELDS.CHANNEL], "LINE")
+        ).displayOrderNumber,
     ]));
     return mapPipeline(record, buildCustomerLookup(data.customers), orderNumbers);
 }
