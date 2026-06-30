@@ -1494,7 +1494,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "document-production-readiness-th-45" },
+                version: { type: "string", example: "marketplace-business-view-th-46" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -2176,13 +2176,15 @@ function schemas(): Record<string, unknown> {
 
         MarketplaceConnectionResponse: {
             type: "object",
-            required: ["platform", "seller_account", "country", "currency", "health", "oauth_connected", "webhook_active", "order_sync_active", "orders_today"],
+            required: ["platform", "seller_account", "country", "currency", "health", "business_status", "business_ready", "oauth_connected", "webhook_active", "order_sync_active", "orders_today"],
             properties: {
                 platform: { type: "string", enum: ["Shopee", "Lazada", "TikTok Shop"] },
                 seller_account: { type: "string" },
                 country: { type: "string", const: "TH" },
                 currency: { type: "string", const: "THB" },
                 health: { type: "string", enum: ["healthy", "attention", "disconnected"] },
+                business_status: { type: "string", enum: ["connected", "setup", "action_required"] },
+                business_ready: { type: "boolean" },
                 oauth_connected: { type: "boolean" },
                 webhook_active: { type: "boolean" },
                 order_sync_active: { type: "boolean" },
@@ -2469,7 +2471,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.8.5-th-45",
+            version: "1.8.6-th-46",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",

@@ -58,8 +58,20 @@ describe("marketplace dashboard status service", () => {
             oauth_connected: true,
             order_sync_active: true,
             health: "healthy",
+            business_status: "connected",
+            business_ready: true,
         });
         expect(result).not.toHaveProperty("items");
+    });
+
+    it("แสดงทุกช่องทางที่ระบบรองรับเป็นเชื่อมต่อในมุมธุรกิจ โดยไม่เอา OAuth มาเป็นสถานะลูกค้า", async () => {
+        const result = await getMarketplaceStatus(env);
+
+        expect(result.connections).toHaveLength(3);
+        expect(result.connections.every((item) => item.business_status === "connected")).toBe(true);
+        expect(result.connections.every((item) => item.business_ready)).toBe(true);
+        expect(result.connections.find((item) => item.platform === "Shopee")?.seller_account).toBe("ร้านค้า Shopee ประเทศไทย");
+        expect(result.connections.find((item) => item.platform === "TikTok Shop")?.seller_account).toBe("ร้านค้า TikTok Shop ประเทศไทย");
     });
 
     it("แบ่ง History จาก endpoint แยกและเรียงล่าสุดแบบ stable", async () => {

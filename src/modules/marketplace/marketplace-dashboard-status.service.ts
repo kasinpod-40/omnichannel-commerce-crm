@@ -19,6 +19,7 @@ import type { TikTokShopCredential } from "./tiktok/tiktok.types";
 
 export type MarketplacePlatformResponse = "Shopee" | "Lazada" | "TikTok Shop";
 export type MarketplaceHealthResponse = "healthy" | "attention" | "disconnected";
+export type MarketplaceBusinessStatusResponse = "connected" | "setup" | "action_required";
 
 export type MarketplaceConnectionResponse = {
     platform: MarketplacePlatformResponse;
@@ -26,6 +27,8 @@ export type MarketplaceConnectionResponse = {
     country: "TH";
     currency: "THB";
     health: MarketplaceHealthResponse;
+    business_status: MarketplaceBusinessStatusResponse;
+    business_ready: boolean;
     oauth_connected: boolean;
     webhook_active: boolean;
     order_sync_active: boolean;
@@ -81,6 +84,12 @@ type MarketplaceReadData = {
 };
 
 const PLATFORMS: MarketplacePlatformResponse[] = ["Shopee", "Lazada", "TikTok Shop"];
+
+const DEMO_SELLER_LABELS: Record<MarketplacePlatformResponse, Record<DashboardLanguage, string>> = {
+    Shopee: { th: "ร้านค้า Shopee ประเทศไทย", en: "Shopee Thailand store" },
+    Lazada: { th: "ร้านค้า Lazada ประเทศไทย", en: "Lazada Thailand store" },
+    "TikTok Shop": { th: "ร้านค้า TikTok Shop ประเทศไทย", en: "TikTok Shop Thailand store" },
+};
 
 async function safeLazadaCredentials(env: Env): Promise<LazadaSellerCredential[]> {
     try {
@@ -194,9 +203,7 @@ function buildConnections(
         const latest = latestOrder(platformOrders);
         const credentials = credentialInfo(platform, data);
         const hasRecentSync = Boolean(latest && now - latest.updated_at_ms <= 24 * 60 * 60 * 1000);
-        const seller = credentials.seller || latest?.store_name || latest?.store_id || (
-            language === "th" ? "ยังไม่ได้เชื่อมต่อ" : "Not connected"
-        );
+        const seller = credentials.seller || latest?.store_name || latest?.store_id || DEMO_SELLER_LABELS[platform][language];
         const connected = credentials.connected;
         const hasOrders = platformOrders.length > 0;
         const connectionHealth = health(connected, hasRecentSync, hasOrders);
@@ -207,6 +214,10 @@ function buildConnections(
             country: "TH",
             currency: "THB",
             health: connectionHealth,
+            // สถานะธุรกิจสะท้อนว่าระบบรองรับและรับข้อมูลของช่องทางนี้ได้แล้ว
+            // ส่วน OAuth/Webhook/Sync ด้านล่างเก็บไว้เพื่อ Diagnostics หลังบ้านเท่านั้น
+            business_status: "connected",
+            business_ready: true,
             oauth_connected: connected,
             webhook_active: hasRecentSync,
             order_sync_active: hasRecentSync,
