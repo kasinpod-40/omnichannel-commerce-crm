@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CONVERSATION_FIELDS, CUSTOMER_FIELDS } from "../../core/lark-fields";
+import { CONVERSATION_FIELDS, CUSTOMER_FIELDS, ORDER_FIELDS } from "../../core/lark-fields";
 import { clearDashboardReadCache } from "../dashboard-read/dashboard-read.cache";
 
 const {
@@ -7,11 +7,13 @@ const {
     getCustomerByRecordId,
     listConversations,
     listConversationsByCustomer,
+    listOrders,
 } = vi.hoisted(() => ({
     listCustomers: vi.fn(),
     getCustomerByRecordId: vi.fn(),
     listConversations: vi.fn(),
     listConversationsByCustomer: vi.fn(),
+    listOrders: vi.fn(),
 }));
 
 vi.mock("../customers/customer.repository", () => ({
@@ -22,6 +24,7 @@ vi.mock("./conversation.repository", () => ({
     listConversations,
     listConversationsByCustomer,
 }));
+vi.mock("../orders/order.repository", () => ({ listOrders }));
 
 import {
     getConversationDetail,
@@ -107,6 +110,10 @@ beforeEach(() => {
             },
         },
     ];
+    listOrders.mockResolvedValue([{
+        record_id: "rec_order_1",
+        fields: { [ORDER_FIELDS.ORDER_NUMBER]: "ORD-001" },
+    }]);
     listConversations.mockResolvedValue(allMessages);
     listConversationsByCustomer.mockResolvedValue(allMessages);
 });
@@ -132,6 +139,26 @@ describe("conversation dashboard service", () => {
         });
     });
 
+    it("ค้นหาด้วยข้อมูลธุรกิจและไม่ใช้ Customer record ID ภายใน", async () => {
+        const byName = await getConversationList(env, {
+            search: "มินท์",
+            intent: null,
+            process_status: null,
+            page: 1,
+            page_size: 10,
+        });
+        expect(byName.total).toBe(1);
+
+        const byInternalId = await getConversationList(env, {
+            search: "rec_customer_1",
+            intent: null,
+            process_status: null,
+            page: 1,
+            page_size: 10,
+        });
+        expect(byInternalId.total).toBe(0);
+    });
+
     it("คืน Timeline ล่าสุดเรียงจากเก่าไปใหม่และสร้าง image proxy", async () => {
         const result = await getConversationDetail(env, "rec_customer_1");
         expect(result?.messages.map((item) => item.content)).toEqual([
@@ -141,6 +168,7 @@ describe("conversation dashboard service", () => {
         ]);
         expect(result?.messages[1]?.image_url).toBe("/conversations/images/rec_message_2");
         expect(result?.active_order_id).toBe("rec_order_1");
+        expect(result?.active_order_number).toBe("ORD-001");
         expect(listConversationsByCustomer).toHaveBeenCalledWith(env, "rec_customer_1");
         expect(getCustomerByRecordId).toHaveBeenCalledWith(env, "rec_customer_1");
     });

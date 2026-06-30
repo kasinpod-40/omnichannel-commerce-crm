@@ -3,12 +3,14 @@ import type { Env } from "../../config/env";
 import { AuthError } from "../../modules/auth/auth.error";
 import { createAuthSession } from "../../modules/auth/auth.session";
 
-const { getDashboardDocumentList, previewDashboardDocument, createDashboardDocument } = vi.hoisted(() => ({
+const { getDashboardDocumentByNumber, getDashboardDocumentList, previewDashboardDocument, createDashboardDocument } = vi.hoisted(() => ({
+    getDashboardDocumentByNumber: vi.fn(),
     getDashboardDocumentList: vi.fn(),
     previewDashboardDocument: vi.fn(),
     createDashboardDocument: vi.fn(),
 }));
 vi.mock("../../modules/documents/document-dashboard.service", () => ({
+    getDashboardDocumentByNumber,
     getDashboardDocumentList,
     previewDashboardDocument,
     createDashboardDocument,
@@ -51,6 +53,7 @@ describe("Dashboard Documents routes", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getDashboardDocumentList.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 10, total_pages: 1, updated_at: "2026-06-30T00:00:00.000Z" });
+        getDashboardDocumentByNumber.mockResolvedValue(detail);
         previewDashboardDocument.mockResolvedValue(detail);
         createDashboardDocument.mockResolvedValue({ document: detail, idempotent: false });
     });
@@ -66,6 +69,32 @@ describe("Dashboard Documents routes", () => {
             type: "invoice", status: "ready", order_id: "rec-1", page: 2, page_size: 20,
             date_from_ms: expect.any(Number), date_to_ms: expect.any(Number),
         }));
+    });
+
+
+    it("เปิดรายละเอียดด้วย Document Number และไม่ต้องใส่ Order record ID ใน URL", async () => {
+        const response = await handleDashboardDocumentRoutes(
+            await requestFor("admin", "GET", "/dashboard/documents/number/QT-20260601-0001"),
+            env,
+            "/dashboard/documents/number/QT-20260601-0001",
+        );
+        expect(response?.status).toBe(200);
+        expect(getDashboardDocumentByNumber).toHaveBeenCalledWith(
+            env,
+            "https://api.example.com/dashboard/documents/number/QT-20260601-0001",
+            "QT-20260601-0001",
+        );
+    });
+
+    it("คืน 404 เมื่อไม่พบ Document Number", async () => {
+        getDashboardDocumentByNumber.mockResolvedValueOnce(null);
+        const response = await handleDashboardDocumentRoutes(
+            await requestFor("admin", "GET", "/dashboard/documents/number/INV-NOT-FOUND"),
+            env,
+            "/dashboard/documents/number/INV-NOT-FOUND",
+        );
+        expect(response?.status).toBe(404);
+        await expect(response?.json()).resolves.toMatchObject({ code: "DOCUMENT_NOT_FOUND" });
     });
 
     it("ปฏิเสธ Sales role ที่สร้างเอกสาร", async () => {

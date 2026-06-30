@@ -66,6 +66,7 @@ describe("API documentation", () => {
         expect(document.paths["/dashboard/documents"]?.get).toBeTruthy();
         expect(document.paths["/dashboard/documents"]?.post).toBeTruthy();
         expect(document.paths["/dashboard/documents/preview"]?.post).toBeTruthy();
+        expect(document.paths["/dashboard/documents/number/{documentNumber}"]?.get).toBeTruthy();
         expect(document.paths["/dashboard/documents/order/{orderId}/{documentType}"]?.get).toBeTruthy();
         expect(document.paths["/notifications"]?.get).toBeTruthy();
         expect(document.paths["/notifications/unread-count"]?.get).toBeTruthy();

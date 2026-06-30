@@ -29,6 +29,7 @@ vi.mock("./document.service", () => ({ buildDocumentViewModelFromRecord: mocks.b
 
 import {
     createDashboardDocument,
+    getDashboardDocumentByNumber,
     getDashboardDocumentList,
 } from "./document-dashboard.service";
 
@@ -76,14 +77,51 @@ describe("document-dashboard.service", () => {
     it("สร้าง list จาก URL field เดิมและกรองตาม Order", async () => {
         const result = await getDashboardDocumentList(env, {
             search: "QT-2026", type: "quotation", status: "ready",
-            date_from_ms: null, date_to_ms: null, order_id: "rec-order-001", page: 1, page_size: 10,
+            date_from_ms: null, date_to_ms: null, order_id: "rec-order-001", order_number: "ORD-001", page: 1, page_size: 10,
         });
         expect(result.total).toBe(1);
         expect(result.items[0]).toMatchObject({
             document_number: "QT-20260601-0001",
             order_id: "rec-order-001",
+            order_number: "ORD-001",
             amount: 1000,
         });
+    });
+
+
+    it("ค้นหารายละเอียดด้วย Document Number โดยไม่เปิดเผย Order record ID ใน URL", async () => {
+        const result = await getDashboardDocumentByNumber(
+            env,
+            "https://api.example.com/dashboard/documents/number/QT-20260601-0001",
+            "qt-20260601-0001"
+        );
+        expect(result).toMatchObject({
+            document_number: "QT-20260601-0001",
+            order_number: "ORD-001",
+        });
+        expect(mocks.createSignedDocumentLink).toHaveBeenCalledWith(expect.objectContaining({
+            orderRecordId: "rec-order-001",
+            documentType: "quotation",
+        }));
+        expect(mocks.getOrderByRecordId).not.toHaveBeenCalled();
+    });
+
+    it("คืน null เมื่อไม่พบ Document Number", async () => {
+        await expect(getDashboardDocumentByNumber(
+            env,
+            "https://api.example.com/dashboard/documents/number/INV-NOT-FOUND",
+            "INV-NOT-FOUND"
+        )).resolves.toBeNull();
+        expect(mocks.createSignedDocumentLink).not.toHaveBeenCalled();
+    });
+
+    it("ไม่กลืน signing error หลังพบ Document Number ที่ตรง", async () => {
+        mocks.createSignedDocumentLink.mockRejectedValueOnce(new Error("DOCUMENT_LINK_SECRET_MISSING"));
+        await expect(getDashboardDocumentByNumber(
+            env,
+            "https://api.example.com/dashboard/documents/number/QT-20260601-0001",
+            "QT-20260601-0001"
+        )).rejects.toThrow("DOCUMENT_LINK_SECRET_MISSING");
     });
 
     it("ใช้ activity event เดิมเป็น idempotency guard และไม่สร้าง URL ซ้ำ", async () => {

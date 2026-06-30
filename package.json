@@ -1,6 +1,6 @@
 {
   "name": "omnichannel-commerce-crm",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "private": true,
   "scripts": {
     "deploy": "wrangler deploy",
@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run test:run",
     "test:run": "npm run test:unit && npm run test:integration",
-    "check": "npm run typecheck && npm run test:run && npm run deploy:dry",
+    "check:lockfile": "node scripts/check-lockfile-registry.mjs",
+    "check": "npm run check:lockfile && npm run typecheck && npm run test:run && npm run deploy:dry",
     "cf-typegen": "wrangler types",
     "test:unit": "npm run test:unit:node && npm run test:unit:worker",
     "test:integration": "vitest run --config vitest.integration.config.mts",

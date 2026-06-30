@@ -44,6 +44,7 @@ export type DashboardDocumentListItem = {
     document_type: DocumentType;
     customer_name: string;
     order_id: string;
+    order_number: string;
     amount: number;
     currency: string;
     status: DashboardDocumentStatus;
@@ -59,6 +60,7 @@ export type DashboardDocumentListQuery = {
     date_from_ms: number | null;
     date_to_ms: number | null;
     order_id: string;
+    order_number: string;
     page: number;
     page_size: number;
 };
@@ -77,7 +79,8 @@ export type DashboardDocumentDetail = DashboardDocumentListItem & {
     history: Array<{
         action: string;
         created_at: string;
-        detail: string;
+        actor_name: string | null;
+        result: string | null;
     }>;
 };
 
@@ -142,6 +145,28 @@ function activityOrderId(activity: LarkActivityRecord): string {
     }
 }
 
+
+function documentActivitySummary(activity: LarkActivityRecord): { actor_name: string | null; result: string | null } {
+    const value = getLarkText(activity.fields[ACTIVITY_FIELDS.NEW_VALUE], "");
+    if (!value) return { actor_name: null, result: null };
+    try {
+        const parsed = JSON.parse(value) as {
+            actor?: { name?: unknown };
+            result?: unknown;
+        };
+        return {
+            actor_name: typeof parsed.actor?.name === "string"
+                ? parsed.actor.name.trim() || null
+                : null,
+            result: parsed.result === "success" || parsed.result === "failed"
+                ? parsed.result
+                : null,
+        };
+    } catch {
+        return { actor_name: null, result: null };
+    }
+}
+
 function matchingDocumentActivities(
     activities: readonly LarkActivityRecord[],
     orderId: string,
@@ -182,6 +207,7 @@ function mapExistingDocument(
         document_type: type,
         customer_name: model.customer.name,
         order_id: order.record_id,
+        order_number: model.order.order_number,
         amount: model.grand_total,
         currency: model.order.currency,
         status: documentStatus(url),
@@ -231,11 +257,12 @@ export async function getDashboardDocumentList(
             (!search || [
                 item.document_number,
                 item.customer_name,
-                item.order_id,
+                item.order_number,
             ].join(" ").toLocaleLowerCase("th-TH").includes(search)) &&
             (!query.type || item.document_type === query.type) &&
             (!query.status || item.status === query.status) &&
             (!query.order_id || item.order_id === query.order_id) &&
+            (!query.order_number || item.order_number.toLocaleLowerCase("th-TH").includes(query.order_number.trim().toLocaleLowerCase("th-TH"))) &&
             (query.date_from_ms === null || eventAt >= query.date_from_ms) &&
             (query.date_to_ms === null || eventAt < query.date_to_ms)
         );
@@ -254,27 +281,23 @@ export async function getDashboardDocumentList(
     };
 }
 
-export async function previewDashboardDocument(
+async function previewDashboardDocumentFromOrder(
     env: Env,
     requestUrl: string,
-    orderId: string,
-    type: DocumentType
+    order: LarkOrderRecord,
+    type: DocumentType,
+    activities: readonly LarkActivityRecord[]
 ): Promise<DashboardDocumentDetail> {
-    const [order, activities] = await Promise.all([
-        getOrderByRecordId(env, orderId),
-        listActivities(env),
-    ]);
-    if (!order) throw new AuthError("ORDER_NOT_FOUND", "Order was not found", 404);
     const model = buildDocumentViewModelFromRecord(env, order, type);
     const generated = await createSignedDocumentLink({
         env,
         requestUrl,
-        orderRecordId: orderId,
+        orderRecordId: order.record_id,
         documentType: type,
         expiresMinutes: 60,
         validateDocument: false,
     });
-    const matches = matchingDocumentActivities(activities, orderId, type);
+    const matches = matchingDocumentActivities(activities, order.record_id, type);
     const existingUrl = readHyperlink(order.fields[DOCUMENT_FIELDS[type]]);
     const base = mapExistingDocument(
         env,
@@ -291,9 +314,55 @@ export async function previewDashboardDocument(
         history: matches.map((activity) => ({
             action: "created",
             created_at: toIso(readTimestamp(activity.fields[ACTIVITY_FIELDS.CREATED_AT])),
-            detail: getLarkText(activity.fields[ACTIVITY_FIELDS.NEW_VALUE], ""),
+            ...documentActivitySummary(activity),
         })),
     };
+}
+
+export async function previewDashboardDocument(
+    env: Env,
+    requestUrl: string,
+    orderId: string,
+    type: DocumentType
+): Promise<DashboardDocumentDetail> {
+    const [order, activities] = await Promise.all([
+        getOrderByRecordId(env, orderId),
+        listActivities(env),
+    ]);
+    if (!order) throw new AuthError("ORDER_NOT_FOUND", "Order was not found", 404);
+    return previewDashboardDocumentFromOrder(env, requestUrl, order, type, activities);
+}
+
+export async function getDashboardDocumentByNumber(
+    env: Env,
+    requestUrl: string,
+    documentNumber: string
+): Promise<DashboardDocumentDetail | null> {
+    const normalized = documentNumber.trim().toLocaleLowerCase("th-TH");
+    if (!normalized) return null;
+
+    const { orders, activities } = await loadDocuments(env);
+    for (const order of orders) {
+        for (const type of DOCUMENT_TYPES) {
+            const existingUrl = readHyperlink(order.fields[DOCUMENT_FIELDS[type]]);
+            if (!existingUrl) continue;
+            let model: DocumentViewModel;
+            try {
+                model = buildDocumentViewModelFromRecord(env, order, type);
+            } catch (error) {
+                console.error("Document lookup item skipped", {
+                    document_type: type,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                continue;
+            }
+            if (model.document_number.toLocaleLowerCase("th-TH") !== normalized) continue;
+            // เมื่อพบเลขเอกสารที่ตรงแล้ว ต้องส่งต่อ validation/signing error จริงให้ UI
+            // ห้ามกลืน error แล้วแสดงเป็น DOCUMENT_NOT_FOUND ซึ่งทำให้ผู้ใช้แก้ปัญหาไม่ถูกจุด
+            return previewDashboardDocumentFromOrder(env, requestUrl, order, type, activities);
+        }
+    }
+    return null;
 }
 
 export async function createDashboardDocument(input: {

@@ -1,6 +1,6 @@
 import type { Env } from "../../config/env";
 import { normalizeLeadScore } from "../../core/lead-score";
-import { CONVERSATION_FIELDS } from "../../core/lark-fields";
+import { CONVERSATION_FIELDS, ORDER_FIELDS } from "../../core/lark-fields";
 import {
     getLarkBoolean,
     getLarkNumber,
@@ -20,6 +20,7 @@ import type { DashboardCustomerSnapshot } from "../dashboard-read/dashboard-read
 import {
     getDashboardConversations,
     getDashboardCustomers,
+    getDashboardOrders,
 } from "../dashboard-read/dashboard-read.records";
 import { getCustomerByRecordId } from "../customers/customer.repository";
 import {
@@ -85,6 +86,7 @@ export type ConversationDetailResponse = ConversationListItemResponse & {
     customer_stage: DashboardCustomerSnapshot["current_stage"];
     ai_summary: string | null;
     active_order_id: string | null;
+    active_order_number: string | null;
     messages: ConversationMessageResponse[];
     next_cursor: string | null;
     has_more_messages: boolean;
@@ -276,7 +278,6 @@ function buildListItem(
 function matchesQuery(item: ConversationListItemResponse, query: ConversationListQuery): boolean {
     const search = query.search.trim().toLocaleLowerCase("th-TH");
     const text = [
-        item.customer_id,
         item.customer_name,
         item.message_preview,
         item.assigned_to ?? "",
@@ -349,9 +350,10 @@ export async function getConversationDetail(
 ): Promise<ConversationDetailResponse | null> {
     // Detail อ่านเฉพาะ Customer และข้อความที่ Link มายัง Customer นี้จาก Lark
     // ไม่โหลด Conversation ทั้งตารางซ้ำเพียงเพื่อเปิด Timeline หนึ่งราย
-    const [customerRecord, linkedRecords] = await Promise.all([
+    const [customerRecord, linkedRecords, orders] = await Promise.all([
         getCustomerByRecordId(env, conversationId),
         listConversationsByCustomer(env, conversationId),
+        getDashboardOrders(env),
     ]);
     const lineRecords = linkedRecords.filter((record) =>
         normalizeChannel(record.fields[CONVERSATION_FIELDS.CHANNEL]) === "LINE"
@@ -375,6 +377,12 @@ export async function getConversationDetail(
                 ?.fields[CONVERSATION_FIELDS.AI_SUMMARY]
         ),
         active_order_id: customer.active_order_id,
+        active_order_number: customer.active_order_id
+            ? getLarkText(
+                  orders.find((order) => order.record_id === customer.active_order_id)?.fields[ORDER_FIELDS.ORDER_NUMBER],
+                  ""
+              ).trim() || null
+            : null,
         messages: latestPage.items,
         next_cursor: latestPage.next_cursor,
         has_more_messages: latestPage.has_more,

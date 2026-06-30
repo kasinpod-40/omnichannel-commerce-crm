@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { AuthError } from "../../modules/auth/auth.error";
 import {
     createDashboardDocument,
+    getDashboardDocumentByNumber,
     getDashboardDocumentList,
     previewDashboardDocument,
     type DashboardDocumentStatus,
@@ -149,9 +150,29 @@ export async function handleDashboardDocumentRoutes(
                 date_from_ms: parseDate(params.get("date_from")),
                 date_to_ms: parseDate(params.get("date_to"), true),
                 order_id: params.get("order_id")?.trim() ?? "",
+                order_number: params.get("order_number")?.trim() ?? "",
                 page: parsePositiveInteger(params.get("page"), 1, 100_000),
                 page_size: parsePositiveInteger(params.get("page_size"), 10, 100),
             });
+            return addAuthCorsHeaders(dashboardJson(response), request, env);
+        }
+
+        const numberMatch = pathname.match(
+            /^\/dashboard\/documents\/number\/([^/]+)$/
+        );
+        if (numberMatch?.[1] && request.method === "GET") {
+            const response = await getDashboardDocumentByNumber(
+                env,
+                request.url,
+                decodeURIComponent(numberMatch[1])
+            );
+            if (!response) {
+                throw new AuthError(
+                    "DOCUMENT_NOT_FOUND",
+                    "Document was not found",
+                    404
+                );
+            }
             return addAuthCorsHeaders(dashboardJson(response), request, env);
         }
 

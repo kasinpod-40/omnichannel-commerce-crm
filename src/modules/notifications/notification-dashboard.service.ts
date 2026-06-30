@@ -176,12 +176,9 @@ function matchesQuery(
 ): boolean {
     const search = query.search.trim().toLocaleLowerCase("th-TH");
     const haystack = [
-        item.notification_id,
-        item.event_id,
         item.message,
         item.customer.customer_name,
         item.customer.channel,
-        item.order_record_id ?? "",
         item.order_number ?? "",
     ]
         .join(" ")

@@ -37,6 +37,7 @@ export type OrderDateBasis = "created_at" | "paid_at" | "updated_at";
 
 export type OrderRecordResponse = {
     order_id: string;
+    order_number: string;
     external_order_id: string | null;
     pipeline_id: string | null;
     channel: "LINE" | "Shopee" | "Lazada" | "TikTok Shop";
@@ -182,6 +183,7 @@ function mapOrder(
 
     return {
         order_id: record.record_id,
+        order_number: getLarkText(fields[ORDER_FIELDS.ORDER_NUMBER], "").trim(),
         external_order_id: nullableText(fields[ORDER_FIELDS.EXTERNAL_ORDER_ID]),
         pipeline_id: getLinkedRecordId(fields[ORDER_FIELDS.PIPELINE]),
         channel,
@@ -225,7 +227,7 @@ function dateValue(item: OrderRecordResponse, basis: OrderDateBasis): number {
 function matchesQuery(item: OrderRecordResponse, query: OrderListQuery): boolean {
     const search = query.search.trim().toLocaleLowerCase("th-TH");
     const text = [
-        item.order_id,
+        item.order_number,
         item.external_order_id ?? "",
         item.customer.customer_name,
         item.customer.phone ?? "",

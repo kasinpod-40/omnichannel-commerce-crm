@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CUSTOMER_FIELDS, PIPELINE_FIELDS } from "../../core/lark-fields";
+import { CUSTOMER_FIELDS, ORDER_FIELDS, PIPELINE_FIELDS } from "../../core/lark-fields";
 import { clearDashboardReadCache } from "../dashboard-read/dashboard-read.cache";
 
-const { listCustomers, listPipelines } = vi.hoisted(() => ({
+const { listCustomers, listPipelines, listOrders } = vi.hoisted(() => ({
     listCustomers: vi.fn(),
     listPipelines: vi.fn(),
+    listOrders: vi.fn(),
 }));
 vi.mock("../customers/customer.repository", () => ({ listCustomers }));
 vi.mock("./pipeline.repository", () => ({ listPipelines }));
+vi.mock("../orders/order.repository", () => ({ listOrders }));
 
 import { getPipelineDetail, getPipelineList } from "./pipeline-dashboard.service";
 
@@ -29,6 +31,13 @@ beforeEach(() => {
             [CUSTOMER_FIELDS.SALES_OWNER]: "Sales A",
             [CUSTOMER_FIELDS.ACTIVE_ORDER_ID]: "rec_order_1",
         },
+    }]);
+    listOrders.mockResolvedValue([{
+        record_id: "rec_order_1",
+        fields: { [ORDER_FIELDS.ORDER_NUMBER]: "ORD-001" },
+    }, {
+        record_id: "rec_order_closed",
+        fields: { [ORDER_FIELDS.ORDER_NUMBER]: "ORD-CLOSED-001" },
     }]);
     listPipelines.mockResolvedValue([{
         record_id: "rec_pipeline_1",
@@ -54,10 +63,12 @@ describe("pipeline dashboard service", () => {
                 customer_id: "rec_customer_1",
                 customer_name: "คุณมินท์",
                 active_order_id: "rec_order_1",
+                active_order_number: "ORD-001",
             },
         });
         expect(listCustomers).toHaveBeenCalledTimes(1);
         expect(listPipelines).toHaveBeenCalledTimes(1);
+        expect(listOrders).toHaveBeenCalledTimes(1);
     });
 
     it("คืน Detail จาก cache ชุดเดียวกับ List", async () => {
@@ -75,7 +86,14 @@ describe("pipeline dashboard service", () => {
                 [CUSTOMER_FIELDS.ACTIVE_ORDER_ID]: "",
             },
         }]);
-        listPipelines.mockResolvedValue([{
+        listOrders.mockResolvedValue([{
+        record_id: "rec_order_1",
+        fields: { [ORDER_FIELDS.ORDER_NUMBER]: "ORD-001" },
+    }, {
+        record_id: "rec_order_closed",
+        fields: { [ORDER_FIELDS.ORDER_NUMBER]: "ORD-CLOSED-001" },
+    }]);
+    listPipelines.mockResolvedValue([{
             record_id: "rec_pipeline_won",
             fields: {
                 [PIPELINE_FIELDS.CUSTOMER]: ["rec_customer_1"],
@@ -95,6 +113,7 @@ describe("pipeline dashboard service", () => {
         expect(result.items[0]?.customer.active_order_id).toBe(
             "rec_order_closed"
         );
+        expect(result.items[0]?.customer.active_order_number).toBe("ORD-CLOSED-001");
     });
 
 });

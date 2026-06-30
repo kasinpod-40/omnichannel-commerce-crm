@@ -1,6 +1,6 @@
 import type { Env } from "../../config/env";
 import { normalizeLeadScore } from "../../core/lead-score";
-import { PIPELINE_FIELDS } from "../../core/lark-fields";
+import { ORDER_FIELDS, PIPELINE_FIELDS } from "../../core/lark-fields";
 import { resolvePipelineStage, type SalesStage } from "../../core/sales-stage";
 import { getLarkNumber, getLarkText } from "../../utils/lark-field-value";
 import {
@@ -13,6 +13,7 @@ import {
 import type { LarkPipelineRecord } from "./pipeline.repository";
 import {
     getDashboardCustomers,
+    getDashboardOrders,
     getDashboardPipelines,
 } from "../dashboard-read/dashboard-read.records";
 
@@ -34,6 +35,7 @@ export type PipelineRecordResponse = {
         phone: string | null;
         sales_owner: string | null;
         active_order_id: string | null;
+        active_order_number: string | null;
     };
 };
 
@@ -57,14 +59,16 @@ export type PipelineListQuery = {
 type PipelineReadData = {
     customers: Awaited<ReturnType<typeof getDashboardCustomers>>;
     pipelines: Awaited<ReturnType<typeof getDashboardPipelines>>;
+    orders: Awaited<ReturnType<typeof getDashboardOrders>>;
 };
 
 async function loadPipelineReadData(env: Env): Promise<PipelineReadData> {
-    const [customers, pipelines] = await Promise.all([
+    const [customers, pipelines, orders] = await Promise.all([
         getDashboardCustomers(env),
         getDashboardPipelines(env),
+        getDashboardOrders(env),
     ]);
-    return { customers, pipelines };
+    return { customers, pipelines, orders };
 }
 
 function normalizeStatus(value: unknown): PipelineStatusResponse {
@@ -76,7 +80,8 @@ function normalizeStatus(value: unknown): PipelineStatusResponse {
 
 function mapPipeline(
     record: LarkPipelineRecord,
-    customers: ReturnType<typeof buildCustomerLookup>
+    customers: ReturnType<typeof buildCustomerLookup>,
+    orderNumbers: ReadonlyMap<string, string>
 ): PipelineRecordResponse {
     const fields = record.fields;
     const customerId = getLinkedRecordId(fields[PIPELINE_FIELDS.CUSTOMER]);
@@ -110,6 +115,7 @@ function mapPipeline(
             phone: customer.phone,
             sales_owner: pipelineOwner || customer.sales_owner,
             active_order_id: linkedOrderId ?? customer.active_order_id,
+            active_order_number: orderNumbers.get(linkedOrderId ?? customer.active_order_id ?? "") ?? null,
         },
     };
 }
@@ -117,11 +123,10 @@ function mapPipeline(
 function matchesQuery(item: PipelineRecordResponse, query: PipelineListQuery): boolean {
     const search = query.search.trim().toLocaleLowerCase("th-TH");
     const text = [
-        item.pipeline_id,
-        item.customer.customer_id,
         item.customer.customer_name,
         item.customer.phone ?? "",
         item.customer.sales_owner ?? "",
+        item.customer.active_order_number ?? "",
         item.ai_summary ?? "",
     ].join(" ").toLocaleLowerCase("th-TH");
 
@@ -134,7 +139,11 @@ export async function getPipelineList(
 ): Promise<PipelineListResponse> {
     const data = await loadPipelineReadData(env);
     const customers = buildCustomerLookup(data.customers);
-    const allItems = data.pipelines.map((record) => mapPipeline(record, customers))
+    const orderNumbers = new Map(data.orders.map((order) => [
+        order.record_id,
+        getLarkText(order.fields[ORDER_FIELDS.ORDER_NUMBER], "").trim(),
+    ]));
+    const allItems = data.pipelines.map((record) => mapPipeline(record, customers, orderNumbers))
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
     const items = allItems.filter((item) => matchesQuery(item, query));
 
@@ -158,5 +167,9 @@ export async function getPipelineDetail(
     const data = await loadPipelineReadData(env);
     const record = data.pipelines.find((item) => item.record_id === pipelineId);
     if (!record) return null;
-    return mapPipeline(record, buildCustomerLookup(data.customers));
+    const orderNumbers = new Map(data.orders.map((order) => [
+        order.record_id,
+        getLarkText(order.fields[ORDER_FIELDS.ORDER_NUMBER], "").trim(),
+    ]));
+    return mapPipeline(record, buildCustomerLookup(data.customers), orderNumbers);
 }

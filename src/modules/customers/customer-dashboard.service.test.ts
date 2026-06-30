@@ -169,6 +169,22 @@ describe("customer dashboard service", () => {
         });
     });
 
+    it("ค้นหาด้วยข้อมูลธุรกิจและไม่ใช้ Customer ID ภายในหรือ Channel customer ID", async () => {
+        const query = (search: string) => getCustomerList(env, {
+            search,
+            channel: null,
+            stage: null,
+            hot_lead: null,
+            sort: "updated_desc",
+            page: 1,
+            page_size: 10,
+        });
+
+        await expect(query("0891234567")).resolves.toMatchObject({ total: 1 });
+        await expect(query("rec_customer_001")).resolves.toMatchObject({ total: 0 });
+        await expect(query("line-user-001")).resolves.toMatchObject({ total: 0 });
+    });
+
     it("สร้าง Customer detail พร้อมชื่อสินค้า ที่อยู่ และ Timeline", async () => {
         const result = await getCustomerDetail(
             env,
@@ -180,6 +196,7 @@ describe("customer dashboard service", () => {
             customer_id: "rec_customer_001",
             product_name: "เสื้อรุ่นใหม่",
             delivery_address: "99/1 กรุงเทพฯ",
+            active_order_number: "ORD-LINE-001",
         });
         expect(result?.timeline).toEqual(
             expect.arrayContaining([

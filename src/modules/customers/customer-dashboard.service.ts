@@ -81,6 +81,7 @@ export type CustomerTimelineItemResponse = {
 };
 
 export type CustomerDetailResponse = CustomerListItemResponse & {
+    active_order_number: string | null;
     product_name: string | null;
     delivery_address: string | null;
     timeline: CustomerTimelineItemResponse[];
@@ -149,9 +150,7 @@ function matchesQuery(
 ): boolean {
     const search = query.search.trim().toLocaleLowerCase("th-TH");
     const searchable = [
-        item.customer_id,
         item.customer_name,
-        item.channel_customer_id,
         item.phone ?? "",
         item.last_message ?? "",
         item.sales_owner ?? "",
@@ -431,8 +430,17 @@ export async function getCustomerDetail(
         )
         .slice(0, 30);
 
+    const activeOrderId = nullableText(customer.fields[CUSTOMER_FIELDS.ACTIVE_ORDER_ID]);
+    const activeOrderNumber = activeOrderId
+        ? getLarkText(
+              orders.find((order) => order.record_id === activeOrderId)?.fields[ORDER_FIELDS.ORDER_NUMBER],
+              ""
+          ).trim() || null
+        : null;
+
     return {
         ...mapCustomer(customer),
+        active_order_number: activeOrderNumber,
         product_name: nullableText(customer.fields[CUSTOMER_FIELDS.PRODUCT_NAME]),
         delivery_address: latestAddress,
         timeline,

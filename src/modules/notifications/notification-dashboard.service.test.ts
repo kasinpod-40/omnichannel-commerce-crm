@@ -81,6 +81,41 @@ describe("notification dashboard service", () => {
     });
 
 
+    it("ค้นหาด้วย Order Number แต่ไม่ใช้ Notification/Event/Internal Order ID", async () => {
+        getDashboardNotifications.mockResolvedValue([
+            {
+                record_id: "rec-notification-001",
+                fields: {
+                    [NOTIFICATION_FIELDS.EVENT_ID]: "PAYMENT_REVIEW:rec-order-001",
+                    [NOTIFICATION_FIELDS.NOTIFICATION_TYPE]: "PAYMENT_REVIEW",
+                    [NOTIFICATION_FIELDS.CUSTOMER]: ["rec-customer-001"],
+                    [NOTIFICATION_FIELDS.MESSAGE]: "มีการชำระเงินรอตรวจสอบ",
+                    [NOTIFICATION_FIELDS.STATUS]: "Sent",
+                    [NOTIFICATION_FIELDS.CREATED_AT]: 1_780_000_000_000,
+                    [NOTIFICATION_FIELDS.PAYLOAD_JSON]: JSON.stringify({
+                        version: 1,
+                        captured_at: 1_780_000_000_000,
+                        customer_name: "ลูกค้าทดสอบ",
+                        channel: "LINE",
+                        order_number: "ORD-001",
+                    }),
+                },
+            },
+        ]);
+
+        const query = (search: string) => getNotificationList(env, {
+            search,
+            type: null,
+            read: "all",
+            page: 1,
+            page_size: 10,
+        });
+
+        await expect(query("ORD-001")).resolves.toMatchObject({ total: 1 });
+        await expect(query("rec-notification-001")).resolves.toMatchObject({ total: 0 });
+        await expect(query("rec-order-001")).resolves.toMatchObject({ total: 0 });
+    });
+
     it("นับ unread เฉพาะ PAYMENT_REVIEW เพื่อให้กระดิ่งไม่รวม Notification อื่น", async () => {
         const baseFields = {
             [NOTIFICATION_FIELDS.CUSTOMER]: ["rec-customer-001"],

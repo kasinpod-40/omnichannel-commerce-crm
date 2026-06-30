@@ -262,7 +262,7 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         description: "อ่าน Customers จาก Lark Base พร้อม Search, Filter, Sort, Pagination และ Summary cards",
         security: "cookie",
         parameters: [
-            query("search", "ค้นหาจากชื่อ, Customer ID, Channel customer ID, เบอร์โทร, ข้อความล่าสุด หรือ Sales owner"),
+            query("search", "ค้นหาจากชื่อลูกค้า เบอร์โทร ข้อความล่าสุด หรือ Sales owner"),
             query("channel", "กรองช่องทาง", { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] }),
             query("stage", "กรอง Customer stage", { type: "string", enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"] }),
             query("hot_lead", "กรอง Hot Lead", { type: "boolean" }),
@@ -296,7 +296,7 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         description: "รวม Conversation records ตาม Customer และแสดงเฉพาะข้อความที่ลูกค้าส่งเข้ามา ไม่รวมข้อความตอบกลับของ Sales หรือ Marketplace chat",
         security: "cookie",
         parameters: [
-            query("search", "ค้นหาชื่อลูกค้า Customer ID ข้อความล่าสุด หรือ Sales owner"),
+            query("search", "ค้นหาชื่อลูกค้า ข้อความล่าสุด หรือ Sales owner"),
             query("intent", "กรอง Buyer intent", { type: "string", enum: ["Just Browsing", "Interested", "Purchase Intent", "Ready To Buy", "Payment", "Support"] }),
             query("process_status", "กรองสถานะประมวลผล", { type: "string", enum: ["processed", "pending", "failed"] }),
             query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
@@ -351,7 +351,7 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         description: "อ่าน Pipeline และ Customer link แบบ batch พร้อม Search และ Status filter",
         security: "cookie",
         parameters: [
-            query("search", "ค้นหา Pipeline ID ชื่อลูกค้า เบอร์โทร Sales owner หรือ AI summary"),
+            query("search", "ค้นหาชื่อลูกค้า เบอร์โทร Order Number, Sales owner หรือ AI summary"),
             query("status", "กรองสถานะ Pipeline", { type: "string", enum: ["open", "won", "lost"] }),
         ],
         responseSchema: "PipelineListResponse",
@@ -374,7 +374,7 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         description: "อ่าน Orders จาก Lark Base พร้อม Search, Filter, Sort, Pagination และ Customer mapping",
         security: "cookie",
         parameters: [
-            query("search", "ค้นหา Order ID, External Order ID, ลูกค้า, เบอร์โทร, สินค้า หรือ Tracking"),
+            query("search", "ค้นหา Order Number, Marketplace Order Number, ลูกค้า, เบอร์โทร, สินค้า หรือ Tracking"),
             query("channel", "กรองช่องทาง", { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] }),
             query("order_status", "กรองสถานะ Order ที่ normalize สำหรับ UI", { type: "string", enum: ["Draft", "Confirmed", "Completed", "Cancelled"] }),
             query("payment_status", "กรองสถานะชำระเงินดิบจาก Lark สำหรับ compatibility", { type: "string", enum: ["Pending", "Paid", "Overdue"] }),
@@ -427,7 +427,7 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         description: "อ่านเฉพาะ Notification ประเภท PAYMENT_REVIEW จาก Lark Base พร้อมสถานะอ่าน Pagination และ Order deep link",
         security: "cookie",
         parameters: [
-            query("search", "ค้นหาจากข้อความ ลูกค้า Order ID หรือ Event ID"),
+            query("search", "ค้นหาจากข้อความ ชื่อลูกค้า ช่องทาง หรือ Order Number"),
             query("read", "กรองสถานะอ่านบน Dashboard", { type: "string", enum: ["all", "unread", "read"], default: "all" }),
             query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
             query("page_size", "จำนวนรายการต่อหน้า สูงสุด 100", { type: "integer", enum: [10, 20, 50], default: 10 }),
@@ -926,16 +926,28 @@ export const API_ROUTE_DEFINITIONS: RouteDefinition[] = [
         description: "อ่านใบเสนอราคา Invoice และใบกำกับภาษีที่ผูกกับ Order โดยใช้ Document URL fields และ Activity เดิม",
         security: "cookie",
         parameters: [
-            query("search", "ค้นหาเลขเอกสาร ลูกค้า หรือ Order ID"),
+            query("search", "ค้นหาเลขเอกสาร ลูกค้า หรือเลขคำสั่งซื้อ"),
             query("type", "กรองประเภทเอกสาร", { type: "string", enum: ["quotation", "invoice", "tax-invoice"] }),
             query("status", "กรองสถานะลิงก์เอกสาร", { type: "string", enum: ["ready", "expired"] }),
             query("date_from", "วันที่เริ่มสร้างตาม Asia/Bangkok", { type: "string", format: "date" }),
             query("date_to", "วันที่สิ้นสุดตาม Asia/Bangkok", { type: "string", format: "date" }),
-            query("order_id", "กรอง Lark Order record_id"),
+            query("order_number", "กรองด้วยเลขคำสั่งซื้อที่ผู้ใช้เห็น"),
             query("page", "หน้าปัจจุบัน", { type: "integer", minimum: 1, default: 1 }),
             query("page_size", "จำนวนรายการต่อหน้า สูงสุด 100", { type: "integer", enum: [10, 20, 50], default: 10 }),
         ],
         responseSchema: "DashboardDocumentListResponse",
+    },
+    {
+        path: "/dashboard/documents/number/{documentNumber}",
+        method: "get",
+        tag: "Documents",
+        summary: "รายละเอียดเอกสารด้วย Document Number",
+        description: "เส้นทางหลักสำหรับ Dashboard ใช้เลขเอกสารที่ผู้ใช้เห็น โดย Backend resolve Order record ภายในและสร้าง signed preview ชั่วคราว",
+        security: "cookie",
+        parameters: [
+            pathParameter("documentNumber", "เลขเอกสารที่ผู้ใช้เห็น เช่น QT-20260601-0001", "QT-20260601-0001"),
+        ],
+        responseSchema: "DashboardDocumentDetailResponse",
     },
     {
         path: "/dashboard/documents/order/{orderId}/{documentType}",
@@ -1457,7 +1469,7 @@ function schemas(): Record<string, unknown> {
             properties: {
                 ok: { type: "boolean", const: true },
                 service: { type: "string", example: "omnichannel-commerce-crm" },
-                version: { type: "string", example: "order-reports-documents-th-42" },
+                version: { type: "string", example: "documents-reports-identity-th-43" },
                 environment: { type: "string", example: "production" },
                 timestamp: { type: "string", format: "date-time" },
             },
@@ -1762,6 +1774,7 @@ function schemas(): Record<string, unknown> {
                     type: "object",
                     required: ["timeline"],
                     properties: {
+                        active_order_number: { type: ["string", "null"] },
                         product_name: { type: ["string", "null"] },
                         delivery_address: { type: ["string", "null"] },
                         timeline: { type: "array", items: { $ref: "#/components/schemas/CustomerTimelineItemResponse" } },
@@ -1835,12 +1848,13 @@ function schemas(): Record<string, unknown> {
                 { $ref: "#/components/schemas/ConversationListItemResponse" },
                 {
                     type: "object",
-                    required: ["customer_stage", "messages", "next_cursor", "has_more_messages"],
+                    required: ["customer_stage", "active_order_id", "active_order_number", "messages", "next_cursor", "has_more_messages"],
                     properties: {
                         phone: { type: ["string", "null"] },
                         customer_stage: { type: "string", enum: ["New Lead", "Interested", "Negotiating", "Closing", "Won", "Lost"] },
                         ai_summary: { type: ["string", "null"] },
                         active_order_id: { type: ["string", "null"] },
+                        active_order_number: { type: ["string", "null"] },
                         messages: { type: "array", items: { $ref: "#/components/schemas/ConversationMessageResponse" } },
                         next_cursor: { type: ["string", "null"] },
                         has_more_messages: { type: "boolean" },
@@ -1861,7 +1875,7 @@ function schemas(): Record<string, unknown> {
                 closed_at: { type: ["string", "null"], format: "date-time" },
                 customer: {
                     type: "object",
-                    required: ["customer_id", "customer_name", "channel"],
+                    required: ["customer_id", "customer_name", "channel", "active_order_id", "active_order_number"],
                     properties: {
                         customer_id: { type: "string" },
                         customer_name: { type: "string" },
@@ -1869,6 +1883,7 @@ function schemas(): Record<string, unknown> {
                         phone: { type: ["string", "null"] },
                         sales_owner: { type: ["string", "null"] },
                         active_order_id: { type: ["string", "null"] },
+                        active_order_number: { type: ["string", "null"] },
                     },
                 },
             },
@@ -1894,9 +1909,10 @@ function schemas(): Record<string, unknown> {
         },
         OrderRecordResponse: {
             type: "object",
-            required: ["order_id", "channel", "customer", "quantity", "total_amount", "order_status", "payment_status", "payment_display_status", "payment_verified", "payment_review_available", "work_queue", "missing_delivery_fields", "amount_edit_allowed", "sync_status", "created_at", "updated_at"],
+            required: ["order_id", "order_number", "channel", "customer", "quantity", "total_amount", "order_status", "payment_status", "payment_display_status", "payment_verified", "payment_review_available", "work_queue", "missing_delivery_fields", "amount_edit_allowed", "sync_status", "created_at", "updated_at"],
             properties: {
-                order_id: { type: "string" },
+                order_id: { type: "string", description: "Internal record identifier; do not display to end users" },
+                order_number: { type: "string" },
                 external_order_id: { type: ["string", "null"] },
                 pipeline_id: { type: ["string", "null"] },
                 channel: { type: "string", enum: ["LINE", "Shopee", "Lazada", "TikTok Shop"] },
@@ -1971,13 +1987,14 @@ function schemas(): Record<string, unknown> {
         },
         DashboardDocumentListItemResponse: {
             type: "object",
-            required: ["document_id", "document_number", "document_type", "customer_name", "order_id", "amount", "currency", "status", "created_at", "updated_at"],
+            required: ["document_id", "document_number", "document_type", "customer_name", "order_id", "order_number", "amount", "currency", "status", "created_at", "updated_at"],
             properties: {
                 document_id: { type: "string" },
                 document_number: { type: "string" },
                 document_type: { type: "string", enum: ["quotation", "invoice", "tax-invoice"] },
                 customer_name: { type: "string" },
-                order_id: { type: "string" },
+                order_id: { type: "string", description: "Internal record identifier" },
+                order_number: { type: "string" },
                 amount: { type: "number", minimum: 0 },
                 currency: { type: "string", example: "THB" },
                 status: { type: "string", enum: ["ready", "expired"] },
@@ -2006,7 +2023,19 @@ function schemas(): Record<string, unknown> {
                     required: ["model", "history"],
                     properties: {
                         model: { type: "object", additionalProperties: true, description: "Document View Model จาก document service เดิม" },
-                        history: { type: "array", items: { type: "object", required: ["action", "created_at", "detail"], properties: { action: { type: "string" }, created_at: { type: "string", format: "date-time" }, detail: { type: "string" } } } },
+                        history: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                required: ["action", "created_at", "actor_name", "result"],
+                                properties: {
+                                    action: { type: "string" },
+                                    created_at: { type: "string", format: "date-time" },
+                                    actor_name: { type: ["string", "null"] },
+                                    result: { type: ["string", "null"] },
+                                },
+                            },
+                        },
                     },
                 },
             ],
@@ -2318,7 +2347,8 @@ function schemas(): Record<string, unknown> {
         MarketplaceSyncOrderRequest: {
             type: "object",
             properties: {
-                order_id: { type: "string" },
+                order_id: { type: "string", description: "Internal record identifier; do not display to end users" },
+                order_number: { type: "string" },
                 external_order_id: { type: "string" },
                 seller_id: { type: "string" },
                 shop_id: { type: "string" },
@@ -2404,7 +2434,7 @@ export function buildOpenApiDocument(request: Request): Record<string, unknown> 
         openapi: "3.1.0",
         info: {
             title: "Omnichannel Commerce CRM API",
-            version: "1.8.2-th-42",
+            version: "1.8.3-th-43",
             description: [
                 "เอกสาร API ของ Cloudflare Worker สำหรับ Omnichannel Commerce CRM",
                 "",
