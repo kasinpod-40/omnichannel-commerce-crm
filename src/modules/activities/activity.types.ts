@@ -34,7 +34,7 @@ export type ActivityValue =
 
 export interface Activity {
     event_id: string;
-    customer_record_id: string;
+    customer_record_id?: string;
     action: ActivityAction;
     old_value?: ActivityValue;
     new_value?: ActivityValue;

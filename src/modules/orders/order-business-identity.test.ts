@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveOrderBusinessIdentity } from './order-business-identity';
+import { expandOrderBusinessSearchTerms, resolveOrderBusinessIdentity } from './order-business-identity';
 
 describe('resolveOrderBusinessIdentity', () => {
   it('ใช้ order_number สำหรับ LINE แม้มี external_order_id', () => {
@@ -21,6 +21,18 @@ describe('resolveOrderBusinessIdentity', () => {
     }, 'Shopee')).toMatchObject({
       displayOrderNumber: '260630TH000001',
     });
+  });
+
+
+  it('Marketplace ที่ไม่มี external_order_id ไม่ใช้เลขภายในเป็น fallback', () => {
+    expect(resolveOrderBusinessIdentity({ order_number: 'ORD-INTERNAL-1' }, 'Lazada').displayOrderNumber).toBe('');
+  });
+
+  it('ถอด prefix เลขเอกสารเพื่อค้นหา Order ต้นทาง', () => {
+    expect(expandOrderBusinessSearchTerms('QT-ORD-20260630-0001')).toEqual([
+      'qt-ord-20260630-0001',
+      'ord-20260630-0001',
+    ]);
   });
 
   it('อ่าน alias ของ Lark field แบบ case-insensitive', () => {

@@ -112,15 +112,22 @@ function isPlaceholderCompanyValue(value?: string): boolean {
     );
 }
 
+function normalizeBrandColor(value: string | undefined, fallback: string): string {
+    const normalized = value?.trim() ?? "";
+    return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized : fallback;
+}
+
 function companyFromEnv(env: Env) {
     return {
-        name: env.DOCUMENT_COMPANY_NAME?.trim() || "ชื่อบริษัท / ร้านค้า",
-        address: env.DOCUMENT_COMPANY_ADDRESS?.trim() || "-",
-        tax_id: env.DOCUMENT_COMPANY_TAX_ID?.trim() || undefined,
-        branch: env.DOCUMENT_COMPANY_BRANCH?.trim() || undefined,
-        phone: env.DOCUMENT_COMPANY_PHONE?.trim() || undefined,
-        email: env.DOCUMENT_COMPANY_EMAIL?.trim() || undefined,
+        name: env.DOCUMENT_COMPANY_NAME?.trim() || "บริษัท ตัวอย่าง จำกัด",
+        address: env.DOCUMENT_COMPANY_ADDRESS?.trim() || "99/99 ถนนสุขุมวิท แขวงคลองตันเหนือ เขตวัฒนา กรุงเทพมหานคร 10110",
+        tax_id: env.DOCUMENT_COMPANY_TAX_ID?.trim() || "0105559999999",
+        branch: env.DOCUMENT_COMPANY_BRANCH?.trim() || "สำนักงานใหญ่",
+        phone: env.DOCUMENT_COMPANY_PHONE?.trim() || "02-000-0000",
+        email: env.DOCUMENT_COMPANY_EMAIL?.trim() || "contact@example.co.th",
         logo_url: env.DOCUMENT_LOGO_URL?.trim() || undefined,
+        primary_color: normalizeBrandColor(env.DOCUMENT_COMPANY_PRIMARY_COLOR, "#15865A"),
+        accent_color: normalizeBrandColor(env.DOCUMENT_COMPANY_ACCENT_COLOR, "#E8FAF2"),
     };
 }
 

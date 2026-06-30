@@ -61,8 +61,14 @@ describe("document service", () => {
 
         const html = renderDocumentHtml(model);
         expect(html).toContain("ใบแจ้งหนี้");
+        expect(html).toContain("บริษัท ทดสอบ จำกัด");
+        expect(html).toContain("--primary: #15865A");
         expect(html).toContain("พิมพ์ / บันทึกเป็น PDF");
         expect(html).toContain("ค่าจัดส่ง / ส่วนลด / ปรับยอด");
+        expect(html).toContain("กำลังดำเนินการ");
+        expect(html).toContain("ชำระแล้ว");
+        expect(html).not.toContain("OmniCommerce CRM");
+        expect(html).not.toContain("Omnichannel Commerce CRM");
     });
 
     it("calculates VAT for tax invoice", () => {

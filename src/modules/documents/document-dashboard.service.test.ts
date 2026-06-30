@@ -170,6 +170,56 @@ describe("document-dashboard.service", () => {
         expect(mocks.clearDashboardReadCache).toHaveBeenCalled();
     });
 
+    it("สร้างเอกสาร Marketplace ได้แม้ไม่มี Customer link โดยใช้ข้อมูลลูกค้าบน Order", async () => {
+        const marketplaceOrder = {
+            ...order,
+            record_id: "rec-lazada-create",
+            fields: {
+                ...order.fields,
+                [ORDER_FIELDS.CUSTOMER]: [],
+                [ORDER_FIELDS.CHANNEL]: "Lazada",
+                [ORDER_FIELDS.EXTERNAL_ORDER_ID]: "1111517381415573",
+            },
+        };
+        mocks.getOrderByRecordId.mockResolvedValue(marketplaceOrder);
+
+        const result = await createDashboardDocument({
+            env,
+            requestUrl: "https://api.example.com/dashboard/documents",
+            orderId: "rec-lazada-create",
+            type: "quotation",
+            idempotencyKey: "document-marketplace-create",
+            actor: { userId: "user-admin", name: "Admin", role: "admin" },
+        });
+
+        expect(result.idempotent).toBe(false);
+        expect(mocks.generateAndSaveDocumentLink).toHaveBeenCalledWith(expect.objectContaining({
+            orderRecordId: "rec-lazada-create",
+            documentType: "quotation",
+        }));
+        expect(mocks.recordActivityOnce).toHaveBeenCalledWith(env, expect.objectContaining({
+            customer_record_id: undefined,
+            action: "DOCUMENT_CREATED",
+        }));
+    });
+
+    it("ตอบว่าสร้างสำเร็จเมื่อ URL ถูกบันทึกแล้วแม้ Activity audit ล้มเหลว", async () => {
+        mocks.recordActivityOnce.mockRejectedValueOnce(new Error("activity unavailable"));
+
+        const result = await createDashboardDocument({
+            env,
+            requestUrl: "https://api.example.com/dashboard/documents",
+            orderId: "rec-order-001",
+            type: "quotation",
+            idempotencyKey: "document-audit-failure",
+            actor: { userId: "user-admin", name: "Admin", role: "admin" },
+        });
+
+        expect(result.idempotent).toBe(false);
+        expect(mocks.generateAndSaveDocumentLink).toHaveBeenCalledTimes(1);
+        expect(mocks.clearDashboardReadCache).toHaveBeenCalled();
+    });
+
     it("ลบเฉพาะ URL field ของเอกสาร พร้อม audit และ cache invalidation", async () => {
         const result = await deleteDashboardDocument({
             env: { ...env, ORDERS_TABLE_ID: "orders-table" } as Env,
@@ -193,6 +243,66 @@ describe("document-dashboard.service", () => {
             new_value: expect.objectContaining({ document_number: "QT-20260601-0001", document_type: "quotation" }),
         }));
         expect(mocks.clearDashboardReadCache).toHaveBeenCalled();
+    });
+
+
+    it("ลบเอกสาร Marketplace/ข้อมูลเก่าได้แม้ไม่มี Customer link", async () => {
+        const legacyMarketplace = {
+            ...order,
+            record_id: "rec-lazada-legacy",
+            fields: {
+                ...order.fields,
+                [ORDER_FIELDS.CUSTOMER]: [],
+                [ORDER_FIELDS.CHANNEL]: "Lazada",
+                [ORDER_FIELDS.EXTERNAL_ORDER_ID]: "1111517381415573",
+            },
+        };
+        mocks.getDashboardOrders.mockResolvedValue([legacyMarketplace]);
+        mocks.buildDocumentNumberFromRecord.mockReturnValue("QT-1111517381415573");
+
+        const result = await deleteDashboardDocument({
+            env: { ...env, ORDERS_TABLE_ID: "orders-table" } as Env,
+            documentNumber: "QT-1111517381415573",
+            idempotencyKey: "document-delete-legacy-marketplace",
+            actor: { userId: "user-admin", name: "Admin", role: "admin" },
+        });
+
+        expect(result.deleted).toBe(true);
+        expect(mocks.updateLarkRecord).toHaveBeenCalledWith(
+            expect.anything(),
+            "orders-table",
+            "rec-lazada-legacy",
+            expect.objectContaining({ [ORDER_FIELDS.QUOTATION_URL]: null }),
+        );
+        expect(mocks.recordActivityOnce).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+            customer_record_id: undefined,
+            action: "DOCUMENT_DELETED",
+        }));
+    });
+
+    it("การลบที่สำเร็จไม่ย้อนเป็น Error เมื่อ Audit ขัดข้อง", async () => {
+        mocks.recordActivityOnce.mockRejectedValueOnce(new Error("ACTIVITY_WRITE_FAILED"));
+        await expect(deleteDashboardDocument({
+            env: { ...env, ORDERS_TABLE_ID: "orders-table" } as Env,
+            documentNumber: "QT-20260601-0001",
+            idempotencyKey: "document-delete-audit-failure",
+            actor: { userId: "user-admin", name: "Admin", role: "admin" },
+        })).resolves.toMatchObject({ deleted: true, idempotent: false });
+        expect(mocks.clearDashboardReadCache).toHaveBeenCalled();
+    });
+
+    it("DELETE ซ้ำหลังเอกสารถูกลบแล้วตอบสำเร็จแบบ idempotent", async () => {
+        mocks.getDashboardOrders.mockResolvedValue([]);
+        await expect(deleteDashboardDocument({
+            env,
+            documentNumber: "QT-ALREADY-DELETED",
+            idempotencyKey: "document-delete-already-gone",
+            actor: { userId: "user-admin", name: "Admin", role: "admin" },
+        })).resolves.toEqual({
+            deleted: true,
+            document_number: "QT-ALREADY-DELETED",
+            idempotent: true,
+        });
     });
 
     it("ใช้ delete idempotency guard และไม่ลบ field ซ้ำ", async () => {

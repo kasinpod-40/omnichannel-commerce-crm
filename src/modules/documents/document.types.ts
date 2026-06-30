@@ -17,6 +17,8 @@ export type DocumentCompany = {
     phone?: string;
     email?: string;
     logo_url?: string;
+    primary_color?: string;
+    accent_color?: string;
 };
 
 export type DocumentCustomer = {

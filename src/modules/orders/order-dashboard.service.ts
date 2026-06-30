@@ -21,7 +21,10 @@ import {
 } from "../dashboard-read/dashboard-read.records";
 import type { LarkOrderRecord } from "./order.repository";
 import { resolveOrderAmountEditPolicy, type OrderAmountEditBlockReason } from "./order-amount-policy";
-import { resolveOrderBusinessIdentity } from "./order-business-identity";
+import {
+    expandOrderBusinessSearchTerms,
+    resolveOrderBusinessIdentity,
+} from "./order-business-identity";
 import { resolveOrderPaymentDisplayState, type OrderPaymentDisplayState } from "./order-payment-state";
 import {
     buildOrderActivityIndex,
@@ -229,8 +232,9 @@ function dateValue(item: OrderRecordResponse, basis: OrderDateBasis): number {
 }
 
 function matchesQuery(item: OrderRecordResponse, query: OrderListQuery): boolean {
-    const search = query.search.trim().toLocaleLowerCase("th-TH");
+    const searchTerms = expandOrderBusinessSearchTerms(query.search);
     const text = [
+        item.display_order_number,
         item.order_number,
         item.external_order_id ?? "",
         item.customer.customer_name,
@@ -246,7 +250,7 @@ function matchesQuery(item: OrderRecordResponse, query: OrderListQuery): boolean
     const beforeEnd = dateTo === null || (eventAt > 0 && eventAt < dateTo);
 
     return (
-        (!search || text.includes(search)) &&
+        (searchTerms.length === 0 || searchTerms.some((term) => text.includes(term))) &&
         (!query.channel || item.channel === query.channel) &&
         (!query.order_status || item.order_status === query.order_status) &&
         (!query.payment_status || item.payment_status === query.payment_status) &&

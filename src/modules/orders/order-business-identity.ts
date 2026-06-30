@@ -48,7 +48,7 @@ export interface OrderBusinessIdentity {
 /**
  * Source of truth ของเลขคำสั่งซื้อที่ผู้ใช้เห็น
  * - LINE/Internal CRM ใช้ order_number
- * - Marketplace ใช้ external_order_id และ fallback เป็น order_number เฉพาะข้อมูลเก่าที่ external id หาย
+ * - Marketplace ใช้ external_order_id เท่านั้น เพื่อไม่ให้ผู้ใช้สับสนกับเลขภายในของระบบ
  * - record id ไม่ถูกใช้เป็นข้อความให้ผู้ใช้เห็น
  */
 export function resolveOrderBusinessIdentity(
@@ -58,8 +58,22 @@ export function resolveOrderBusinessIdentity(
   const orderNumber = readFirstText(fields, ORDER_NUMBER_ALIASES);
   const externalOrderId = readFirstText(fields, EXTERNAL_ORDER_ID_ALIASES) || null;
   const displayOrderNumber = isMarketplaceOrderChannel(channel)
-    ? externalOrderId ?? orderNumber
+    ? externalOrderId ?? ''
     : orderNumber;
 
   return { orderNumber, externalOrderId, displayOrderNumber };
+}
+
+
+const DOCUMENT_NUMBER_PREFIX = /^(?:QT|INV|TAX)-/i;
+
+/**
+ * ขยายคำค้นธุรกิจให้รองรับการวางเลขเอกสาร เช่น QT-ORD-... หรือ INV-12345
+ * โดย Backend ยังเป็นผู้ตัดสินผลค้นหาและไม่ใช้ record_id เป็นคำค้นของผู้ใช้
+ */
+export function expandOrderBusinessSearchTerms(value: string): string[] {
+  const normalized = value.trim().toLocaleLowerCase('th-TH');
+  if (!normalized) return [];
+  const stripped = normalized.replace(DOCUMENT_NUMBER_PREFIX, '');
+  return stripped && stripped !== normalized ? [normalized, stripped] : [normalized];
 }

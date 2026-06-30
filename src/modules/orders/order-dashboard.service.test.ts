@@ -107,6 +107,15 @@ describe("order dashboard service", () => {
         ]));
     });
 
+
+    it("ค้นหา Order ต้นทางได้เมื่อผู้ใช้วางเลขเอกสาร", async () => {
+        const line = await getOrderList(env, { ...baseQuery, search: "QT-ORD-20260630-024117-6F9E27" });
+        expect(line.items.map((item) => item.order_id)).toEqual(["rec_order_1"]);
+
+        const marketplace = await getOrderList(env, { ...baseQuery, search: "INV-tt-001" });
+        expect(marketplace.items.map((item) => item.order_id)).toEqual(["rec_order_2"]);
+    });
+
     it("Pagination ปรับเลขหน้าที่เกินกลับหน้าสุดท้าย", async () => {
         const result = await getOrderList(env, { ...baseQuery, page: 99, page_size: 1 });
         expect(result.page).toBe(2);

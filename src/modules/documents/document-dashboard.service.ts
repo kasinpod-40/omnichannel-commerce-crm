@@ -448,16 +448,10 @@ export async function deleteDashboardDocument(input: {
     const orders = await getDashboardOrders(input.env);
     const located = locateDocumentByNumber(input.env, orders, input.documentNumber);
     if (!located) {
-        throw new AuthError("DOCUMENT_NOT_FOUND", "Document was not found", 404);
+        // DELETE เป็น idempotent: เอกสารที่ถูกลบไปแล้วไม่ควรทำให้ผู้ใช้ติดอยู่กับ Error เดิม
+        return { deleted: true, document_number: input.documentNumber, idempotent: true };
     }
     const customerId = getFirstLinkedRecordId(located.order.fields[ORDER_FIELDS.CUSTOMER]);
-    if (!customerId) {
-        throw new AuthError(
-            "ORDER_CUSTOMER_MISSING",
-            "The order is not linked to a customer",
-            409
-        );
-    }
 
     await updateLarkRecord(
         input.env,
@@ -468,23 +462,34 @@ export async function deleteDashboardDocument(input: {
             [ORDER_FIELDS.UPDATED_AT]: Date.now(),
         }
     );
-    await recordActivityOnce(input.env, {
-        event_id: eventId,
-        customer_record_id: customerId,
-        action: "DOCUMENT_DELETED",
-        old_value: {
-            document_number: located.documentNumber,
-            document_type: located.type,
-        },
-        new_value: {
-            order_record_id: located.order.record_id,
-            document_type: located.type,
-            document_number: located.documentNumber,
-            actor: input.actor,
-            result: "success",
-        },
-    });
     clearDashboardReadCache();
+
+    // เอกสาร Marketplace/ข้อมูลเก่าอาจไม่มี Customer link หรือ Activity table อาจขัดข้อง
+    // การลบ field สำเร็จแล้วต้องไม่ย้อนกลับเป็น Error เพราะ Audit เป็นผลข้างเคียงหลังการลบ
+    try {
+        await recordActivityOnce(input.env, {
+            event_id: eventId,
+            customer_record_id: customerId || undefined,
+            action: "DOCUMENT_DELETED",
+            old_value: {
+                document_number: located.documentNumber,
+                document_type: located.type,
+            },
+            new_value: {
+                order_record_id: located.order.record_id,
+                document_type: located.type,
+                document_number: located.documentNumber,
+                actor: input.actor,
+                result: "success",
+            },
+        });
+    } catch (error) {
+        console.error("Document delete audit failed after field was cleared", {
+            document_number: located.documentNumber,
+            document_type: located.type,
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
     return {
         deleted: true,
         document_number: located.documentNumber,
@@ -524,14 +529,9 @@ export async function createDashboardDocument(input: {
     const order = await getOrderByRecordId(input.env, input.orderId);
     if (!order) throw new AuthError("ORDER_NOT_FOUND", "Order was not found", 404);
     const customerId = getFirstLinkedRecordId(order.fields[ORDER_FIELDS.CUSTOMER]);
-    if (!customerId) {
-        throw new AuthError(
-            "ORDER_CUSTOMER_MISSING",
-            "The order is not linked to a customer",
-            409
-        );
-    }
 
+    // Marketplace/ข้อมูลเก่าอาจไม่มี Customer link แต่มีชื่อ ที่อยู่ และข้อมูลภาษีอยู่บน Order แล้ว
+    // เอกสารจึงสร้างจาก Order ได้ตามปกติ ส่วน Activity linkage เป็น optional เช่นเดียวกับการลบเอกสาร
     const generated = await generateAndSaveDocumentLink({
         env: input.env,
         requestUrl: input.requestUrl,
@@ -539,24 +539,35 @@ export async function createDashboardDocument(input: {
         documentType: input.type,
         expiresMinutes: 1440,
     });
-    await recordActivityOnce(input.env, {
-        event_id: eventId,
-        customer_record_id: customerId,
-        action: "DOCUMENT_CREATED",
-        old_value: null,
-        new_value: {
-            order_record_id: input.orderId,
+    const createdDocumentNumber = buildDocumentViewModelFromRecord(
+        input.env,
+        order,
+        input.type
+    ).document_number;
+    try {
+        await recordActivityOnce(input.env, {
+            event_id: eventId,
+            customer_record_id: customerId || undefined,
+            action: "DOCUMENT_CREATED",
+            old_value: null,
+            new_value: {
+                order_record_id: input.orderId,
+                document_type: input.type,
+                document_number: createdDocumentNumber,
+                url: generated.url,
+                actor: input.actor,
+                result: "success",
+            },
+        });
+    } catch (error) {
+        // URL ถูกบันทึกใน Order แล้ว การล้มของ Activity หลังจากนั้นต้องไม่ทำให้ UI แจ้งว่าสร้างไม่สำเร็จ
+        // เลขเอกสารเป็น deterministic จึงไม่เกิดเลขซ้ำหากผู้ใช้ลองใหม่
+        console.error("Document create audit failed after URL was saved", {
+            document_number: createdDocumentNumber,
             document_type: input.type,
-            document_number: buildDocumentViewModelFromRecord(
-                input.env,
-                order,
-                input.type
-            ).document_number,
-            url: generated.url,
-            actor: input.actor,
-            result: "success",
-        },
-    });
+            error: error instanceof Error ? error.message : String(error),
+        });
+    }
     clearDashboardReadCache();
     return {
         document: await previewDashboardDocument(

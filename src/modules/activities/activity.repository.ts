@@ -78,10 +78,6 @@ export async function createActivity(
         [ACTIVITY_FIELDS.EVENT_ID]:
             activity.event_id,
 
-        [ACTIVITY_FIELDS.CUSTOMER]: [
-            activity.customer_record_id,
-        ],
-
         [ACTIVITY_FIELDS.ACTION]:
             activity.action,
 
@@ -94,6 +90,12 @@ export async function createActivity(
         [ACTIVITY_FIELDS.CREATED_AT]:
             activity.created_at ?? Date.now(),
     };
+
+
+    // เอกสาร Marketplace/ข้อมูลเก่าอาจไม่มี Customer link แต่ Audit ยังต้องบันทึกได้
+    if (activity.customer_record_id?.trim()) {
+        fields[ACTIVITY_FIELDS.CUSTOMER] = [activity.customer_record_id.trim()];
+    }
 
     const result = await createLarkRecord(
         env,

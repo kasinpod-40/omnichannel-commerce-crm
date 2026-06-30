@@ -88,6 +88,8 @@ export interface Env {
     DOCUMENT_COMPANY_PHONE?: string;
     DOCUMENT_COMPANY_EMAIL?: string;
     DOCUMENT_LOGO_URL?: string;
+    DOCUMENT_COMPANY_PRIMARY_COLOR?: string;
+    DOCUMENT_COMPANY_ACCENT_COLOR?: string;
     DOCUMENT_NOTE?: string;
     DOCUMENT_QUOTATION_VALID_DAYS?: string;
     DOCUMENT_VAT_RATE?: string;
