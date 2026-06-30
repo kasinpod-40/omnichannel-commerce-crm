@@ -114,7 +114,9 @@ describe("GET /dashboard/summary", () => {
                 mode: "month",
                 value: "2026-06",
                 granularity: "day",
-            })
+            }),
+            expect.any(Number),
+            "all"
         );
         await expect(response.json()).resolves.toMatchObject({
             totals: { revenue_thb: 1_000 },
@@ -144,7 +146,34 @@ describe("GET /dashboard/summary", () => {
                 mode: "range",
                 value: "2026-01-01..2026-04-15",
                 granularity: "week",
-            })
+            }),
+            expect.any(Number),
+            "all"
+        );
+    });
+
+    it("ส่ง scope marketplace ไป Service ตาม query", async () => {
+        const session = await createAuthSession(env, user);
+        const response = await handleCommerceDashboardSummary(
+            new Request(
+                "https://api.example.com/dashboard/summary?scope=marketplaces&period_mode=year&period_value=2026",
+                {
+                    headers: {
+                        Origin: "https://crm.example.com",
+                        Cookie: `crm_session=${encodeURIComponent(session.token)}`,
+                    },
+                }
+            ),
+            env
+        );
+
+        expect(response.status).toBe(200);
+        expect(getCommerceDashboardSummary).toHaveBeenCalledWith(
+            env,
+            "th",
+            expect.objectContaining({ mode: "year", value: "2026" }),
+            expect.any(Number),
+            "marketplaces"
         );
     });
 

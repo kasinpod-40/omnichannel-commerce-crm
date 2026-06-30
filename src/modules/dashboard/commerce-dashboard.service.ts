@@ -484,6 +484,9 @@ const ACTIVITY_TITLES: Record<ActivityAction, { th: string; en: string }> = {
     PAYMENT_OVERDUE: { th: "คำสั่งซื้อเกินกำหนดชำระ", en: "Payment became overdue" },
     MARKETPLACE_ORDER_CREATED: { th: "ได้รับคำสั่งซื้อใหม่จาก Marketplace", en: "New marketplace order received" },
     MARKETPLACE_ORDER_UPDATED: { th: "อัปเดตคำสั่งซื้อ Marketplace", en: "Marketplace order updated" },
+    ORDER_AMOUNT_UPDATED: { th: "แก้ไขยอดเงินคำสั่งซื้อ", en: "Order amount updated" },
+    ORDER_AMOUNT_UPDATE_FAILED: { th: "แก้ไขยอดเงินคำสั่งซื้อไม่สำเร็จ", en: "Order amount update failed" },
+    DOCUMENT_CREATED: { th: "สร้างเอกสารคำสั่งซื้อ", en: "Order document created" },
 };
 
 function mapRecentActivities(

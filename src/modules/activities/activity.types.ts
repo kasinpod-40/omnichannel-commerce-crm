@@ -18,7 +18,10 @@ export type ActivityAction =
     | "SALES_ASSIGNED"
     | "PAYMENT_OVERDUE"
     | "MARKETPLACE_ORDER_CREATED"
-    | "MARKETPLACE_ORDER_UPDATED";
+    | "MARKETPLACE_ORDER_UPDATED"
+    | "ORDER_AMOUNT_UPDATED"
+    | "ORDER_AMOUNT_UPDATE_FAILED"
+    | "DOCUMENT_CREATED";
 
 export type ActivityValue =
     | string

@@ -20,6 +20,8 @@ import {
     getDashboardOrders,
 } from "../dashboard-read/dashboard-read.records";
 import type { LarkOrderRecord } from "./order.repository";
+import { resolveOrderAmountEditPolicy, type OrderAmountEditBlockReason } from "./order-amount-policy";
+import { resolveOrderPaymentDisplayState, type OrderPaymentDisplayState } from "./order-payment-state";
 import {
     buildOrderActivityIndex,
     classifyOrderWorkQueue,
@@ -29,6 +31,7 @@ import {
 
 export type OrderStatusResponse = "Draft" | "Confirmed" | "Completed" | "Cancelled";
 export type PaymentStatusResponse = "Pending" | "Paid" | "Overdue";
+export type PaymentDisplayStatusResponse = OrderPaymentDisplayState;
 export type OrderSyncStatusResponse = "synced" | "pending" | "failed";
 export type OrderDateBasis = "created_at" | "paid_at" | "updated_at";
 
@@ -48,12 +51,15 @@ export type OrderRecordResponse = {
     total_amount: number;
     order_status: OrderStatusResponse;
     payment_status: PaymentStatusResponse;
+    payment_display_status: PaymentDisplayStatusResponse;
     address: string | null;
     tracking_number: string | null;
     payment_verified: boolean;
     payment_review_available: boolean;
     work_queue: OrderWorkQueue;
     missing_delivery_fields: MissingDeliveryField[];
+    amount_edit_allowed: boolean;
+    amount_edit_block_reason: OrderAmountEditBlockReason | null;
     sync_status: OrderSyncStatusResponse;
     sync_error: string | null;
     created_at: string;
@@ -67,6 +73,8 @@ export type OrderListResponse = {
     summary: {
         total_orders: number;
         pending_payment_orders: number;
+        unpaid_orders: number;
+        payment_review_orders: number;
         paid_orders: number;
         needs_attention_orders: number;
     };
@@ -88,6 +96,7 @@ export type OrderListQuery = {
     channel: OrderRecordResponse["channel"] | null;
     order_status: OrderStatusResponse | null;
     payment_status: PaymentStatusResponse | null;
+    payment_state?: PaymentDisplayStatusResponse | null;
     work_queue?: OrderWorkQueue | null;
     date_basis?: OrderDateBasis | null;
     date_from_ms?: number | null;
@@ -162,6 +171,14 @@ function mapOrder(
     const orderPhone = nullableText(fields[ORDER_FIELDS.PHONE]);
     const orderOwner = nullableText(fields[ORDER_FIELDS.SALES_OWNER]);
     const syncStatus = normalizeSyncStatus(fields, channel);
+    const paymentStatus = normalizePaymentStatus(fields[ORDER_FIELDS.PAYMENT_STATUS]);
+    const paymentVerified = getLarkBoolean(fields[ORDER_FIELDS.PAYMENT_VERIFIED], false);
+    const paymentDisplayStatus = resolveOrderPaymentDisplayState({
+        paymentStatus,
+        paymentVerified,
+        workQueue: classification.work_queue,
+    });
+    const amountEditPolicy = resolveOrderAmountEditPolicy(record, classification);
 
     return {
         order_id: record.record_id,
@@ -178,13 +195,16 @@ function mapOrder(
         quantity: Math.max(0, getLarkNumber(fields[ORDER_FIELDS.QUANTITY], 0)),
         total_amount: Math.max(0, getLarkNumber(fields[ORDER_FIELDS.TOTAL_AMOUNT], 0)),
         order_status: orderStatus,
-        payment_status: normalizePaymentStatus(fields[ORDER_FIELDS.PAYMENT_STATUS]),
+        payment_status: paymentStatus,
+        payment_display_status: paymentDisplayStatus,
         address: nullableText(fields[ORDER_FIELDS.ADDRESS]),
         tracking_number: nullableText(fields[ORDER_FIELDS.TRACKING_NUMBER]),
-        payment_verified: getLarkBoolean(fields[ORDER_FIELDS.PAYMENT_VERIFIED], false),
+        payment_verified: paymentVerified,
         payment_review_available: classification.work_queue === "payment_review",
         work_queue: classification.work_queue,
         missing_delivery_fields: classification.missing_delivery_fields,
+        amount_edit_allowed: amountEditPolicy.allowed,
+        amount_edit_block_reason: amountEditPolicy.reason,
         sync_status: syncStatus,
         sync_error: syncStatus === "failed" ? "MARKETPLACE_SYNC_FAILED" : null,
         created_at: toIso(createdAt),
@@ -224,6 +244,7 @@ function matchesQuery(item: OrderRecordResponse, query: OrderListQuery): boolean
         (!query.channel || item.channel === query.channel) &&
         (!query.order_status || item.order_status === query.order_status) &&
         (!query.payment_status || item.payment_status === query.payment_status) &&
+        (!query.payment_state || item.payment_display_status === query.payment_state) &&
         (!query.work_queue || item.work_queue === query.work_queue) &&
         afterStart &&
         beforeEnd
@@ -261,8 +282,10 @@ export async function getOrderList(
         summary: {
             total_orders: allItems.length,
             pending_payment_orders: allItems.filter((item) =>
-                item.work_queue === "waiting_payment" || item.work_queue === "waiting_new_slip"
+                item.payment_display_status === "unpaid" || item.payment_display_status === "payment_review"
             ).length,
+            unpaid_orders: allItems.filter((item) => item.payment_display_status === "unpaid").length,
+            payment_review_orders: allItems.filter((item) => item.payment_display_status === "payment_review").length,
             paid_orders: allItems.filter((item) => item.payment_status === "Paid").length,
             needs_attention_orders: allItems.filter((item) =>
                 item.work_queue !== "none" || item.payment_status === "Overdue" || item.sync_status === "failed"

@@ -3,6 +3,7 @@ import { AuthError, isAuthError } from "../../modules/auth/auth.error";
 import { verifyAuthSession } from "../../modules/auth/auth.session";
 import {
     getCommerceDashboardSummary,
+    type DashboardDataScope,
     type DashboardLanguage,
 } from "../../modules/dashboard/commerce-dashboard.service";
 import { parseDashboardPeriodInput } from "../../modules/dashboard/dashboard-period";
@@ -23,6 +24,13 @@ function json(data: unknown, status = 200): Response {
 
 function parseLanguage(request: Request): DashboardLanguage {
     return new URL(request.url).searchParams.get("lang") === "en" ? "en" : "th";
+}
+
+
+function parseScope(request: Request): DashboardDataScope {
+    const value = new URL(request.url).searchParams.get("scope");
+    if (value === "line" || value === "marketplaces") return value;
+    return "all";
 }
 
 function parsePeriod(request: Request) {
@@ -126,7 +134,9 @@ export async function handleCommerceDashboardSummary(
         const summary = await getCommerceDashboardSummary(
             env,
             parseLanguage(request),
-            parsePeriod(request)
+            parsePeriod(request),
+            Date.now(),
+            parseScope(request)
         );
 
         return addAuthCorsHeaders(json(summary), request, env);

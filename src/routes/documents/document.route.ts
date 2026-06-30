@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { handleDocumentLinkRoutes } from "./link.route";
 import { handleTaxFormRoutes } from "./tax-form.route";
 import { handleDocumentViewRoutes } from "./view.route";
+import { handleDashboardDocumentRoutes } from "./dashboard.route";
 
 export async function handleDocumentRoutes(
     request: Request,
@@ -9,6 +10,7 @@ export async function handleDocumentRoutes(
     pathname: string
 ): Promise<Response | null> {
     const handlers = [
+        handleDashboardDocumentRoutes,
         handleDocumentLinkRoutes,
         handleTaxFormRoutes,
         handleDocumentViewRoutes,
