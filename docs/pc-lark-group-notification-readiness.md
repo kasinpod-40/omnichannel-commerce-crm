@@ -2,13 +2,18 @@
 
 ## Purpose
 
-Validate the existing Production & Stock notification path before controlled activation:
+แยกปลายทางแจ้งเตือน Production & Stock ออกจากกลุ่ม CRM เดิม โดยไม่ทับหรือลบ Webhook เดิม:
 
 ```text
-PC exception
+CRM notifications
+→ LARK_GROUP_WEBHOOK_URL
+→ กลุ่ม CRM เดิม
+
+PC_STOCK_EXCEPTION / PC_MATERIAL_SHORTAGE
 → Notifications table
 → crm-notifications Queue
-→ Lark Group Custom Bot Webhook
+→ LARK_PC_GROUP_WEBHOOK_URL
+→ กลุ่ม Production & Stock ใหม่
 ```
 
 Supported PC notification types:
@@ -18,10 +23,24 @@ Supported PC notification types:
 
 ## Locked behavior
 
-- Stock and material exceptions are sent to the Lark Group directly.
-- Normal sales and normal stock changes must not generate PC alerts.
-- The Production & Stock Dashboard does not include a customer-facing notification grid.
-- `PC_INVENTORY_ENABLED` remains `false` during readiness validation.
+- `LARK_GROUP_WEBHOOK_URL` ต้องคงอยู่สำหรับ Lead, Payment, Sale และ Marketplace.
+- `LARK_PC_GROUP_WEBHOOK_URL` ใช้เฉพาะ Production & Stock.
+- เมื่อไม่มี `LARK_PC_GROUP_WEBHOOK_URL` ระบบต้อง fail closed และห้าม fallback ไปกลุ่ม CRM เดิม.
+- Stock และ Material exception ถูกบันทึกแบบ idempotent แล้วส่งผ่าน Notification Queue.
+- การเปลี่ยน Stock ปกติไม่สร้าง PC alert.
+- Production & Stock Dashboard ไม่ต้องมี Notification Grid.
+- `PC_INVENTORY_ENABLED` ต้องคงเป็น `false` ระหว่าง Readiness validation.
+
+## Routing contract
+
+การส่งข้อความธรรมดาจะตรวจเฉพาะหัวข้อบรรทัดแรกที่สร้างจาก Notification formatter:
+
+```text
+[CRM] 📦 พบข้อยกเว้นด้านสต็อกสินค้า
+[CRM] 🧵 วัตถุดิบไม่เพียงพอสำหรับแผนผลิต
+```
+
+สองหัวข้อนี้ไป `LARK_PC_GROUP_WEBHOOK_URL`; หัวข้ออื่นทั้งหมดไป `LARK_GROUP_WEBHOOK_URL`. การตรวจเฉพาะบรรทัดแรกป้องกันข้อความรายละเอียดที่บังเอิญมีคำเดียวกันจากการถูก route ผิดกลุ่ม.
 
 ## Commands
 
@@ -31,54 +50,65 @@ npm run pc:notifications:test -- --confirm-send PC-LARK-GROUP-TEST
 npm run pc:notifications:verify
 ```
 
-The final evidence is written locally to:
+Final evidence เขียนลงไฟล์ Local:
 
 ```text
 pc-lark-group-notification-result.json
 ```
 
-The evidence file is ignored by Git.
+ไฟล์ Evidence ถูก Ignore โดย Git.
 
 ## What PLAN checks
 
 - `PC_INVENTORY_ENABLED=false`
 - `NOTIFICATION_QUEUE` producer exists
 - `crm-notifications` consumer and DLQ exist
-- both PC notification types exist
-- PC alert service records and dispatches notifications
-- Queue runtime routes notification messages to the consumer
-- Lark Group Webhook provider and keyword contract exist
-- Cloudflare Worker secret list contains `LARK_GROUP_WEBHOOK_URL`
+- PC notification types ทั้งสองมีอยู่
+- PC alert service บันทึกและ dispatch Notification
+- Queue runtime route ไป Notification consumer
+- Provider มี Dedicated PC routing และ fail-closed regression
+- Cloudflare Worker secrets มีทั้ง:
+  - `LARK_GROUP_WEBHOOK_URL`
+  - `LARK_PC_GROUP_WEBHOOK_URL`
 
-`wrangler secret list` reveals secret names only, not secret values.
+`wrangler secret list` แสดงเฉพาะชื่อ Secret และไม่เปิดเผยค่า.
 
-## One-time Group test
+## One-time Production & Stock Group test
 
-The test command requires the same `LARK_GROUP_WEBHOOK_URL` value in the local `.dev.vars` file because Cloudflare secret values cannot be read back.
+คำสั่ง Test ต้องมีค่าเดียวกับ Secret `LARK_PC_GROUP_WEBHOOK_URL` ใน Local `.dev.vars` เพราะ Cloudflare ไม่สามารถอ่านค่าของ Secret กลับมาได้.
 
-The command sends exactly one text message:
-
-```text
-[CRM] 🧪 ทดสอบการแจ้งเตือน Production & Stock
+```env
+LARK_PC_GROUP_WEBHOOK_URL="Webhook URL ของกลุ่ม Production & Stock ใหม่"
+LARK_GROUP_WEBHOOK_KEYWORD="CRM"
 ```
 
-The test does not:
+ห้ามนำ URL ใหม่นี้ไปทับ `LARK_GROUP_WEBHOOK_URL`.
 
-- create or update Lark Base records;
-- send a Cloudflare Queue message;
-- change Stock, Material, Production, or Order data;
-- deploy the Worker;
-- enable Production & Stock automation.
+Test ส่งข้อความตรงเข้า Group ใหม่เพียงหนึ่งข้อความ:
+
+```text
+[CRM] 🧪 ทดสอบกลุ่มแจ้งเตือน Production & Stock
+```
+
+Test ไม่ทำสิ่งต่อไปนี้:
+
+- ไม่แก้ Webhook ของกลุ่ม CRM เดิม
+- ไม่สร้างหรือแก้ Lark Base record
+- ไม่ส่ง Cloudflare Queue message
+- ไม่แก้ Stock, Material, Production, Order หรือ Notification record
+- ไม่ Deploy Worker
+- ไม่เปิด Production & Stock automation
 
 ## VERIFY contract
 
-VERIFY requires successful send-test evidence from the previous 24 hours and rechecks all static and remote-secret contracts without sending another message.
+VERIFY ต้องพบ Send-test evidence ที่สำเร็จภายใน 24 ชั่วโมง และตรวจ Static/Remote-secret contracts ซ้ำโดยไม่ส่งข้อความเพิ่ม.
 
 Expected safety evidence:
 
 ```json
 {
   "pc_inventory_enabled": false,
+  "old_crm_group_webhook_changed": false,
   "lark_record_mutations": 0,
   "queue_messages_sent": 0,
   "stock_mutations": 0,
@@ -91,8 +121,9 @@ Expected safety evidence:
 
 ## Failure handling
 
-- Missing Cloudflare secret: stop without sending.
-- Missing local webhook URL: stop without sending.
-- Lark keyword mismatch: stop and report the Lark response.
-- HTTP/network failure: stop and retain `PC_INVENTORY_ENABLED=false`.
-- No secret value is printed in output or evidence.
+- Secret เดิมหรือ Secret ใหม่หาย: หยุดโดยไม่ส่งข้อความ.
+- Local `LARK_PC_GROUP_WEBHOOK_URL` หาย: หยุดโดยไม่ส่งข้อความ.
+- PC Webhook ไม่ได้ตั้งค่าใน Runtime: fail closed และห้าม fallback ไปกลุ่ม CRM เดิม.
+- Lark Keyword mismatch: หยุดและรายงาน Response โดยไม่เปิด Feature Flag.
+- HTTP/Network failure: หยุดและคง `PC_INVENTORY_ENABLED=false`.
+- ไม่พิมพ์หรือเขียนค่า Secret ลง Evidence.
