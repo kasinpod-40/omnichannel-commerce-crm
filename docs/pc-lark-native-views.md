@@ -44,7 +44,9 @@ Names and icons are locked and must not be renamed.
   - `notification_type` is any of `PC_STOCK_EXCEPTION`, `PC_MATERIAL_SHORTAGE`
   - `status` is any of `Pending`, `Sent`, `Failed`
 
-The script resolves table fields and existing views by ID at runtime. It creates missing views, updates mismatched filters, reuses matching views, preserves existing hidden fields, and hides only technical JSON fields when present.
+The script resolves table fields, select option IDs, and existing views at runtime. It creates missing views, updates mismatched filters, reuses matching views, preserves existing hidden fields, and hides only technical JSON fields when available.
+
+Read-back verification accepts Lark's equivalent serialized forms for select values and operators, retries eventual-consistency reads, and prints a redacted actual-versus-expected diagnostic if verification still fails.
 
 ## Safety
 
