@@ -169,3 +169,4 @@ dist
 # Local OS and operator verification artifacts
 .DS_Store
 pc-runtime-schema-result.json
+pc-lark-views-result.json
