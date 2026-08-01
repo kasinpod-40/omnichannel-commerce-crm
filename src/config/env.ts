@@ -53,9 +53,12 @@ export interface Env {
     PC_MATERIALS_TABLE_ID?: string;
     PC_PRODUCTION_TABLE_ID?: string;
     PC_INVENTORY_ENABLED?: string;
+    // Demo Shop เปิดเฉพาะหน้า Order simulation และต้องทำงานคู่กับ PC_INVENTORY_ENABLED=false
+    PC_DEMO_SHOP_ENABLED?: string;
 
     AI?: WorkersAIBinding;
     WORKERS_TEXT_MODEL?: string;
+
 
     GEMINI_API_KEY?: string;
     GEMINI_TEXT_MODEL?: string;
@@ -86,6 +89,7 @@ export interface Env {
     LAZADA_POLL_OVERLAP_MINUTES?: string;
     LAZADA_POLL_PAGE_SIZE?: string;
     LAZADA_POLL_MAX_PAGES?: string;
+
 
     DOCUMENT_LINK_SECRET?: string;
     DOCUMENT_WORKFLOW_TOKEN?: string;
