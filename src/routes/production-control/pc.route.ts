@@ -12,6 +12,7 @@ import {
     enqueuePcOrderSyncBatch,
     enqueuePcProductionComplete,
 } from "../../queues/marketplace-event.producer";
+import { assertPcInventoryEnabled } from "../../modules/production-control/pc.repository";
 import { OperationalError } from "../../utils/errors";
 import {
     addAuthCorsHeaders,
@@ -63,6 +64,8 @@ async function assertPcMutationPermission(
             403
         );
     }
+
+    assertPcInventoryEnabled(env);
 
     return {
         user_id: session.user.user_id,

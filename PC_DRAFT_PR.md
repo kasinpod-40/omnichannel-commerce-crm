@@ -9,9 +9,10 @@
 
 ## Safety
 
-- The production feature flag remains `false`.
+- The production feature flag remains `false`, and every PC mutation path now fails closed while it is disabled.
 - Runtime schema changes are a separate explicit plan/apply/verify step.
 - Bulk reconciliation requires selected Order record IDs and explicit confirmation; it never defaults to all historical Orders.
+- Disabled/stale Queue messages are acknowledged without changing Production records.
 - No deployment or remote mutation is part of this PR.
 
 ## Validation

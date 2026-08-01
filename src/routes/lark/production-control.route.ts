@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env";
+import { isPcInventoryEnabled } from "../../modules/production-control/pc.repository";
 import {
     enqueuePcMaterialRefresh,
     enqueuePcOrderSync,
@@ -15,6 +16,21 @@ import {
 
 function configuredWorkflowToken(env: Env): string {
     return env.LARK_WORKFLOW_TOKEN?.trim() ?? "";
+}
+
+function pcInventoryDisabledResponse(env: Env): Response | null {
+    if (isPcInventoryEnabled(env)) {
+        return null;
+    }
+
+    return jsonResponse(
+        {
+            ok: false,
+            code: "PC_INVENTORY_DISABLED",
+            message: "Production & Stock Control is disabled",
+        },
+        503
+    );
 }
 
 function authorizeWorkflow(
@@ -126,6 +142,8 @@ export async function handlePcOrderSyncWorkflow(
     if (parsed instanceof Response) return parsed;
     const unauthorized = authorizeWorkflow(request, env, parsed);
     if (unauthorized) return unauthorized;
+    const disabled = pcInventoryDisabledResponse(env);
+    if (disabled) return disabled;
 
     const orderRecordId = getOrderRecordId(parsed);
 
@@ -169,6 +187,8 @@ export async function handlePcMaterialRefreshWorkflow(
     if (parsed instanceof Response) return parsed;
     const unauthorized = authorizeWorkflow(request, env, parsed);
     if (unauthorized) return unauthorized;
+    const disabled = pcInventoryDisabledResponse(env);
+    if (disabled) return disabled;
 
     await enqueuePcMaterialRefresh(env, {
         event_id: idempotencyKey(
@@ -190,6 +210,8 @@ export async function handlePcProductionCompleteWorkflow(
     if (parsed instanceof Response) return parsed;
     const unauthorized = authorizeWorkflow(request, env, parsed);
     if (unauthorized) return unauthorized;
+    const disabled = pcInventoryDisabledResponse(env);
+    if (disabled) return disabled;
 
     const recordId = productionRecordId(parsed);
     const quantity = actualQuantity(parsed);

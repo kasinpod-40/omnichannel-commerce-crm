@@ -32,6 +32,7 @@ import {
     productionMaterialRequirements,
 } from "./pc.logic";
 import {
+    assertPcInventoryEnabled,
     batchCreatePcProduction,
     batchUpdatePcMaterials,
     batchUpdatePcProducts,
@@ -39,7 +40,6 @@ import {
     createPcProduction,
     findPcProductionById,
     getPcProductionByRecordId,
-    isPcInventoryEnabled,
     listPcMaterials,
     listPcProduction,
     listPcProducts,
@@ -666,6 +666,7 @@ export async function refreshPcMaterialPlan(env: Env): Promise<{
     production_updated: number;
     critical_materials: number;
 }> {
+    assertPcInventoryEnabled(env);
     const [products, materials, production] = await Promise.all([
         listPcProducts(env),
         listPcMaterials(env),
@@ -820,14 +821,7 @@ export async function reconcileOrderInventory(
     env: Env,
     orderRecordId: string
 ): Promise<PcOrderInventoryResult> {
-    if (!isPcInventoryEnabled(env)) {
-        throw pcError(
-            "PC_INVENTORY_DISABLED",
-            "Production & Stock Control is disabled",
-            503,
-            true
-        );
-    }
+    assertPcInventoryEnabled(env);
 
     const order = await getOrderByRecordId(env, orderRecordId);
 
@@ -1114,6 +1108,7 @@ export async function reconcileSelectedOrders(
     requested: number;
     order_record_ids: string[];
 }> {
+    assertPcInventoryEnabled(env);
     const uniqueIds = [...new Set(requestedRecordIds.map((id) => id.trim()))];
 
     if (uniqueIds.length === 0 || uniqueIds.length > 100) {
@@ -1304,6 +1299,7 @@ export async function completePcProduction(
         owner?: string;
     }
 ): Promise<PcProductionCompletionResult> {
+    assertPcInventoryEnabled(env);
     const quantity = roundQuantity(Number(input.actual_qty));
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -1624,6 +1620,7 @@ export async function updatePcProductionStatus(
         owner?: string;
     }
 ): Promise<PcProductionBatch> {
+    assertPcInventoryEnabled(env);
     const [batch, products, materials, production] = await Promise.all([
         getPcProductionByRecordId(env, input.production_record_id),
         listPcProducts(env),
@@ -1853,6 +1850,7 @@ export async function createManualPcProduction(
         notes?: string;
     }
 ): Promise<PcProductionBatch> {
+    assertPcInventoryEnabled(env);
     const products = await listPcProducts(env);
     const product = resolveProduct(products, { sku: input.product_sku });
     const quantity = roundQuantity(Number(input.planned_qty));

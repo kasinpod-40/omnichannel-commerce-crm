@@ -269,6 +269,34 @@ describe("marketplace event queue consumer", () => {
     });
 
 
+    it("acknowledges a disabled completion without changing the Production record", async () => {
+        completePcProduction.mockRejectedValue(
+            new OperationalError(
+                "PC_INVENTORY_DISABLED",
+                "Production & Stock Control is disabled",
+                { retryable: false, status: 503 }
+            )
+        );
+        const message = pcQueueMessage({
+            kind: "pc_production_complete",
+            production_record_id: "production-rec-1",
+            actual_qty: 12,
+            idempotency_key: "complete-disabled-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [message],
+            },
+            {} as Env
+        );
+
+        expect(markPcProductionBlocked).not.toHaveBeenCalled();
+        expect(message.ack).toHaveBeenCalledOnce();
+        expect(message.retry).not.toHaveBeenCalled();
+    });
+
     it("acknowledges and marks a permanently blocked production completion", async () => {
         completePcProduction.mockRejectedValue(
             new OperationalError(

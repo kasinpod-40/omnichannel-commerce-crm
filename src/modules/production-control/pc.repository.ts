@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env";
+import { OperationalError } from "../../utils/errors";
 import {
     ORDER_FIELDS,
     PC_MATERIAL_FIELDS,
@@ -84,6 +85,21 @@ function assertPcConfiguration(
 
 export function isPcInventoryEnabled(env: Env): boolean {
     return env.PC_INVENTORY_ENABLED?.trim().toLowerCase() === "true";
+}
+
+export function assertPcInventoryEnabled(env: Env): void {
+    if (isPcInventoryEnabled(env)) {
+        return;
+    }
+
+    throw new OperationalError(
+        "PC_INVENTORY_DISABLED",
+        "Production & Stock Control is disabled",
+        {
+            retryable: false,
+            status: 503,
+        }
+    );
 }
 
 export function isPcInventoryConfigured(env: Env): boolean {

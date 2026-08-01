@@ -5,9 +5,9 @@
 - Repository: `kasinpod-40/omnichannel-commerce-crm`
 - Branch: `feature/pc-mvp-stock-production`
 - Baseline SHA: `4cc12a57a05b79c95161f87e7c571facd1f490cd`
-- Package: `1.9.0`
-- Health contract: `pc-stock-production-th-47`
-- OpenAPI version: `1.9.0-th-47`
+- Package: `1.9.1`
+- Health contract: `pc-stock-production-flag-guard-th-48`
+- OpenAPI version: `1.9.1-th-48`
 
 ## Confirmed Lark targets
 
@@ -28,7 +28,7 @@ The three PC tables already exist in the original Omnichannel Commerce CRM Base.
 - Production completion records a prepared posting state before stock writes and recovers old/new partial-write states on retry.
 - Queue messages are serialized through the existing `crm-marketplace-events` consumer with `max_concurrency=1`.
 - Dashboard and Lark Workflow routes are protected by existing session/origin/token controls.
-- Automatic hooks are fail-closed behind `PC_INVENTORY_ENABLED`.
+- Every automatic, Dashboard, Lark Workflow, Queue, and service mutation path fails closed behind `PC_INVENTORY_ENABLED`.
 - `POST /pc/reconcile/orders` requires an explicit list of 1-100 Order record IDs and `confirm_selected_orders=true`; there is no implicit historical all-order run.
 - Queue failure after an already-persisted Payment/Marketplace/Order change does not make the core business operation appear rolled back; the Order is marked `BLOCKED` best-effort for operator follow-up.
 
@@ -50,7 +50,7 @@ The three PC tables already exist in the original Omnichannel Commerce CRM Base.
 | Runtime schema mock apply/verify | PASS | Local deterministic Lark mock passed create/merge/read-back lifecycle |
 | Runtime schema JavaScript syntax | PASS | `node --check scripts/apply-pc-runtime-schema.mjs` |
 | Lockfile registry policy | PASS | `node scripts/check-lockfile-registry.mjs` |
-| Package/lock version consistency | PASS | package and lock root are `1.9.0` |
+| Package/lock version consistency | PASS | package and lock root are `1.9.1` |
 | Diff whitespace check | PASS | `git diff --check` against the locked baseline |
 | Conflict marker scan | PASS | No unresolved merge markers |
 | Secret-pattern scan | PASS | No local App Secret/session/token values added |

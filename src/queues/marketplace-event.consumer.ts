@@ -143,6 +143,7 @@ async function handlePcMessages(
 
             if (
                 !classification.retryable &&
+                classification.code !== "PC_INVENTORY_DISABLED" &&
                 message.body.kind === "pc_production_complete"
             ) {
                 try {

@@ -63,6 +63,10 @@ Completion ทำงานตามลำดับ:
 
 หาก Retry หลังเกิด Partial write จะใช้ transition เดิมตรวจ old/new value และปิดงานต่อโดยไม่ Post ซ้ำ
 
+## Feature flag safety
+
+เมื่อ `PC_INVENTORY_ENABLED` ไม่ใช่ `true` ระบบอนุญาตเฉพาะการอ่าน Overview เท่านั้น การสร้าง/อนุมัติ/เริ่ม/ยกเลิก/ปิด Production, การ Reconcile Order, Material refresh, Dashboard mutation, Lark Workflow และ Queue consumer จะหยุดแบบ fail-closed โดยไม่แก้ Product, Material, Production หรือ Order state
+
 ## Queue
 
 ใช้ Queue `crm-marketplace-events` เดิม และ consumer `max_concurrency=1` เพื่อเรียงการแก้ Order/Product/Material stock โดยไม่สร้าง Queue framework ใหม่
