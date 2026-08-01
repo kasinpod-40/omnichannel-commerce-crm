@@ -109,7 +109,7 @@ async function request(method, endpoint, { token, body, retries = 4 } = {}) {
         const transient =
             response.status === 429 ||
             response.status >= 500 ||
-            [1254002, 1254608].includes(payload.code);
+            [1254002, 1254290, 1254291, 1254608].includes(payload.code);
 
         if (
             (!response.ok || payload.code !== 0) &&
@@ -121,9 +121,13 @@ async function request(method, endpoint, { token, body, retries = 4 } = {}) {
         }
 
         if (!response.ok || payload.code !== 0) {
+            const requestId =
+                response.headers.get("x-tt-logid") ||
+                response.headers.get("x-request-id") ||
+                "unknown";
             throw new Error(
                 redacted(
-                    `${method} ${endpoint} failed: HTTP ${response.status}; code=${payload.code}; msg=${payload.msg}`
+                    `${method} ${endpoint} failed: HTTP ${response.status}; code=${payload.code}; msg=${payload.msg}; request_id=${requestId}`
                 )
             );
         }
@@ -154,50 +158,43 @@ async function tenantToken() {
     return payload.tenant_access_token;
 }
 
-async function listFields(token, tableId) {
-    const fields = [];
+async function listPaged(token, endpoint) {
+    const items = [];
     let pageToken = "";
 
     do {
-        const params = new URLSearchParams({ page_size: "100" });
-        if (pageToken) params.set("page_token", pageToken);
-
+        const separator = endpoint.includes("?") ? "&" : "?";
+        const suffix = new URLSearchParams({
+            page_size: "100",
+            ...(pageToken ? { page_token: pageToken } : {}),
+        });
         const payload = await request(
             "GET",
-            `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields?${params}`,
+            `${endpoint}${separator}${suffix}`,
             { token }
         );
 
-        fields.push(...(payload.data?.items || []));
+        items.push(...(payload.data?.items || []));
         pageToken = payload.data?.has_more
             ? payload.data?.page_token || ""
             : "";
     } while (pageToken);
 
-    return fields;
+    return items;
 }
 
-async function listViews(token, tableId) {
-    const views = [];
-    let pageToken = "";
+function listFields(token, tableId) {
+    return listPaged(
+        token,
+        `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields`
+    );
+}
 
-    do {
-        const params = new URLSearchParams({ page_size: "100" });
-        if (pageToken) params.set("page_token", pageToken);
-
-        const payload = await request(
-            "GET",
-            `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/views?${params}`,
-            { token }
-        );
-
-        views.push(...(payload.data?.items || []));
-        pageToken = payload.data?.has_more
-            ? payload.data?.page_token || ""
-            : "";
-    } while (pageToken);
-
-    return views;
+function listViews(token, tableId) {
+    return listPaged(
+        token,
+        `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/views`
+    );
 }
 
 async function getView(token, tableId, viewId) {
@@ -239,13 +236,8 @@ async function patchView(token, tableId, viewId, body) {
 }
 
 function normalizeValueList(value) {
-    if (Array.isArray(value)) {
-        return value.map(String).sort();
-    }
-
-    if (typeof value !== "string") {
-        return [];
-    }
+    if (Array.isArray(value)) return value.map(String).sort();
+    if (typeof value !== "string") return [];
 
     try {
         const parsed = JSON.parse(value);
@@ -292,6 +284,7 @@ function viewMatches(view, desiredConditions, requiredHiddenFields) {
 }
 
 function viewPatchBody(
+    viewName,
     desiredConditions,
     existingHiddenFields,
     requiredHiddenFields
@@ -301,6 +294,7 @@ function viewPatchBody(
     ];
 
     return {
+        view_name: viewName,
         property: {
             filter_info: {
                 conditions: desiredConditions.map((condition) => ({
@@ -393,6 +387,30 @@ const viewSpecs = [
     },
 ];
 
+function resolveConditionValues(field, requestedValues, viewName) {
+    const fieldType = Number(field.type);
+
+    if (fieldType !== 3 && fieldType !== 4) {
+        return requestedValues.map(String);
+    }
+
+    const options = Array.isArray(field.property?.options)
+        ? field.property.options
+        : [];
+    const optionByName = new Map(
+        options.map((option) => [String(option.name), String(option.id)])
+    );
+
+    return requestedValues.map((value) => {
+        const optionId = optionByName.get(String(value));
+        assert(
+            optionId,
+            `Missing select option ${field.field_name}:${value} for view ${viewName}`
+        );
+        return optionId;
+    });
+}
+
 function resolveViewSpec(fieldByName, spec) {
     const conditions = spec.conditions.map((condition) => {
         const field = fieldByName.get(condition.field);
@@ -405,7 +423,7 @@ function resolveViewSpec(fieldByName, spec) {
         return {
             field_id: field.field_id,
             operator: condition.operator,
-            values: condition.values,
+            values: resolveConditionValues(field, condition.values, spec.name),
         };
     });
 
@@ -428,7 +446,16 @@ async function ensureView(token, tableId, existingViews, spec, fields) {
         fields.map((field) => [field.field_name, field])
     );
     const desired = resolveViewSpec(fieldByName, spec);
-    const existing = existingViews.find((view) => view.view_name === spec.name);
+    const matches = existingViews.filter(
+        (view) => view.view_name === spec.name
+    );
+
+    assert(
+        matches.length <= 1,
+        `Duplicate view names require manual review: ${spec.name}`
+    );
+
+    const existing = matches[0];
 
     if (!existing) {
         if (mode === "verify") {
@@ -447,7 +474,7 @@ async function ensureView(token, tableId, existingViews, spec, fields) {
             token,
             tableId,
             created.view_id,
-            viewPatchBody(desired.conditions, [], desired.hidden)
+            viewPatchBody(spec.name, desired.conditions, [], desired.hidden)
         );
         const verified = await inspectView(token, tableId, created.view_id);
 
@@ -492,6 +519,7 @@ async function ensureView(token, tableId, existingViews, spec, fields) {
         tableId,
         existing.view_id,
         viewPatchBody(
+            spec.name,
             desired.conditions,
             current.property?.hidden_fields ?? [],
             desired.hidden
@@ -545,7 +573,7 @@ async function main() {
     }
 
     const result = {
-        contract_version: "pc_lark_native_views_v1",
+        contract_version: "pc_lark_native_views_v2",
         mode,
         base_app_token: appToken,
         safety: {
@@ -554,6 +582,8 @@ async function main() {
             field_mutations: 0,
             table_mutations: 0,
             view_deletions: 0,
+            queue_sends: 0,
+            stock_mutations: 0,
         },
         actions,
         generated_at: new Date().toISOString(),
