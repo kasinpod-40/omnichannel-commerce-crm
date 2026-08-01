@@ -44,7 +44,7 @@ bower_components
 
 .lock-wscript
 
-# Compiled binary addons (https://nodejs.org/api/addons.html)
+# Compiled binary addons
 
 build/Release
 
@@ -53,7 +53,7 @@ build/Release
 node_modules/
 jspm_packages/
 
-# Snowpack dependency directory (https://snowpack.dev/)
+# Snowpack dependency directory
 
 web_modules/
 
@@ -92,7 +92,7 @@ web_modules/
 
 .yarn-integrity
 
-# parcel-bundler cache (https://parceljs.org/)
+# parcel-bundler cache
 
 .cache
 .parcel-cache
@@ -110,12 +110,6 @@ dist
 # Gatsby files
 
 .cache/
-
-# Comment in the public line in if your project uses Gatsby and not Next.js
-
-# https://nextjs.org/blog/next-9-1#public-directory-support
-
-# public
 
 # vuepress build output
 
@@ -169,3 +163,4 @@ dist
 # Local OS and operator verification artifacts
 .DS_Store
 pc-runtime-schema-result.json
+pc-lark-group-notification-result.json
