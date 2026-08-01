@@ -1,4 +1,9 @@
 import type { Env } from "../../config/env";
+import { enqueuePcOrderSyncAfterBusinessWrite } from "../../queues/marketplace-event.producer";
+import {
+    isPcInventoryConfigured,
+    isPcInventoryEnabled,
+} from "../production-control/pc.repository";
 import {
     CUSTOMER_FIELDS,
     ORDER_FIELDS,
@@ -811,6 +816,17 @@ async function applyVerifiedPaymentLifecycle(
         finalCustomer,
         finalPipeline
     );
+
+    if (
+        isPcInventoryEnabled(env) &&
+        isPcInventoryConfigured(env)
+    ) {
+        await enqueuePcOrderSyncAfterBusinessWrite(env, {
+            order_record_id: finalOrder.record_id,
+            source: "payment",
+            event_id: `pc:payment:${finalOrder.record_id}:${paidAt}`,
+        });
+    }
 
     return {
         customer_record_id: customer.record_id,

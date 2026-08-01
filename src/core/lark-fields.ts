@@ -103,6 +103,11 @@ export const ORDER_FIELDS = {
     // ฟิลด์เสริมแบบ optional: หาก Base ยังไม่มี ระบบจะ fallback ไปใช้ tracking/order status
     FULFILLMENT_STATUS: "fulfillment_status",
 
+    // Runtime state ของ PC Engine สำหรับ Idempotency และ Recovery
+    PC_INVENTORY_STATUS: "pc_inventory_status",
+    PC_INVENTORY_STATE_JSON: "pc_inventory_state_json",
+    PC_INVENTORY_UPDATED_AT: "pc_inventory_updated_at",
+
     QUOTATION_URL: "quotation_url",
     INVOICE_URL: "invoice_url",
     TAX_INVOICE_URL: "tax_invoice_url",
@@ -133,4 +138,68 @@ export const NOTIFICATION_FIELDS = {
     ERROR_MESSAGE: "error_message",
     CREATED_AT: "created_at",
     SENT_AT: "sent_at",
+} as const;
+
+export const PC_PRODUCT_FIELDS = {
+    SKU: "sku",
+    PRODUCT_ID: "product_id",
+    STYLE_CODE: "style_code",
+    PRODUCT_NAME: "product_name",
+    CATEGORY: "category",
+    COLOR: "color",
+    SIZE: "size",
+    SALES_PRICE_THB: "sales_price_thb",
+    STOCK_ON_HAND: "stock_on_hand",
+    MIN_STOCK: "min_stock",
+    TARGET_STOCK: "target_stock",
+    STOCK_STATUS: "stock_status",
+    RECOMMENDED_PRODUCTION_QTY: "recommended_production_qty",
+    PRODUCTION_LEAD_DAYS: "production_lead_days",
+    MATERIALS_JSON: "materials_json",
+    ACTIVE: "active",
+} as const;
+
+export const PC_MATERIAL_FIELDS = {
+    MATERIAL_SKU: "material_sku",
+    MATERIAL_NAME: "material_name",
+    CATEGORY: "category",
+    UNIT: "unit",
+    SOURCE_TYPE: "source_type",
+    SUPPLIER_NAME: "supplier_name",
+    SUPPLIER_COUNTRY: "supplier_country",
+    LEAD_TIME_DAYS: "lead_time_days",
+    STOCK_ON_HAND: "stock_on_hand",
+    MIN_STOCK: "min_stock",
+    TARGET_STOCK: "target_stock",
+    PLANNED_REQUIREMENT: "planned_requirement",
+    PROJECTED_STOCK: "projected_stock",
+    SHORTAGE_QTY: "shortage_qty",
+    MATERIAL_STATUS: "material_status",
+    RECOMMENDED_REORDER_QTY: "recommended_reorder_qty",
+    ALERT_LEVEL: "alert_level",
+    ACTIVE: "active",
+    NOTES: "notes",
+} as const;
+
+export const PC_PRODUCTION_FIELDS = {
+    PRODUCTION_ID: "production_id",
+    SOURCE_ORDER_ID: "source_order_id",
+    PRODUCT_SKU: "product_sku",
+    PRODUCT_NAME: "product_name",
+    REASON: "reason",
+    ORDER_SHORTAGE_QTY: "order_shortage_qty",
+    RECOMMENDED_QTY: "recommended_qty",
+    PLANNED_QTY: "planned_qty",
+    ACTUAL_QTY: "actual_qty",
+    MATERIAL_CHECK_STATUS: "material_check_status",
+    PRODUCTION_STATUS: "production_status",
+    MATERIAL_REQUIREMENT_SUMMARY: "material_requirement_summary",
+    MATERIAL_RISK_SUMMARY: "material_risk_summary",
+    DUE_DATE: "due_date",
+    INVENTORY_POSTED: "inventory_posted",
+    INVENTORY_POSTING_STATE_JSON: "inventory_posting_state_json",
+    CREATED_AT: "created_at",
+    COMPLETED_AT: "completed_at",
+    OWNER: "owner",
+    NOTES: "notes",
 } as const;

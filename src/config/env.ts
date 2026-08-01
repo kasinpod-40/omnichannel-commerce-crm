@@ -44,6 +44,13 @@ export interface Env {
     ACTIVITIES_TABLE_ID: string;
     NOTIFICATIONS_TABLE_ID: string;
 
+    // Production & Stock Control ใช้ Base เดียวกับ CRM แต่แยก Table ID ชัดเจน
+    PC_BASE_APP_TOKEN?: string;
+    PC_PRODUCTS_TABLE_ID?: string;
+    PC_MATERIALS_TABLE_ID?: string;
+    PC_PRODUCTION_TABLE_ID?: string;
+    PC_INVENTORY_ENABLED?: string;
+
     AI?: WorkersAIBinding;
     WORKERS_TEXT_MODEL?: string;
 

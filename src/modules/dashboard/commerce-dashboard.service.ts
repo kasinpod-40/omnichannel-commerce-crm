@@ -488,6 +488,10 @@ const ACTIVITY_TITLES: Record<ActivityAction, { th: string; en: string }> = {
     ORDER_AMOUNT_UPDATE_FAILED: { th: "แก้ไขยอดเงินคำสั่งซื้อไม่สำเร็จ", en: "Order amount update failed" },
     DOCUMENT_CREATED: { th: "สร้างเอกสารคำสั่งซื้อ", en: "Order document created" },
     DOCUMENT_DELETED: { th: "ลบเอกสารคำสั่งซื้อ", en: "Order document deleted" },
+    PC_ORDER_STOCK_APPLIED: { th: "ตัดหรือคืนสต็อกสินค้าตามคำสั่งซื้อ", en: "Order inventory applied or released" },
+    PC_ORDER_STOCK_BLOCKED: { th: "การประมวลผลสต็อกคำสั่งซื้อถูกระงับ", en: "Order inventory processing blocked" },
+    PC_PRODUCTION_COMPLETED: { th: "บันทึกการผลิตเสร็จและอัปเดตสต็อก", en: "Production completed and inventory posted" },
+    PC_PRODUCTION_BLOCKED: { th: "งานผลิตถูกระงับเพราะวัตถุดิบ", en: "Production blocked by material availability" },
 };
 
 function mapRecentActivities(

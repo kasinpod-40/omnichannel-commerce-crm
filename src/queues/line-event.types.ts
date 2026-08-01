@@ -37,6 +37,13 @@ export interface QueueProducerBinding<T> {
             delaySeconds?: number;
         }
     ): Promise<void>;
+    sendBatch?(
+        messages: Array<{
+            body: T;
+            contentType?: "json" | "text" | "bytes" | "v8";
+            delaySeconds?: number;
+        }>
+    ): Promise<void>;
 }
 
 export interface QueueMessageLike<T> {

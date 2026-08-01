@@ -1,4 +1,9 @@
 import type { Env } from "../../config/env";
+import { enqueuePcOrderSyncAfterBusinessWrite } from "../../queues/marketplace-event.producer";
+import {
+    isPcInventoryConfigured,
+    isPcInventoryEnabled,
+} from "../production-control/pc.repository";
 import {
     CUSTOMER_FIELDS,
     ORDER_FIELDS,
@@ -796,6 +801,18 @@ export async function upsertMarketplaceOrder(
 
     try {
         const result = await upsertMarketplaceOrderCore(env, input);
+
+        if (
+            isPcInventoryEnabled(env) &&
+            isPcInventoryConfigured(env)
+        ) {
+            await enqueuePcOrderSyncAfterBusinessWrite(env, {
+                order_record_id: result.order_record_id,
+                source: "marketplace",
+                event_id: `pc:marketplace:${input.channel}:${input.event_id}`,
+            });
+        }
+
         try {
             await recordMarketplaceDashboardEvent(env, {
                 id: `order:${input.channel}:${input.event_id}:${result.action}`,

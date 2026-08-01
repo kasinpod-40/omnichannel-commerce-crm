@@ -5,7 +5,9 @@ export type NotificationType =
     | "PAYMENT_VERIFIED"
     | "SALE_WON"
     | "SALE_LOST"
-    | "PAYMENT_OVERDUE";
+    | "PAYMENT_OVERDUE"
+    | "PC_STOCK_EXCEPTION"
+    | "PC_MATERIAL_SHORTAGE";
 
 export type NotificationStatus =
     | "Pending"
@@ -32,6 +34,9 @@ export type NotificationSnapshot = {
     payment_status?: string;
     order_status?: string;
     marketplace_event_kind?: "created" | "completed" | "cancelled";
+    pc_reference_id?: string;
+    pc_detail?: string;
+    pc_next_action?: string;
     dashboard_read_at?: number;
     review_resolved_at?: number;
 };
@@ -39,7 +44,7 @@ export type NotificationSnapshot = {
 export type Notification = {
     event_id: string;
     notification_type: NotificationType;
-    customer_record_id: string;
+    customer_record_id?: string;
     message: string;
     payload?: NotificationSnapshot;
     status?: NotificationStatus;
