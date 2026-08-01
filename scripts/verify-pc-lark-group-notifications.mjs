@@ -22,7 +22,9 @@ const outputFile = path.resolve(
 const sendConfirmation = "PC-LARK-GROUP-TEST";
 const confirmationIndex = args.indexOf("--confirm-send");
 const confirmation =
-    confirmationIndex >= 0 ? args[confirmationIndex + 1] : "";
+    confirmationIndex >= 0
+        ? args[confirmationIndex + 1]
+        : "";
 
 function assert(condition, message) {
     if (!condition) throw new Error(message);
@@ -32,7 +34,9 @@ function parseEnvFile(filePath) {
     if (!filePath || !fs.existsSync(filePath)) return {};
     const values = {};
 
-    for (const rawLine of fs.readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    for (const rawLine of fs
+        .readFileSync(filePath, "utf8")
+        .split(/\r?\n/u)) {
         const line = rawLine.trim();
         if (!line || line.startsWith("#")) continue;
         const normalized = line.startsWith("export ")
@@ -45,8 +49,10 @@ function parseEnvFile(filePath) {
         let value = normalized.slice(separator + 1).trim();
 
         if (
-            (value.startsWith('"') && value.endsWith('"')) ||
-            (value.startsWith("'") && value.endsWith("'"))
+            (value.startsWith('"') &&
+                value.endsWith('"')) ||
+            (value.startsWith("'") &&
+                value.endsWith("'"))
         ) {
             value = value.slice(1, -1);
         }
@@ -62,27 +68,43 @@ const env = { ...fileEnv, ...process.env };
 
 function redact(message) {
     let output = String(message);
+
     for (const secret of [
         env.LARK_GROUP_WEBHOOK_URL,
+        env.LARK_PC_GROUP_WEBHOOK_URL,
         env.LARK_APP_SECRET,
         env.LARK_APP_ID,
         env.NOTIFICATION_DISPATCH_TOKEN,
         env.LARK_WORKFLOW_TOKEN,
     ]) {
-        if (secret) output = output.replaceAll(secret, "[REDACTED]");
+        if (secret) {
+            output = output.replaceAll(
+                secret,
+                "[REDACTED]"
+            );
+        }
     }
+
     return output;
 }
 
 function readRequiredFile(relativePath) {
-    const absolutePath = path.resolve(process.cwd(), relativePath);
-    assert(fs.existsSync(absolutePath), `Missing ${relativePath}`);
+    const absolutePath = path.resolve(
+        process.cwd(),
+        relativePath
+    );
+    assert(
+        fs.existsSync(absolutePath),
+        `Missing ${relativePath}`
+    );
     return fs.readFileSync(absolutePath, "utf8");
 }
 
 function assertStaticContracts() {
     const wrangler = readRequiredFile("wrangler.jsonc");
-    const envTypes = readRequiredFile("src/config/env.ts");
+    const envTypes = readRequiredFile(
+        "src/config/env.ts"
+    );
     const notificationTypes = readRequiredFile(
         "src/modules/notifications/notification.types.ts"
     );
@@ -95,51 +117,103 @@ function assertStaticContracts() {
     const groupProvider = readRequiredFile(
         "src/providers/lark/lark-group-webhook.provider.ts"
     );
-    const queueRuntime = readRequiredFile("src/runtime/queue.ts");
+    const groupProviderTest = readRequiredFile(
+        "src/providers/lark/lark-group-webhook.provider.test.ts"
+    );
+    const queueRuntime = readRequiredFile(
+        "src/runtime/queue.ts"
+    );
 
     assert(
-        /"PC_INVENTORY_ENABLED"\s*:\s*"false"/.test(wrangler),
+        /"PC_INVENTORY_ENABLED"\s*:\s*"false"/u.test(
+            wrangler
+        ),
         "STOP: PC_INVENTORY_ENABLED must remain false during notification readiness"
     );
     assert(
-        /"binding"\s*:\s*"NOTIFICATION_QUEUE"/.test(wrangler) &&
-            /"queue"\s*:\s*"crm-notifications"/.test(wrangler),
+        /"binding"\s*:\s*"NOTIFICATION_QUEUE"/u.test(
+            wrangler
+        ) &&
+            /"queue"\s*:\s*"crm-notifications"/u.test(
+                wrangler
+            ),
         "Missing NOTIFICATION_QUEUE producer binding"
     );
     assert(
-        /"queue"\s*:\s*"crm-notifications"/.test(wrangler) &&
-            /"dead_letter_queue"\s*:\s*"crm-notifications-dlq"/.test(
+        /"queue"\s*:\s*"crm-notifications"/u.test(
+            wrangler
+        ) &&
+            /"dead_letter_queue"\s*:\s*"crm-notifications-dlq"/u.test(
                 wrangler
             ),
         "Missing crm-notifications consumer/DLQ contract"
     );
     assert(
-        envTypes.includes("LARK_GROUP_WEBHOOK_URL"),
-        "Env contract is missing LARK_GROUP_WEBHOOK_URL"
+        envTypes.includes("LARK_GROUP_WEBHOOK_URL") &&
+            envTypes.includes(
+                "LARK_PC_GROUP_WEBHOOK_URL"
+            ),
+        "Env contract must keep the CRM webhook and add the dedicated PC webhook"
     );
     assert(
-        notificationTypes.includes('"PC_STOCK_EXCEPTION"') &&
-            notificationTypes.includes('"PC_MATERIAL_SHORTAGE"'),
+        notificationTypes.includes(
+            '"PC_STOCK_EXCEPTION"'
+        ) &&
+            notificationTypes.includes(
+                '"PC_MATERIAL_SHORTAGE"'
+            ),
         "PC notification types are missing"
     );
     assert(
-        alerts.includes("recordAndDispatchNotificationOnce") &&
+        alerts.includes(
+            "recordAndDispatchNotificationOnce"
+        ) &&
             alerts.includes("notifyPcExceptionOnce"),
         "PC alert dispatch contract is missing"
     );
     assert(
-        notificationService.includes("sendLarkGroupText") &&
-            notificationService.includes("enqueueNotificationDelivery"),
-        "Notification queue/webhook delivery contract is missing"
+        notificationService.includes(
+            "sendLarkGroupText"
+        ) &&
+            notificationService.includes(
+                "enqueueNotificationDelivery"
+            ) &&
+            notificationService.includes(
+                "📦 พบข้อยกเว้นด้านสต็อกสินค้า"
+            ) &&
+            notificationService.includes(
+                "🧵 วัตถุดิบไม่เพียงพอสำหรับแผนผลิต"
+            ),
+        "Notification formatter/queue delivery contract is missing"
     );
     assert(
-        groupProvider.includes("LARK_GROUP_WEBHOOK_URL") &&
-            groupProvider.includes("LARK_GROUP_WEBHOOK_KEYWORD"),
-        "Lark Group Webhook provider contract is missing"
+        groupProvider.includes(
+            "resolveLarkGroupWebhookTarget"
+        ) &&
+            groupProvider.includes(
+                "LARK_PC_GROUP_WEBHOOK_URL"
+            ) &&
+            groupProvider.includes(
+                '"production-control"'
+            ),
+        "Dedicated PC Lark Group routing is missing"
     );
     assert(
-        queueRuntime.includes("handleNotificationQueueBatch") &&
-            queueRuntime.includes('batch.queue === "crm-notifications"'),
+        groupProviderTest.includes(
+            "LARK_PC_GROUP_WEBHOOK_URL_NOT_CONFIGURED"
+        ) &&
+            groupProviderTest.includes(
+                "ไม่ fallback ไปกลุ่ม CRM เดิม"
+            ),
+        "Fail-closed PC group routing regression is missing"
+    );
+    assert(
+        queueRuntime.includes(
+            "handleNotificationQueueBatch"
+        ) &&
+            queueRuntime.includes(
+                'batch.queue === "crm-notifications"'
+            ),
         "Notification Queue runtime dispatch is missing"
     );
 
@@ -147,41 +221,64 @@ function assertStaticContracts() {
         pc_inventory_enabled: false,
         notification_queue_binding: true,
         notification_dlq_binding: true,
+        crm_group_preserved: true,
+        dedicated_pc_group_routing: true,
+        missing_pc_webhook_fallback_to_crm: false,
         pc_notification_types: [
             "PC_STOCK_EXCEPTION",
             "PC_MATERIAL_SHORTAGE",
         ],
+        routing: {
+            crm_notifications:
+                "LARK_GROUP_WEBHOOK_URL",
+            production_stock_notifications:
+                "LARK_PC_GROUP_WEBHOOK_URL",
+        },
         dispatch_path:
-            "PC alert -> Notifications table -> crm-notifications -> Lark Group Webhook",
+            "PC alert -> Notifications table -> crm-notifications -> dedicated Production & Stock Lark Group",
     };
 }
 
 function wranglerBinary() {
-    const binaryName = process.platform === "win32" ? "wrangler.cmd" : "wrangler";
+    const binaryName =
+        process.platform === "win32"
+            ? "wrangler.cmd"
+            : "wrangler";
     const localBinary = path.resolve(
         process.cwd(),
         "node_modules",
         ".bin",
         binaryName
     );
+
     assert(
         fs.existsSync(localBinary),
         "Missing local Wrangler binary. Run npm ci before notification readiness."
     );
+
     return localBinary;
 }
 
 function parseWranglerJson(stdout) {
     const text = stdout.trim();
-    assert(text, "Wrangler secret list returned empty output");
+    assert(
+        text,
+        "Wrangler secret list returned empty output"
+    );
 
     try {
         return JSON.parse(text);
     } catch {
         const arrayStart = text.lastIndexOf("[");
         const objectStart = text.lastIndexOf("{");
-        const start = Math.max(arrayStart, objectStart);
-        assert(start >= 0, "Wrangler secret list did not return JSON");
+        const start = Math.max(
+            arrayStart,
+            objectStart
+        );
+        assert(
+            start >= 0,
+            "Wrangler secret list did not return JSON"
+        );
         return JSON.parse(text.slice(start));
     }
 }
@@ -201,7 +298,8 @@ function secretNamesFromPayload(payload) {
                 .map((item) =>
                     typeof item === "string"
                         ? item
-                        : typeof item?.name === "string"
+                        : typeof item?.name ===
+                            "string"
                           ? item.name
                           : ""
                 )
@@ -225,7 +323,9 @@ function listRemoteSecrets() {
         throw new Error(
             redact(
                 `wrangler secret list failed (${result.status}): ${
-                    result.stderr || result.stdout || "unknown error"
+                    result.stderr ||
+                    result.stdout ||
+                    "unknown error"
                 }`
             )
         );
@@ -233,8 +333,13 @@ function listRemoteSecrets() {
 
     const payload = parseWranglerJson(result.stdout);
     const names = secretNamesFromPayload(payload);
-    const required = ["LARK_GROUP_WEBHOOK_URL"];
-    const missing = required.filter((name) => !names.includes(name));
+    const required = [
+        "LARK_GROUP_WEBHOOK_URL",
+        "LARK_PC_GROUP_WEBHOOK_URL",
+    ];
+    const missing = required.filter(
+        (name) => !names.includes(name)
+    );
 
     assert(
         missing.length === 0,
@@ -244,6 +349,12 @@ function listRemoteSecrets() {
     return {
         checked: true,
         required_present: required,
+        old_crm_group_secret_preserved:
+            names.includes("LARK_GROUP_WEBHOOK_URL"),
+        dedicated_pc_group_secret_present:
+            names.includes(
+                "LARK_PC_GROUP_WEBHOOK_URL"
+            ),
         optional_present: [
             "LARK_APP_ID",
             "LARK_APP_SECRET",
@@ -255,28 +366,51 @@ function listRemoteSecrets() {
 }
 
 function getWebhookKeyword() {
-    const keyword = (env.LARK_GROUP_WEBHOOK_KEYWORD || "CRM").trim();
-    assert(keyword, "LARK_GROUP_WEBHOOK_KEYWORD must not be empty");
+    const keyword = (
+        env.LARK_GROUP_WEBHOOK_KEYWORD || "CRM"
+    ).trim();
+
     assert(
-        keyword.length <= 80 && !/[\r\n]/u.test(keyword),
+        keyword,
+        "LARK_GROUP_WEBHOOK_KEYWORD must not be empty"
+    );
+    assert(
+        keyword.length <= 80 &&
+            !/[\r\n]/u.test(keyword),
         "LARK_GROUP_WEBHOOK_KEYWORD must be one line of 80 characters or fewer"
     );
+
     return keyword;
 }
 
 function responseCode(payload) {
     if (payload && typeof payload === "object") {
-        if (typeof payload.code === "number") return payload.code;
-        if (typeof payload.StatusCode === "number") return payload.StatusCode;
+        if (typeof payload.code === "number") {
+            return payload.code;
+        }
+        if (typeof payload.StatusCode === "number") {
+            return payload.StatusCode;
+        }
     }
+
     return null;
 }
 
 function responseMessage(payload) {
-    if (!payload || typeof payload !== "object") return "";
-    for (const key of ["msg", "StatusMessage", "message"]) {
-        if (typeof payload[key] === "string") return payload[key];
+    if (!payload || typeof payload !== "object") {
+        return "";
     }
+
+    for (const key of [
+        "msg",
+        "StatusMessage",
+        "message",
+    ]) {
+        if (typeof payload[key] === "string") {
+            return payload[key];
+        }
+    }
+
     return "";
 }
 
@@ -286,31 +420,37 @@ async function sendWebhookTest() {
         `STOP: --send-test requires --confirm-send ${sendConfirmation}`
     );
 
-    const webhookUrl = (env.LARK_GROUP_WEBHOOK_URL || "").trim();
+    const webhookUrl = (
+        env.LARK_PC_GROUP_WEBHOOK_URL || ""
+    ).trim();
+
     assert(
         webhookUrl,
-        `Missing LARK_GROUP_WEBHOOK_URL in ${envFile}. Cloudflare secret values cannot be read back; place the same value in the local env file before the one-time test.`
+        `Missing LARK_PC_GROUP_WEBHOOK_URL in ${envFile}. Cloudflare secret values cannot be read back; place the same PC Group Webhook value in the local env file before the one-time test.`
     );
     assert(
         webhookUrl.startsWith("https://"),
-        "LARK_GROUP_WEBHOOK_URL must start with https://"
+        "LARK_PC_GROUP_WEBHOOK_URL must start with https://"
     );
 
     const keyword = getWebhookKeyword();
     const testId = `PC-NOTIFY-${Date.now()}`;
     const text = [
-        `[${keyword}] 🧪 ทดสอบการแจ้งเตือน Production & Stock`,
+        `[${keyword}] 🧪 ทดสอบกลุ่มแจ้งเตือน Production & Stock`,
         "",
         `รหัสทดสอบ: ${testId}`,
-        "สถานะ: เชื่อมต่อ Lark Group Webhook สำเร็จ",
-        "ขอบเขต: ส่งข้อความทดสอบเท่านั้น",
+        "ปลายทาง: กลุ่ม Production & Stock ใหม่",
+        "กลุ่ม CRM เดิม: ยังเก็บไว้และไม่ได้รับข้อความทดสอบนี้",
+        "ขอบเขต: ส่งข้อความทดสอบตรงเข้า Webhook ใหม่เท่านั้น",
         "ผลกระทบข้อมูล: ไม่มีการแก้ Record, Stock, Material หรือ Production",
         "Feature flag: PC_INVENTORY_ENABLED=false",
     ].join("\n");
 
     const response = await fetch(webhookUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+            "Content-Type": "application/json",
+        },
         body: JSON.stringify({
             msg_type: "text",
             content: { text },
@@ -320,6 +460,7 @@ async function sendWebhookTest() {
 
     const raw = await response.text();
     let payload = raw;
+
     try {
         payload = raw ? JSON.parse(raw) : {};
     } catch {
@@ -328,17 +469,20 @@ async function sendWebhookTest() {
 
     assert(
         response.ok,
-        `Lark Group Webhook HTTP ${response.status}: ${String(raw).slice(0, 500)}`
+        `Lark PC Group Webhook HTTP ${response.status}: ${String(raw).slice(0, 500)}`
     );
 
     const code = responseCode(payload);
     assert(
         code === null || code === 0,
-        `Lark Group Webhook rejected test (${code}): ${responseMessage(payload)}`
+        `Lark PC Group Webhook rejected test (${code}): ${responseMessage(payload)}`
     );
 
     return {
         ok: true,
+        target: "production-control",
+        secret_name:
+            "LARK_PC_GROUP_WEBHOOK_URL",
         test_id: testId,
         sent_at: new Date().toISOString(),
         keyword,
@@ -352,22 +496,42 @@ function readPriorTestEvidence() {
         fs.existsSync(outputFile),
         "Missing prior send-test evidence. Run pc:notifications:test before verify."
     );
-    const parsed = JSON.parse(fs.readFileSync(outputFile, "utf8"));
-    assert(
-        parsed?.mode === "send-test" && parsed?.webhook_test?.ok === true,
-        "Prior evidence is not a successful send-test"
+
+    const parsed = JSON.parse(
+        fs.readFileSync(outputFile, "utf8")
     );
 
-    const sentAt = Date.parse(parsed.webhook_test.sent_at || "");
-    assert(Number.isFinite(sentAt), "Prior send-test timestamp is invalid");
+    assert(
+        parsed?.contract_version ===
+            "pc_lark_group_notification_readiness_v2" &&
+            parsed?.mode === "send-test" &&
+            parsed?.webhook_test?.ok === true &&
+            parsed?.webhook_test?.target ===
+                "production-control" &&
+            parsed?.webhook_test?.secret_name ===
+                "LARK_PC_GROUP_WEBHOOK_URL",
+        "Prior evidence is not a successful dedicated PC Group send-test"
+    );
+
+    const sentAt = Date.parse(
+        parsed.webhook_test.sent_at || ""
+    );
+    assert(
+        Number.isFinite(sentAt),
+        "Prior send-test timestamp is invalid"
+    );
     const ageMs = Date.now() - sentAt;
     assert(
-        ageMs >= 0 && ageMs <= 24 * 60 * 60 * 1000,
+        ageMs >= 0 &&
+            ageMs <= 24 * 60 * 60 * 1000,
         "Prior send-test evidence is older than 24 hours"
     );
 
     return {
         ok: true,
+        target: "production-control",
+        secret_name:
+            "LARK_PC_GROUP_WEBHOOK_URL",
         test_id: parsed.webhook_test.test_id,
         sent_at: parsed.webhook_test.sent_at,
         age_seconds: Math.floor(ageMs / 1000),
@@ -377,33 +541,48 @@ function readPriorTestEvidence() {
 async function main() {
     const staticContracts = assertStaticContracts();
     const remoteSecrets = listRemoteSecrets();
-    const priorTest = mode === "verify" ? readPriorTestEvidence() : null;
-    const webhookTest = mode === "send-test" ? await sendWebhookTest() : priorTest;
+    const priorTest =
+        mode === "verify"
+            ? readPriorTestEvidence()
+            : null;
+    const webhookTest =
+        mode === "send-test"
+            ? await sendWebhookTest()
+            : priorTest;
 
     const result = {
-        contract_version: "pc_lark_group_notification_readiness_v1",
+        contract_version:
+            "pc_lark_group_notification_readiness_v2",
         mode,
         static_contracts: staticContracts,
         cloudflare_secrets: remoteSecrets,
         webhook_test: webhookTest,
         safety: {
             pc_inventory_enabled: false,
+            old_crm_group_webhook_changed: false,
             lark_record_mutations: 0,
             queue_messages_sent: 0,
             stock_mutations: 0,
             material_mutations: 0,
             production_mutations: 0,
             worker_deployments: 0,
-            group_test_messages_sent: mode === "send-test" ? 1 : 0,
+            group_test_messages_sent:
+                mode === "send-test" ? 1 : 0,
         },
         generated_at: new Date().toISOString(),
     };
 
-    fs.writeFileSync(outputFile, JSON.stringify(result, null, 2), "utf8");
+    fs.writeFileSync(
+        outputFile,
+        JSON.stringify(result, null, 2),
+        "utf8"
+    );
     console.log(JSON.stringify(result, null, 2));
 }
 
 main().catch((error) => {
-    console.error(`FAILED: ${redact(error?.stack || error)}`);
+    console.error(
+        `FAILED: ${redact(error?.stack || error)}`
+    );
     process.exitCode = 1;
 });
