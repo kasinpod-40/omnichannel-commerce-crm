@@ -33,20 +33,20 @@ Names and icons are locked and must not be renamed.
 `scripts/apply-pc-lark-views.mjs` manages only the views that are still pending:
 
 - `🏭 รออนุมัติผลิต`
-  - `production_status` is any of `RECOMMENDED`, `APPROVED`
+  - `production_status = RECOMMENDED OR production_status = APPROVED`
 - `▶️ กำลังผลิต`
-  - `production_status` is `IN_PROGRESS`
+  - `production_status = IN_PROGRESS`
 - `🚫 ติดปัญหาวัตถุดิบ`
-  - `production_status` is `BLOCKED_MATERIAL`
+  - `production_status = BLOCKED_MATERIAL`
 - `✅ ผลิตเสร็จแล้ว`
-  - `production_status` is `COMPLETED`
+  - `production_status = COMPLETED`
 - `🚨 แจ้งเตือนที่ยังไม่แก้`
-  - `notification_type` is any of `PC_STOCK_EXCEPTION`, `PC_MATERIAL_SHORTAGE`
-  - `status` is any of `Pending`, `Sent`, `Failed`
+  - excludes every non-PC notification type
+  - excludes `status = Read`
 
-The script resolves table fields, select option IDs, and existing views at runtime. It creates missing views, updates mismatched filters, reuses matching views, preserves existing hidden fields, and hides only technical JSON fields when available.
+Lark persists only the first option when a single-select View condition uses `operator = is` with multiple option IDs. The v4 contract therefore sends exactly one option per condition. The pending-production View uses two equal conditions joined with `or`. The unresolved-notification View uses only single-value not-equal conditions joined with `and`.
 
-Read-back verification accepts Lark's equivalent serialized forms for select values and operators, retries eventual-consistency reads, and prints a redacted actual-versus-expected diagnostic if verification still fails.
+The script resolves table fields, select option IDs, existing views, and the live not-equal operator at runtime. It discovers the not-equal operator from `📦 สินค้าใกล้หมด` when `PC_PRODUCTS_TABLE_ID` is available, otherwise it uses the Lark-compatible `isNot` fallback.
 
 ## Safety
 
@@ -82,6 +82,10 @@ Required values:
 - `PC_BASE_APP_TOKEN` or `LARK_APP_TOKEN`
 - `PC_PRODUCTION_TABLE_ID`
 - `NOTIFICATIONS_TABLE_ID`
+
+Recommended for exact operator discovery:
+
+- `PC_PRODUCTS_TABLE_ID`
 
 ## Dashboard limitation
 
