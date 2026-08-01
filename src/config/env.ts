@@ -28,7 +28,10 @@ export interface Env {
     AUTH_COOKIE_SAME_SITE?: string;
 
     LARK_APP_TOKEN: string;
+    // กลุ่ม CRM เดิม: Lead, Payment, Sale และ Marketplace
     LARK_GROUP_WEBHOOK_URL: string;
+    // กลุ่ม Production & Stock แยกจากกลุ่ม CRM เดิม และห้าม fallback กลับกลุ่มเดิม
+    LARK_PC_GROUP_WEBHOOK_URL?: string;
     LARK_GROUP_WEBHOOK_KEYWORD?: string;
     NOTIFICATION_DISPATCH_TOKEN: string;
     LARK_WORKFLOW_TOKEN?: string;
@@ -53,7 +56,6 @@ export interface Env {
 
     AI?: WorkersAIBinding;
     WORKERS_TEXT_MODEL?: string;
-
 
     GEMINI_API_KEY?: string;
     GEMINI_TEXT_MODEL?: string;
@@ -84,7 +86,6 @@ export interface Env {
     LAZADA_POLL_OVERLAP_MINUTES?: string;
     LAZADA_POLL_PAGE_SIZE?: string;
     LAZADA_POLL_MAX_PAGES?: string;
-
 
     DOCUMENT_LINK_SECRET?: string;
     DOCUMENT_WORKFLOW_TOKEN?: string;
