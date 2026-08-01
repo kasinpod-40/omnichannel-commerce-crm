@@ -19,7 +19,10 @@
     "test:unit:worker": "vitest run --config vitest.worker-unit.config.mts",
     "pc:schema:plan": "node scripts/apply-pc-runtime-schema.mjs --plan",
     "pc:schema:apply": "node scripts/apply-pc-runtime-schema.mjs --apply",
-    "pc:schema:verify": "node scripts/apply-pc-runtime-schema.mjs --verify"
+    "pc:schema:verify": "node scripts/apply-pc-runtime-schema.mjs --verify",
+    "pc:views:plan": "node scripts/apply-pc-lark-views.mjs --plan",
+    "pc:views:apply": "node scripts/apply-pc-lark-views.mjs --apply",
+    "pc:views:verify": "node scripts/apply-pc-lark-views.mjs --verify"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.16.20",
