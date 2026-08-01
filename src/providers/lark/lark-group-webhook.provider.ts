@@ -50,15 +50,29 @@ function getResponseMessage(data: unknown): string {
 const DEFAULT_WEBHOOK_KEYWORD = "CRM";
 const MAX_WEBHOOK_KEYWORD_LENGTH = 80;
 
+export type LarkGroupWebhookTarget =
+    | "crm"
+    | "production-control";
+
+const PC_NOTIFICATION_TITLES = [
+    "📦 พบข้อยกเว้นด้านสต็อกสินค้า",
+    "🧵 วัตถุดิบไม่เพียงพอสำหรับแผนผลิต",
+] as const;
+
 function getWebhookKeyword(env: Env): string {
     /*
      * Notification แบบข้อความเดิมขึ้นต้นด้วย [CRM] อยู่แล้ว และ Bot เดิมใช้คำนี้
      * เป็น Security Keyword จึง fallback เป็น CRM เพื่อไม่บังคับให้ระบบ Production
      * ต้องเปลี่ยนค่าใน Lark Console หลังอัปเกรดเป็น Interactive Card
      */
-    const keyword = env.LARK_GROUP_WEBHOOK_KEYWORD?.trim() || DEFAULT_WEBHOOK_KEYWORD;
+    const keyword =
+        env.LARK_GROUP_WEBHOOK_KEYWORD?.trim() ||
+        DEFAULT_WEBHOOK_KEYWORD;
 
-    if (keyword.length > MAX_WEBHOOK_KEYWORD_LENGTH || /[\r\n]/u.test(keyword)) {
+    if (
+        keyword.length > MAX_WEBHOOK_KEYWORD_LENGTH ||
+        /[\r\n]/u.test(keyword)
+    ) {
         throw new OperationalError(
             "LARK_GROUP_WEBHOOK_KEYWORD_INVALID",
             "LARK_GROUP_WEBHOOK_KEYWORD must be a single line of 80 characters or fewer",
@@ -69,8 +83,62 @@ function getWebhookKeyword(env: Env): string {
     return keyword;
 }
 
-function includeWebhookKeyword(text: string, keyword: string): string {
-    return text.includes(keyword) ? text : `[${keyword}] ${text}`;
+function includeWebhookKeyword(
+    text: string,
+    keyword: string
+): string {
+    return text.includes(keyword)
+        ? text
+        : `[${keyword}] ${text}`;
+}
+
+/**
+ * PC notifications มีหัวข้อคงที่จาก Notification formatter และต้องไปกลุ่มเฉพาะ
+ * เท่านั้น การตรวจเฉพาะบรรทัดแรกช่วยไม่ให้ข้อความรายละเอียดที่บังเอิญมีคำเดียวกัน
+ * ถูก route ผิดกลุ่ม
+ */
+export function resolveLarkGroupWebhookTarget(
+    text: string
+): LarkGroupWebhookTarget {
+    const firstLine = text.split(/\r?\n/u, 1)[0]?.trim() ?? "";
+
+    return PC_NOTIFICATION_TITLES.some((title) =>
+        firstLine.includes(title)
+    )
+        ? "production-control"
+        : "crm";
+}
+
+function getWebhookUrl(
+    env: Env,
+    target: LarkGroupWebhookTarget
+): string {
+    const envName =
+        target === "production-control"
+            ? "LARK_PC_GROUP_WEBHOOK_URL"
+            : "LARK_GROUP_WEBHOOK_URL";
+    const webhookUrl =
+        target === "production-control"
+            ? env.LARK_PC_GROUP_WEBHOOK_URL?.trim()
+            : env.LARK_GROUP_WEBHOOK_URL?.trim();
+
+    if (!webhookUrl) {
+        throw new OperationalError(
+            `${envName}_NOT_CONFIGURED`,
+            `${envName} is not configured`,
+            { retryable: false }
+        );
+    }
+
+    if (!webhookUrl.startsWith("https://")) {
+        throw new OperationalError(
+            `${envName}_INVALID`,
+            `${envName} must start with https://`,
+            { retryable: false }
+        );
+    }
+
+    return webhookUrl;
 }
 
 export type LarkGroupWebhookResult = {
@@ -80,21 +148,10 @@ export type LarkGroupWebhookResult = {
 
 async function sendLarkGroupPayload(
     env: Env,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    target: LarkGroupWebhookTarget
 ): Promise<LarkGroupWebhookResult> {
-    const webhookUrl = env.LARK_GROUP_WEBHOOK_URL?.trim();
-
-    if (!webhookUrl) {
-        throw new Error(
-            "LARK_GROUP_WEBHOOK_URL is not configured"
-        );
-    }
-
-    if (!webhookUrl.startsWith("https://")) {
-        throw new Error(
-            "LARK_GROUP_WEBHOOK_URL must start with https://"
-        );
-    }
+    const webhookUrl = getWebhookUrl(env, target);
 
     let response: Response;
 
@@ -110,7 +167,9 @@ async function sendLarkGroupPayload(
         throw new OperationalError(
             "LARK_GROUP_WEBHOOK_NETWORK_ERROR",
             `Lark Group Webhook network error: ${
-                error instanceof Error ? error.message : String(error)
+                error instanceof Error
+                    ? error.message
+                    : String(error)
             }`,
             {
                 retryable: true,
@@ -152,10 +211,9 @@ async function sendLarkGroupPayload(
             );
         }
 
-        const errorMessage =
-            `Lark Group Webhook Error ${code}${
-                message ? `: ${message}` : ""
-            }`;
+        const errorMessage = `Lark Group Webhook Error ${code}${
+            message ? `: ${message}` : ""
+        }`;
         const classification =
             classifyOperationalError(errorMessage);
 
@@ -179,10 +237,18 @@ export async function sendLarkGroupText(
     text: string
 ): Promise<LarkGroupWebhookResult> {
     const keyword = getWebhookKeyword(env);
-    return await sendLarkGroupPayload(env, {
-        msg_type: "text",
-        content: { text: includeWebhookKeyword(text, keyword) },
-    });
+    const target = resolveLarkGroupWebhookTarget(text);
+
+    return await sendLarkGroupPayload(
+        env,
+        {
+            msg_type: "text",
+            content: {
+                text: includeWebhookKeyword(text, keyword),
+            },
+        },
+        target
+    );
 }
 
 export type LarkReviewCardInput = {
@@ -201,46 +267,58 @@ export async function sendLarkGroupReviewCard(
     const keyword = getWebhookKeyword(env);
 
     if (!buttonUrl.startsWith("https://")) {
-        throw new Error("Lark review card URL must start with https://");
+        throw new Error(
+            "Lark review card URL must start with https://"
+        );
     }
 
-    return await sendLarkGroupPayload(env, {
-        msg_type: "interactive",
-        card: {
-            config: {
-                wide_screen_mode: true,
-                enable_forward: true,
-            },
-            header: {
-                template: "orange",
-                title: {
-                    tag: "plain_text",
-                    content: includeWebhookKeyword(input.title, keyword),
+    return await sendLarkGroupPayload(
+        env,
+        {
+            msg_type: "interactive",
+            card: {
+                config: {
+                    wide_screen_mode: true,
+                    enable_forward: true,
                 },
-            },
-            elements: [
-                {
-                    tag: "div",
-                    text: {
-                        tag: "lark_md",
-                        content: includeWebhookKeyword(input.markdown, keyword),
+                header: {
+                    template: "orange",
+                    title: {
+                        tag: "plain_text",
+                        content: includeWebhookKeyword(
+                            input.title,
+                            keyword
+                        ),
                     },
                 },
-                {
-                    tag: "action",
-                    actions: [
-                        {
-                            tag: "button",
-                            type: "primary",
-                            text: {
-                                tag: "plain_text",
-                                content: input.button_text,
-                            },
-                            url: buttonUrl,
+                elements: [
+                    {
+                        tag: "div",
+                        text: {
+                            tag: "lark_md",
+                            content: includeWebhookKeyword(
+                                input.markdown,
+                                keyword
+                            ),
                         },
-                    ],
-                },
-            ],
+                    },
+                    {
+                        tag: "action",
+                        actions: [
+                            {
+                                tag: "button",
+                                type: "primary",
+                                text: {
+                                    tag: "plain_text",
+                                    content: input.button_text,
+                                },
+                                url: buttonUrl,
+                            },
+                        ],
+                    },
+                ],
+            },
         },
-    });
+        "crm"
+    );
 }
