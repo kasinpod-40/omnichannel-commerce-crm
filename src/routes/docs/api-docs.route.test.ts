@@ -68,6 +68,19 @@ describe("API documentation", () => {
         expect(document.paths["/dashboard/documents/preview"]?.post).toBeTruthy();
         expect(document.paths["/dashboard/documents/number/{documentNumber}"]?.get).toBeTruthy();
         expect(document.paths["/dashboard/documents/order/{orderId}/{documentType}"]?.get).toBeTruthy();
+        expect(document.paths["/pc/overview"]?.get).toBeTruthy();
+        expect(document.paths["/pc/orders/{orderId}/reconcile"]?.post).toBeTruthy();
+        expect(document.paths["/pc/reconcile/orders"]?.post).toBeTruthy();
+        expect(
+            (document as { components?: { schemas?: Record<string, unknown> } })
+                .components?.schemas?.PcOrderBulkReconcileRequest
+        ).toBeTruthy();
+        expect(document.paths["/pc/materials/refresh"]?.post).toBeTruthy();
+        expect(document.paths["/pc/production"]?.post).toBeTruthy();
+        expect(document.paths["/pc/production/{productionId}/approve"]?.post).toBeTruthy();
+        expect(document.paths["/pc/production/{productionId}/start"]?.post).toBeTruthy();
+        expect(document.paths["/pc/production/{productionId}/cancel"]?.post).toBeTruthy();
+        expect(document.paths["/pc/production/{productionId}/complete"]?.post).toBeTruthy();
         expect(document.paths["/notifications"]?.get).toBeTruthy();
         expect(document.paths["/notifications/unread-count"]?.get).toBeTruthy();
         expect(document.paths["/notifications/read-all"]?.post).toBeTruthy();
@@ -80,6 +93,10 @@ describe("API documentation", () => {
         expect(document.paths["/marketplaces/sync-history"]?.get).toBeTruthy();
         expect(document.paths["/marketplaces/{marketplaceId}"]?.get).toBeTruthy();
         expect(document.paths["/webhooks/line"]?.post).toBeTruthy();
+        expect(document.paths["/webhooks/lark/pc/order-sync"]?.post).toBeTruthy();
+        expect(document.paths["/webhooks/lark/pc/material-refresh"]?.post).toBeTruthy();
+        expect(document.paths["/webhooks/lark/pc/production-complete"]?.post).toBeTruthy();
+
         expect(
             document.paths["/admin/marketplace/orders/upsert"]?.post
         ).toBeTruthy();

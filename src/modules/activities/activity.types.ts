@@ -22,7 +22,11 @@ export type ActivityAction =
     | "ORDER_AMOUNT_UPDATED"
     | "ORDER_AMOUNT_UPDATE_FAILED"
     | "DOCUMENT_CREATED"
-    | "DOCUMENT_DELETED";
+    | "DOCUMENT_DELETED"
+    | "PC_ORDER_STOCK_APPLIED"
+    | "PC_ORDER_STOCK_BLOCKED"
+    | "PC_PRODUCTION_COMPLETED"
+    | "PC_PRODUCTION_BLOCKED";
 
 export type ActivityValue =
     | string

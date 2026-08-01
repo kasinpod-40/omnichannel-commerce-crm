@@ -27,6 +27,23 @@ type CachedTenantToken = {
 let cachedTenantToken: CachedTenantToken | null = null;
 let tenantTokenRequest: Promise<string> | null = null;
 
+function resolveLarkAppToken(
+    env: Env,
+    appToken?: string
+): string {
+    const resolved = appToken?.trim() || env.LARK_APP_TOKEN;
+
+    if (!resolved) {
+        throw new OperationalError(
+            "LARK_APP_TOKEN_MISSING",
+            "Lark Base app token is missing",
+            { retryable: false }
+        );
+    }
+
+    return resolved;
+}
+
 function createTokenCacheKey(env: Env): string {
     return `${env.LARK_APP_ID}:${env.LARK_APP_TOKEN}`;
 }
@@ -174,11 +191,13 @@ export function clearTenantAccessTokenCache(): void {
 export async function createLarkRecord(
     env: Env,
     tableId: string,
-    fields: Record<string, unknown>
+    fields: Record<string, unknown>,
+    appToken?: string
 ): Promise<unknown> {
     const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
     const data = await requestLarkJson<LarkApiResponse>(
-        `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records`,
+        `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records`,
         {
             method: "POST",
             headers: {
@@ -201,11 +220,13 @@ export async function updateLarkRecord(
     env: Env,
     tableId: string,
     recordId: string,
-    fields: Record<string, unknown>
+    fields: Record<string, unknown>,
+    appToken?: string
 ): Promise<unknown> {
     const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
     const data = await requestLarkJson<LarkApiResponse>(
-        `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
+        `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records/${recordId}`,
         {
             method: "PUT",
             headers: {
@@ -227,15 +248,17 @@ export async function updateLarkRecord(
 export async function searchLarkRecords(
     env: Env,
     tableId: string,
-    filter: Record<string, unknown>
+    filter: Record<string, unknown>,
+    appToken?: string
 ): Promise<unknown[]> {
     const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
     const records: unknown[] = [];
     let pageToken = "";
 
     for (let page = 0; page < 100; page += 1) {
         const url = new URL(
-            `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/search`
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records/search`
         );
 
         if (pageToken) {
@@ -289,15 +312,17 @@ export async function searchLarkRecords(
 
 export async function listLarkRecords(
     env: Env,
-    tableId: string
+    tableId: string,
+    appToken?: string
 ): Promise<unknown[]> {
     const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
     const records: unknown[] = [];
     let pageToken = "";
 
     for (let page = 0; page < 100; page += 1) {
         const url = new URL(
-            `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records`
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records`
         );
 
         url.searchParams.set("page_size", "100");
@@ -348,16 +373,18 @@ export async function listLarkRecords(
 export async function getLarkRecord(
     env: Env,
     tableId: string,
-    recordId: string
+    recordId: string,
+    appToken?: string
 ): Promise<unknown | null> {
     const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
     let data: LarkApiResponse<{ record?: unknown }>;
 
     try {
         data = await requestLarkJson<
             LarkApiResponse<{ record?: unknown }>
         >(
-            `https://open.larksuite.com/open-apis/bitable/v1/apps/${env.LARK_APP_TOKEN}/tables/${tableId}/records/${recordId}`,
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records/${recordId}`,
             {
                 method: "GET",
                 headers: {
@@ -386,4 +413,104 @@ export async function getLarkRecord(
     }
 
     return data.data?.record ?? null;
+}
+
+export type LarkBatchRecordInput = {
+    record_id: string;
+    fields: Record<string, unknown>;
+};
+
+function chunkRecords<T>(records: T[], size = 100): T[][] {
+    const chunks: T[][] = [];
+
+    for (let index = 0; index < records.length; index += size) {
+        chunks.push(records.slice(index, index + size));
+    }
+
+    return chunks;
+}
+
+/**
+ * อัปเดต Record เป็น Batch เพื่อลดจำนวน External subrequest ของ Worker
+ * แบ่งครั้งละ 100 รายการอย่างอนุรักษ์นิยม แม้ Lark รองรับมากกว่านี้
+ */
+export async function batchUpdateLarkRecords(
+    env: Env,
+    tableId: string,
+    records: LarkBatchRecordInput[],
+    appToken?: string
+): Promise<unknown[]> {
+    if (records.length === 0) {
+        return [];
+    }
+
+    const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
+    const results: unknown[] = [];
+
+    for (const chunk of chunkRecords(records)) {
+        const data = await requestLarkJson<
+            LarkApiResponse<{ records?: unknown[] }>
+        >(
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records/batch_update`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ records: chunk }),
+            },
+            "batch update record"
+        );
+
+        if (data.code !== 0) {
+            throw createLarkCodeError("Batch Update Record", data);
+        }
+
+        results.push(...(data.data?.records ?? []));
+    }
+
+    return results;
+}
+
+/** สร้าง Record เป็น Batch โดยแบ่งครั้งละ 100 รายการ */
+export async function batchCreateLarkRecords(
+    env: Env,
+    tableId: string,
+    records: Array<{ fields: Record<string, unknown> }>,
+    appToken?: string
+): Promise<unknown[]> {
+    if (records.length === 0) {
+        return [];
+    }
+
+    const token = await getTenantAccessToken(env);
+    const resolvedAppToken = resolveLarkAppToken(env, appToken);
+    const results: unknown[] = [];
+
+    for (const chunk of chunkRecords(records)) {
+        const data = await requestLarkJson<
+            LarkApiResponse<{ records?: unknown[] }>
+        >(
+            `https://open.larksuite.com/open-apis/bitable/v1/apps/${resolvedAppToken}/tables/${tableId}/records/batch_create`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ records: chunk }),
+            },
+            "batch create record"
+        );
+
+        if (data.code !== 0) {
+            throw createLarkCodeError("Batch Create Record", data);
+        }
+
+        results.push(...(data.data?.records ?? []));
+    }
+
+    return results;
 }

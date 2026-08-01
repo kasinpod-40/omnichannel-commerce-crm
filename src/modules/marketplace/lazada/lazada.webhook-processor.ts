@@ -1,5 +1,5 @@
 import type { Env } from "../../../config/env";
-import type { MarketplaceEventQueueMessage } from "../../../queues/marketplace-event.types";
+import type { LazadaMarketplaceQueueMessage } from "../../../queues/marketplace-event.types";
 import {
     asRecord,
     firstText,
@@ -75,7 +75,7 @@ function authoritativeOrderState(orderDetail: unknown): {
  */
 export async function processLazadaMarketplaceEvent(
     env: Env,
-    event: MarketplaceEventQueueMessage
+    event: LazadaMarketplaceQueueMessage
 ): Promise<void> {
     if (event.channel !== "Lazada") {
         throw new Error(

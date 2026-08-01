@@ -1,24 +1,37 @@
 import type { Env } from "../config/env";
 import { processLazadaMarketplaceEvent } from "../modules/marketplace/lazada/lazada.webhook-processor";
+import {
+    completePcProduction,
+    markPcProductionBlocked,
+    reconcileOrderInventory,
+    refreshPcMaterialPlan,
+} from "../modules/production-control/pc.service";
 import { classifyOperationalError } from "../utils/errors";
 import type {
     QueueBatchLike,
     QueueMessageLike,
 } from "./line-event.types";
-import type { MarketplaceEventQueueMessage } from "./marketplace-event.types";
+import {
+    isPcInventoryQueueMessage,
+    type LazadaMarketplaceQueueMessage,
+    type MarketplaceEventQueueMessage,
+    type PcInventoryQueueMessage,
+} from "./marketplace-event.types";
 
 type MarketplaceMessage = QueueMessageLike<MarketplaceEventQueueMessage>;
+type LazadaMessage = QueueMessageLike<LazadaMarketplaceQueueMessage>;
+type PcMessage = QueueMessageLike<PcInventoryQueueMessage>;
 
 type MarketplaceOrderGroup = {
-    selected: MarketplaceMessage;
-    messages: MarketplaceMessage[];
+    selected: LazadaMessage;
+    messages: LazadaMessage[];
 };
 
-/**
- * สร้าง Key ระดับร้านและ Order เพื่อรวม Webhook หลายรายการที่ Lazada ยิงมาพร้อมกัน
- * Lazada อาจยิงหนึ่ง Event ต่อ Order Item แต่ระบบ CRM ต้อง Sync เพียงหนึ่งครั้งต่อ Order
- */
-function marketplaceOrderKey(message: MarketplaceMessage): string {
+function isLazadaMessage(message: MarketplaceMessage): message is LazadaMessage {
+    return !isPcInventoryQueueMessage(message.body);
+}
+
+function marketplaceOrderKey(message: LazadaMessage): string {
     return [
         message.body.channel,
         message.body.seller_id,
@@ -26,12 +39,8 @@ function marketplaceOrderKey(message: MarketplaceMessage): string {
     ].join(":");
 }
 
-/**
- * เลือก Event ล่าสุดของ Order เดียวกันมาเป็นตัวกระตุ้นการ Sync
- * ตัวประมวลผลจะดึง Order ล่าสุดจาก Lazada API อีกครั้ง จึงไม่ต้องประมวลผลทุก Item Event
- */
 function groupMarketplaceMessages(
-    messages: MarketplaceMessage[]
+    messages: LazadaMessage[]
 ): MarketplaceOrderGroup[] {
     const groups = new Map<string, MarketplaceOrderGroup>();
 
@@ -49,12 +58,9 @@ function groupMarketplaceMessages(
 
         current.messages.push(message);
 
-        const selectedReceivedAt = current.selected.body.received_at;
-        const candidateReceivedAt = message.body.received_at;
-
         if (
-            candidateReceivedAt > selectedReceivedAt ||
-            (candidateReceivedAt === selectedReceivedAt &&
+            message.body.received_at > current.selected.body.received_at ||
+            (message.body.received_at === current.selected.body.received_at &&
                 message.timestamp.getTime() >=
                     current.selected.timestamp.getTime())
         ) {
@@ -65,16 +71,122 @@ function groupMarketplaceMessages(
     return [...groups.values()];
 }
 
-/**
- * รับ Marketplace Event จาก Queue แล้วรวม Event ที่เป็น Order เดียวกันก่อนประมวลผล
- * หน้า Webhook เรียก Queue Producer จาก routes/marketplace/lazada/webhook.route.ts
- * จากนั้น runtime/queue.ts จะส่ง Batch มาที่ฟังก์ชันนี้
- */
-export async function handleMarketplaceQueueBatch(
-    batch: QueueBatchLike<MarketplaceEventQueueMessage>,
+function retryDelaySeconds(attempts: number): number {
+    return Math.min(30 * Math.max(attempts, 1), 300);
+}
+
+function handlePermanentOrRetry(
+    message: MarketplaceMessage,
+    error: unknown,
+    context: Record<string, unknown>
+): void {
+    const classification = classifyOperationalError(error);
+
+    console.error(
+        classification.retryable
+            ? "MARKETPLACE_QUEUE_TRANSIENT_FAILURE"
+            : "MARKETPLACE_QUEUE_PERMANENT_FAILURE",
+        {
+            queue_message_id: message.id,
+            attempts: message.attempts,
+            ...context,
+            code: classification.code,
+            retryable: classification.retryable,
+            status: classification.status,
+            error: classification.message,
+        }
+    );
+
+    if (classification.retryable) {
+        message.retry({
+            delaySeconds: retryDelaySeconds(message.attempts),
+        });
+    } else {
+        message.ack();
+    }
+}
+
+async function processPcMessage(
+    message: PcMessage,
     env: Env
 ): Promise<void> {
-    const groups = groupMarketplaceMessages(batch.messages);
+    const body = message.body;
+
+    if (body.kind === "pc_order_sync") {
+        await reconcileOrderInventory(env, body.order_record_id);
+        return;
+    }
+
+    if (body.kind === "pc_production_complete") {
+        await completePcProduction(env, {
+            production_record_id: body.production_record_id,
+            actual_qty: body.actual_qty,
+            idempotency_key: body.idempotency_key,
+            owner: body.owner,
+        });
+        return;
+    }
+
+    await refreshPcMaterialPlan(env);
+}
+
+async function handlePcMessages(
+    messages: PcMessage[],
+    env: Env
+): Promise<void> {
+    for (const message of messages) {
+        try {
+            await processPcMessage(message, env);
+            message.ack();
+        } catch (error) {
+            const classification = classifyOperationalError(error);
+
+            if (
+                !classification.retryable &&
+                classification.code !== "PC_INVENTORY_DISABLED" &&
+                message.body.kind === "pc_production_complete"
+            ) {
+                try {
+                    await markPcProductionBlocked(env, {
+                        production_record_id:
+                            message.body.production_record_id,
+                        code: classification.code,
+                        message: classification.message,
+                    });
+                } catch (markError) {
+                    console.error("PC_PRODUCTION_BLOCK_MARK_FAILED", {
+                        production_record_id:
+                            message.body.production_record_id,
+                        error:
+                            markError instanceof Error
+                                ? markError.message
+                                : String(markError),
+                    });
+                }
+            }
+
+            handlePermanentOrRetry(message, error, {
+                subsystem: "production_control",
+                kind: message.body.kind,
+                event_id: message.body.event_id,
+                order_record_id:
+                    message.body.kind === "pc_order_sync"
+                        ? message.body.order_record_id
+                        : undefined,
+                production_record_id:
+                    message.body.kind === "pc_production_complete"
+                        ? message.body.production_record_id
+                        : undefined,
+            });
+        }
+    }
+}
+
+async function handleLazadaMessages(
+    messages: LazadaMessage[],
+    env: Env
+): Promise<void> {
+    const groups = groupMarketplaceMessages(messages);
 
     for (const group of groups) {
         const selected = group.selected;
@@ -96,10 +208,10 @@ export async function handleMarketplaceQueueBatch(
                     queue_message_id: selected.id,
                     grouped_message_count: group.messages.length,
                     attempts: selected.attempts,
-                    channel: selected.body?.channel,
-                    seller_id: selected.body?.seller_id,
-                    order_id: selected.body?.order_id,
-                    message_type: selected.body?.message_type,
+                    channel: selected.body.channel,
+                    seller_id: selected.body.seller_id,
+                    order_id: selected.body.order_id,
+                    message_type: selected.body.message_type,
                     code: classification.code,
                     retryable: classification.retryable,
                     status: classification.status,
@@ -114,10 +226,6 @@ export async function handleMarketplaceQueueBatch(
                 continue;
             }
 
-            /*
-             * เมื่อ Event ซ้ำของ Order เดียวกันล้มเหลว ให้ Retry เพียงตัวล่าสุดหนึ่งรายการ
-             * และ Ack ตัวซ้ำที่เหลือ เพื่อไม่ให้ Queue ยิง Order เดิมกลับมาหลายครั้งอีก
-             */
             for (const message of group.messages) {
                 if (message.id !== selected.id) {
                     message.ack();
@@ -125,11 +233,26 @@ export async function handleMarketplaceQueueBatch(
             }
 
             selected.retry({
-                delaySeconds: Math.min(
-                    30 * Math.max(selected.attempts, 1),
-                    300
-                ),
+                delaySeconds: retryDelaySeconds(selected.attempts),
             });
         }
     }
+}
+
+/**
+ * Marketplace และ PC ใช้ Queue เดียวกันแบบ max_concurrency=1
+ * เพื่อ serialize การแก้ Order/Product/Material stock และลด lost-update ระหว่าง Worker isolates
+ */
+export async function handleMarketplaceQueueBatch(
+    batch: QueueBatchLike<MarketplaceEventQueueMessage>,
+    env: Env
+): Promise<void> {
+    const lazadaMessages = batch.messages.filter(isLazadaMessage);
+    const pcMessages = batch.messages.filter(
+        (message): message is PcMessage =>
+            isPcInventoryQueueMessage(message.body)
+    );
+
+    await handleLazadaMessages(lazadaMessages, env);
+    await handlePcMessages(pcMessages, env);
 }

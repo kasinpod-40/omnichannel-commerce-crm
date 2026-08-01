@@ -12,6 +12,7 @@ import { handleMarketplaceRoutes } from "../routes/marketplace";
 import { handleNotificationRoutes } from "../routes/notifications";
 import { handleOrderRoutes } from "../routes/orders";
 import { handlePaymentReviewRoutes } from "../routes/payment-reviews";
+import { handleProductionControlRoutes } from "../routes/production-control";
 import { handlePipelineRoutes } from "../routes/pipelines";
 import { handleTestingRoutes } from "../routes/testing";
 import { jsonResponse } from "../utils/response";
@@ -41,6 +42,7 @@ export async function handleHttpRequest(
         () => handleNotificationRoutes(request, env, pathname),
         () => handleOrderRoutes(request, env, pathname),
         () => handlePaymentReviewRoutes(request, env, pathname),
+        () => handleProductionControlRoutes(request, env, pathname),
         () => handleDocumentRoutes(request, env, pathname),
         () => handleMarketplaceRoutes(request, env, ctx, pathname),
         () => handleTestingRoutes(request, env, pathname),

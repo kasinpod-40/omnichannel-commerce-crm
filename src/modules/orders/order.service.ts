@@ -1,5 +1,10 @@
 import type { QuantityAction } from "../../ai/ai.types";
 import type { Env } from "../../config/env";
+import { enqueuePcOrderSyncAfterBusinessWrite } from "../../queues/marketplace-event.producer";
+import {
+    isPcInventoryConfigured,
+    isPcInventoryEnabled,
+} from "../production-control/pc.repository";
 import {
     CUSTOMER_FIELDS,
     ORDER_FIELDS,
@@ -1015,6 +1020,17 @@ export async function cancelActiveOrder(
         throw new Error(
             `ORDER_CANCEL_UPDATE_NOT_PERSISTED: order=${existingOrder.record_id}`
         );
+    }
+
+    if (
+        isPcInventoryEnabled(env) &&
+        isPcInventoryConfigured(env)
+    ) {
+        await enqueuePcOrderSyncAfterBusinessWrite(env, {
+            order_record_id: cancelledOrder.record_id,
+            source: "order",
+            event_id: `pc:cancel:${cancelledOrder.record_id}:${Date.now()}`,
+        });
     }
 
     return {

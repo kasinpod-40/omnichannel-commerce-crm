@@ -11,7 +11,10 @@ import type {
     QueueBatchLike,
 } from "./line-event.types";
 import type { NotificationQueueMessage } from "./notification-event.types";
-import type { MarketplaceEventQueueMessage } from "./marketplace-event.types";
+import {
+    isPcInventoryQueueMessage,
+    type MarketplaceEventQueueMessage,
+} from "./marketplace-event.types";
 
 export async function handleLineDlqBatch(
     batch: QueueBatchLike<LineEventQueueMessage>,
@@ -129,15 +132,34 @@ export async function handleMarketplaceDlqBatch(
     _env: Env
 ): Promise<void> {
     for (const message of batch.messages) {
-        console.error("MARKETPLACE_EVENT_MOVED_TO_DLQ", {
-            queue_message_id: message.id,
-            attempts: message.attempts,
-            channel: message.body?.channel,
-            seller_id: message.body?.seller_id,
-            order_id: message.body?.order_id,
-            message_type: message.body?.message_type,
-            received_at: message.body?.received_at,
-        });
+        const body = message.body;
+
+        if (isPcInventoryQueueMessage(body)) {
+            console.error("PC_EVENT_MOVED_TO_DLQ", {
+                queue_message_id: message.id,
+                attempts: message.attempts,
+                kind: body.kind,
+                event_id: body.event_id,
+                order_record_id:
+                    body.kind === "pc_order_sync"
+                        ? body.order_record_id
+                        : undefined,
+                production_record_id:
+                    body.kind === "pc_production_complete"
+                        ? body.production_record_id
+                        : undefined,
+            });
+        } else {
+            console.error("MARKETPLACE_EVENT_MOVED_TO_DLQ", {
+                queue_message_id: message.id,
+                attempts: message.attempts,
+                channel: body.channel,
+                seller_id: body.seller_id,
+                order_id: body.order_id,
+                message_type: body.message_type,
+                received_at: body.received_at,
+            });
+        }
 
         message.ack();
     }

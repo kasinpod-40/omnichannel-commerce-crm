@@ -5,6 +5,11 @@ import {
     handlePaymentOverdueWebhook,
 } from "./payment-overdue.route";
 import { handlePaymentVerifiedWebhook } from "./payment.route";
+import {
+    handlePcMaterialRefreshWorkflow,
+    handlePcOrderSyncWorkflow,
+    handlePcProductionCompleteWorkflow,
+} from "./production-control.route";
 import { handleSalesOwnerAssignment } from "./sales-assignment.route";
 
 export async function handleLarkOperationalRoutes(
@@ -14,6 +19,18 @@ export async function handleLarkOperationalRoutes(
 ): Promise<Response | null> {
     if (pathname === "/webhooks/lark/payment-verified") {
         return handlePaymentVerifiedWebhook(request, env);
+    }
+
+    if (pathname === "/webhooks/lark/pc/order-sync") {
+        return handlePcOrderSyncWorkflow(request, env);
+    }
+
+    if (pathname === "/webhooks/lark/pc/material-refresh") {
+        return handlePcMaterialRefreshWorkflow(request, env);
+    }
+
+    if (pathname === "/webhooks/lark/pc/production-complete") {
+        return handlePcProductionCompleteWorkflow(request, env);
     }
 
     if (pathname === "/admin/integrity/customer") {

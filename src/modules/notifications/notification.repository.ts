@@ -83,10 +83,6 @@ export async function createNotification(
         [NOTIFICATION_FIELDS.NOTIFICATION_TYPE]:
             notification.notification_type,
 
-        [NOTIFICATION_FIELDS.CUSTOMER]: [
-            notification.customer_record_id,
-        ],
-
         [NOTIFICATION_FIELDS.MESSAGE]:
             notification.message,
 
@@ -105,6 +101,12 @@ export async function createNotification(
         [NOTIFICATION_FIELDS.CREATED_AT]:
             notification.created_at ?? Date.now(),
     };
+
+    if (notification.customer_record_id?.trim()) {
+        fields[NOTIFICATION_FIELDS.CUSTOMER] = [
+            notification.customer_record_id.trim(),
+        ];
+    }
 
     const result = await createLarkRecord(
         env,

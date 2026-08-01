@@ -84,6 +84,8 @@ const NOTIFICATION_LABELS: Record<
     SALE_WON: "ปิดการขายสำเร็จ",
     SALE_LOST: "ลูกค้ายกเลิกการสั่งซื้อ",
     PAYMENT_OVERDUE: "คำสั่งซื้อเกินกำหนดชำระเงิน",
+    PC_STOCK_EXCEPTION: "พบข้อยกเว้นด้านสต็อกสินค้า",
+    PC_MATERIAL_SHORTAGE: "วัตถุดิบไม่เพียงพอสำหรับแผนผลิต",
 };
 
 const NOTIFICATION_ICONS: Record<
@@ -97,6 +99,8 @@ const NOTIFICATION_ICONS: Record<
     SALE_WON: "🎉",
     SALE_LOST: "❌",
     PAYMENT_OVERDUE: "⏰",
+    PC_STOCK_EXCEPTION: "📦",
+    PC_MATERIAL_SHORTAGE: "🧵",
 };
 
 const NEXT_ACTIONS: Record<
@@ -110,6 +114,8 @@ const NEXT_ACTIONS: Record<
     SALE_WON: "เตรียมจัดส่งและติดตามงานจนเสร็จสมบูรณ์",
     SALE_LOST: "ตรวจสอบสาเหตุและบันทึกหมายเหตุสำหรับติดตามภายหลัง",
     PAYMENT_OVERDUE: "ติดต่อลูกค้าเพื่อติดตามการชำระเงิน",
+    PC_STOCK_EXCEPTION: "ตรวจสอบ SKU, Order และยอด Stock ก่อนสั่งประมวลผลใหม่",
+    PC_MATERIAL_SHORTAGE: "จัดหาวัตถุดิบหรือปรับจำนวนแผนผลิตก่อนอนุมัติ",
 };
 
 export function isNotificationType(
@@ -355,6 +361,13 @@ export function parseNotificationSnapshot(
                 parsed.marketplace_event_kind === "created"
                     ? parsed.marketplace_event_kind
                     : undefined,
+            pc_reference_id: normalizeSnapshotString(
+                parsed.pc_reference_id
+            ),
+            pc_detail: normalizeSnapshotString(parsed.pc_detail),
+            pc_next_action: normalizeSnapshotString(
+                parsed.pc_next_action
+            ),
             dashboard_read_at: (() => {
                 const value = normalizeSnapshotNumber(parsed.dashboard_read_at, 0);
                 return value > 0 ? value : undefined;
@@ -375,7 +388,7 @@ async function captureNotificationSnapshot(
 ): Promise<NotificationSnapshot> {
     const customer = await getCustomerByRecordId(
         env,
-        notification.customer_record_id
+        notification.customer_record_id ?? ""
     );
 
     const eventId = notification.event_id.trim();
@@ -508,6 +521,16 @@ function buildNotificationLines(
 ): string[] {
     const lines: string[] = [];
     const marketplace = isMarketplaceSnapshot(snapshot);
+    const pcAlert =
+        notificationType === "PC_STOCK_EXCEPTION" ||
+        notificationType === "PC_MATERIAL_SHORTAGE";
+
+    if (pcAlert) {
+        addLine(lines, "อ้างอิง", snapshot.pc_reference_id);
+        addLine(lines, "สินค้า/วัตถุดิบ", snapshot.product_name);
+        addLine(lines, "รายละเอียด", snapshot.pc_detail);
+        return lines;
+    }
 
     addLine(lines, "ลูกค้า", snapshot.customer_name);
     addLine(lines, "ช่องทาง", snapshot.channel);
@@ -708,22 +731,26 @@ function formatNotificationText(
         typeText,
         snapshot
     );
+    const nextAction =
+        marketplaceAction ??
+        ((typeText === "PC_STOCK_EXCEPTION" ||
+            typeText === "PC_MATERIAL_SHORTAGE") &&
+        snapshot.pc_next_action
+            ? snapshot.pc_next_action
+            : typeText === "PAYMENT_REVIEW" &&
+                !snapshot.order_number
+              ? "ตรวจสอบข้อมูลลูกค้าและผูกสลิปกับคำสั่งซื้อ"
+              : typeText === "PAYMENT_VERIFIED" &&
+                  snapshot.order_status === "Waiting Address"
+                ? "ติดต่อลูกค้าเพื่อขอชื่อ เบอร์โทร และที่อยู่จัดส่ง"
+                : NEXT_ACTIONS[typeText]);
 
     return [
         `[CRM] ${marketplaceTitle ?? `${NOTIFICATION_ICONS[typeText]} ${NOTIFICATION_LABELS[typeText]}`}`,
         "",
         ...detailLines,
         "",
-        `สิ่งที่ต้องทำ: ${
-            marketplaceAction ??
-            (typeText === "PAYMENT_REVIEW" &&
-            !snapshot.order_number
-                ? "ตรวจสอบข้อมูลลูกค้าและผูกสลิปกับคำสั่งซื้อ"
-                : typeText === "PAYMENT_VERIFIED" &&
-                    snapshot.order_status === "Waiting Address"
-                  ? "ติดต่อลูกค้าเพื่อขอชื่อ เบอร์โทร และที่อยู่จัดส่ง"
-                  : NEXT_ACTIONS[typeText])
-        }`,
+        `สิ่งที่ต้องทำ: ${nextAction}`,
     ]
         .filter((line, index, array) => {
             if (line !== "") {

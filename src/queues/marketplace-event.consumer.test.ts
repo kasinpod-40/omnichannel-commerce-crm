@@ -1,19 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
+import { OperationalError } from "../utils/errors";
 import type {
     QueueBatchLike,
     QueueMessageLike,
 } from "./line-event.types";
 import type { MarketplaceEventQueueMessage } from "./marketplace-event.types";
 
-const { processLazadaMarketplaceEvent } = vi.hoisted(() => ({
+const {
+    processLazadaMarketplaceEvent,
+    reconcileOrderInventory,
+    completePcProduction,
+    refreshPcMaterialPlan,
+    markPcProductionBlocked,
+} = vi.hoisted(() => ({
     processLazadaMarketplaceEvent: vi.fn(),
+    reconcileOrderInventory: vi.fn(),
+    completePcProduction: vi.fn(),
+    refreshPcMaterialPlan: vi.fn(),
+    markPcProductionBlocked: vi.fn(),
 }));
 
 vi.mock(
     "../modules/marketplace/lazada/lazada.webhook-processor",
     () => ({ processLazadaMarketplaceEvent })
 );
+
+vi.mock("../modules/production-control/pc.service", () => ({
+    reconcileOrderInventory,
+    completePcProduction,
+    refreshPcMaterialPlan,
+    markPcProductionBlocked,
+}));
 
 import { handleMarketplaceQueueBatch } from "./marketplace-event.consumer";
 
@@ -47,6 +65,59 @@ function queueMessage(input: {
                 },
             },
         },
+        ack: vi.fn(),
+        retry: vi.fn(),
+    };
+}
+
+function pcQueueMessage(
+    body:
+        | {
+              kind: "pc_order_sync";
+              order_record_id: string;
+          }
+        | {
+              kind: "pc_production_complete";
+              production_record_id: string;
+              actual_qty: number;
+              idempotency_key: string;
+          }
+        | { kind: "pc_material_refresh" },
+    id = `msg-${body.kind}`
+): QueueMessageLike<MarketplaceEventQueueMessage> {
+    const common = {
+        schema_version: 1 as const,
+        event_id: `event-${id}`,
+        requested_at: 1,
+    };
+    const queueBody: MarketplaceEventQueueMessage =
+        body.kind === "pc_order_sync"
+            ? {
+                  ...common,
+                  kind: body.kind,
+                  order_record_id: body.order_record_id,
+                  source: "reconcile",
+              }
+            : body.kind === "pc_production_complete"
+              ? {
+                    ...common,
+                    kind: body.kind,
+                    production_record_id: body.production_record_id,
+                    actual_qty: body.actual_qty,
+                    idempotency_key: body.idempotency_key,
+                    source: "dashboard",
+                }
+              : {
+                    ...common,
+                    kind: body.kind,
+                    source: "reconcile",
+                };
+
+    return {
+        id,
+        timestamp: new Date(1),
+        attempts: 1,
+        body: queueBody,
         ack: vi.fn(),
         retry: vi.fn(),
     };
@@ -132,4 +203,133 @@ describe("marketplace event queue consumer", () => {
         expect(messages[1]?.retry).toHaveBeenCalledTimes(1);
         expect(messages[1]?.ack).not.toHaveBeenCalled();
     });
+
+    it("processes PC stock messages sequentially and acknowledges each success", async () => {
+        reconcileOrderInventory.mockResolvedValue({ status: "APPLIED" });
+        completePcProduction.mockResolvedValue({ inventory_posted: true });
+        refreshPcMaterialPlan.mockResolvedValue({ materials_updated: 1 });
+        const order = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+        const production = pcQueueMessage({
+            kind: "pc_production_complete",
+            production_record_id: "production-rec-1",
+            actual_qty: 12,
+            idempotency_key: "complete-1",
+        });
+        const material = pcQueueMessage({ kind: "pc_material_refresh" });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [order, production, material],
+            },
+            {} as Env
+        );
+
+        expect(reconcileOrderInventory).toHaveBeenCalledWith(
+            expect.anything(),
+            "order-rec-1"
+        );
+        expect(completePcProduction).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                production_record_id: "production-rec-1",
+                actual_qty: 12,
+                idempotency_key: "complete-1",
+            })
+        );
+        expect(refreshPcMaterialPlan).toHaveBeenCalledOnce();
+        for (const message of [order, production, material]) {
+            expect(message.ack).toHaveBeenCalledOnce();
+            expect(message.retry).not.toHaveBeenCalled();
+        }
+    });
+
+    it("retries a transient PC failure without acknowledging it", async () => {
+        reconcileOrderInventory.mockRejectedValue(
+            new Error("temporary network failure")
+        );
+        const message = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [message],
+            },
+            {} as Env
+        );
+
+        expect(message.retry).toHaveBeenCalledOnce();
+        expect(message.ack).not.toHaveBeenCalled();
+    });
+
+
+    it("acknowledges a disabled completion without changing the Production record", async () => {
+        completePcProduction.mockRejectedValue(
+            new OperationalError(
+                "PC_INVENTORY_DISABLED",
+                "Production & Stock Control is disabled",
+                { retryable: false, status: 503 }
+            )
+        );
+        const message = pcQueueMessage({
+            kind: "pc_production_complete",
+            production_record_id: "production-rec-1",
+            actual_qty: 12,
+            idempotency_key: "complete-disabled-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [message],
+            },
+            {} as Env
+        );
+
+        expect(markPcProductionBlocked).not.toHaveBeenCalled();
+        expect(message.ack).toHaveBeenCalledOnce();
+        expect(message.retry).not.toHaveBeenCalled();
+    });
+
+    it("acknowledges and marks a permanently blocked production completion", async () => {
+        completePcProduction.mockRejectedValue(
+            new OperationalError(
+                "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
+                "material is insufficient",
+                { retryable: false, status: 409 }
+            )
+        );
+        markPcProductionBlocked.mockResolvedValue(undefined);
+        const message = pcQueueMessage({
+            kind: "pc_production_complete",
+            production_record_id: "production-rec-1",
+            actual_qty: 12,
+            idempotency_key: "complete-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [message],
+            },
+            {} as Env
+        );
+
+        expect(markPcProductionBlocked).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                production_record_id: "production-rec-1",
+                code: "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
+            })
+        );
+        expect(message.ack).toHaveBeenCalledOnce();
+        expect(message.retry).not.toHaveBeenCalled();
+    });
+
 });
