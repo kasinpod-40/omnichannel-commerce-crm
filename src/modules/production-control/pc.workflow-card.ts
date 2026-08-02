@@ -24,6 +24,12 @@ const ACTIVE_STATUSES = new Set([
     "BLOCKED_MATERIAL",
 ]);
 
+type CardAction = {
+    action: PcWorkflowAction;
+    text: string;
+    template: "orange" | "red" | "green";
+};
+
 function normalizeKey(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -43,16 +49,14 @@ function statusLabel(batch: PcProductionBatch): string {
         RECOMMENDED: "รออนุมัติผลิต",
         APPROVED: "อนุมัติแล้ว",
         IN_PROGRESS: "กำลังผลิต",
-        BLOCKED_MATERIAL: "รอวัตถุดิบ",
+        BLOCKED_MATERIAL: "รออนุมัติและตรวจวัตถุดิบ",
         COMPLETED: "ผลิตเสร็จแล้ว",
         CANCELLED: "ยกเลิกแล้ว",
     };
     return labels[batch.production_status];
 }
 
-function actionForBatch(
-    batch: PcProductionBatch
-): { action: PcWorkflowAction; text: string; template: "orange" | "red" | "green" } | null {
+function actionForBatch(batch: PcProductionBatch): CardAction | null {
     if (batch.production_status === "RECOMMENDED") {
         return {
             action: "approve-production",
@@ -90,9 +94,11 @@ async function cardForBatch(
         title: string;
         markdown: string;
         template?: "blue" | "green" | "orange" | "red" | "grey";
+        action?: CardAction | null;
     }
 ): Promise<PcLarkActionCardInput> {
-    const action = actionForBatch(batch);
+    const action =
+        input.action === undefined ? actionForBatch(batch) : input.action;
     const actions = action
         ? [
               {
@@ -177,6 +183,32 @@ function shortageLines(input: {
     return lines.length > 0 ? lines : ["กรุณาตรวจสอบยอดวัตถุดิบล่าสุด"];
 }
 
+async function buildMaterialShortageCard(
+    env: Env,
+    batch: PcProductionBatch
+): Promise<PcLarkActionCardInput> {
+    const [products, materials] = await Promise.all([
+        listPcProducts(env),
+        listPcMaterials(env),
+    ]);
+    const product = findProduct(products, batch);
+    const risks = shortageLines({ batch, product, materials });
+
+    return await cardForBatch(env, batch, {
+        title: "🧵 วัตถุดิบไม่เพียงพอ",
+        template: "red",
+        markdown: [
+            `**สินค้า:** ${batch.product_name || batch.product_sku}`,
+            `**แผนผลิต:** ${batch.production_id}`,
+            `**จำนวนผลิต:** ${quantity(plannedQuantity(batch))} ชิ้น`,
+            "",
+            ...risks,
+            "",
+            "กดอนุมัติสั่งซื้อเพื่อจำลองรับวัตถุดิบเข้า แล้วระบบจะเริ่มผลิตต่ออัตโนมัติ",
+        ].join("\n"),
+    });
+}
+
 export async function buildPcNotificationActionCard(
     env: Env,
     input: {
@@ -214,39 +246,37 @@ export async function buildPcNotificationActionCard(
 
     if (!batch) return null;
 
-    if (batch.production_status === "BLOCKED_MATERIAL") {
-        const [products, materials] = await Promise.all([
-            listPcProducts(env),
-            listPcMaterials(env),
-        ]);
-        const product = findProduct(products, batch);
-        const risks = shortageLines({ batch, product, materials });
+    if (input.notification_type === "PC_MATERIAL_SHORTAGE") {
+        return await buildMaterialShortageCard(env, batch);
+    }
+
+    if (
+        batch.production_status === "RECOMMENDED" ||
+        batch.production_status === "BLOCKED_MATERIAL"
+    ) {
         return await cardForBatch(env, batch, {
-            title: "🧵 วัตถุดิบไม่เพียงพอ",
-            template: "red",
+            title: "📦 สินค้าใกล้หมด",
+            template: "orange",
+            action: {
+                action: "approve-production",
+                text: "อนุมัติผลิตสินค้า",
+                template: "orange",
+            },
             markdown: [
-                `**สินค้า:** ${batch.product_name || batch.product_sku}`,
+                input.fallback_text,
+                "",
                 `**แผนผลิต:** ${batch.production_id}`,
-                `**จำนวนผลิต:** ${quantity(plannedQuantity(batch))} ชิ้น`,
+                `**สถานะ:** ${statusLabel(batch)}`,
+                `**จำนวนตามแผน:** ${quantity(plannedQuantity(batch))} ชิ้น`,
                 "",
-                ...risks,
-                "",
-                "กดอนุมัติสั่งซื้อเพื่อจำลองรับวัตถุดิบเข้า แล้วระบบจะเริ่มผลิตต่ออัตโนมัติ",
+                "เมื่อกดอนุมัติ ระบบจะตรวจวัตถุดิบก่อนเริ่มผลิต",
             ].join("\n"),
         });
     }
 
     return await cardForBatch(env, batch, {
-        title:
-            batch.production_status === "IN_PROGRESS" ||
-            batch.production_status === "APPROVED"
-                ? "🏭 สินค้ากำลังผลิต"
-                : "📦 สินค้าใกล้หมด",
-        template:
-            batch.production_status === "IN_PROGRESS" ||
-            batch.production_status === "APPROVED"
-                ? "green"
-                : "orange",
+        title: "🏭 สินค้ากำลังผลิต",
+        template: "green",
         markdown: [
             input.fallback_text,
             "",
