@@ -1,14 +1,18 @@
 import type { Env } from "../../config/env";
-import { recordAndDispatchNotificationOnce } from "../notifications/notification.service";
+import {
+    recordNotificationOnce,
+    sendNotificationByRecordId,
+} from "../notifications/notification.service";
 import type {
     NotificationSnapshot,
     NotificationType,
 } from "../notifications/notification.types";
+import { enqueueNotificationDelivery } from "../../queues/notification.producer";
 
 /**
- * บันทึกและส่ง Notification ของ Production & Stock แบบ best effort.
- * คืน false เมื่อสร้าง Record หรือส่งเข้า Queue ไม่สำเร็จ เพื่อให้ caller
- * ตัดสินใจ retry ได้ โดยไม่กลืนความล้มเหลวเป็นผลสำเร็จเงียบ ๆ.
+ * บันทึกและส่ง Notification ของ Production & Stock แบบทันที.
+ * ถ้า Webhook ล้มเหลวแบบ retryable จะส่งเข้า Queue เป็น fallback.
+ * คืน false เมื่อทั้งการส่งตรงและ Queue fallback ไม่สำเร็จ หรือพบ Error ถาวร.
  */
 export async function notifyPcExceptionOnce(
     env: Env,
@@ -45,24 +49,53 @@ export async function notifyPcExceptionOnce(
     };
 
     try {
-        const result = await recordAndDispatchNotificationOnce(env, {
+        const recorded = await recordNotificationOnce(env, {
             event_id: input.event_id,
             notification_type: input.type,
             message: input.detail,
             payload,
         });
+        const delivery = await sendNotificationByRecordId(
+            env,
+            recorded.record.record_id
+        );
 
-        if (result.dispatch_error) {
-            console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
-                event_id: input.event_id,
-                type: input.type,
-                notification_record_id: result.record.record_id,
-                error: result.dispatch_error,
-            });
-            return false;
+        if (delivery.ok) {
+            return true;
         }
 
-        return true;
+        if (delivery.retryable !== false) {
+            try {
+                await enqueueNotificationDelivery(env, {
+                    schema_version: 1,
+                    notification_record_id: recorded.record.record_id,
+                    event_id: input.event_id,
+                    created_at: Date.now(),
+                });
+                return true;
+            } catch (queueError) {
+                console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
+                    event_id: input.event_id,
+                    type: input.type,
+                    notification_record_id: recorded.record.record_id,
+                    error: `${delivery.error_message ?? "Webhook delivery failed"}; queue: ${
+                        queueError instanceof Error
+                            ? queueError.message
+                            : String(queueError)
+                    }`,
+                });
+                return false;
+            }
+        }
+
+        console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
+            event_id: input.event_id,
+            type: input.type,
+            notification_record_id: recorded.record.record_id,
+            code: delivery.error_code,
+            error: delivery.error_message,
+        });
+        return false;
     } catch (error) {
         console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
             event_id: input.event_id,
