@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
     ),
     createDemoShopShopeeOrder: vi.fn(),
     getDemoShopCatalog: vi.fn(),
+    getPcOverview: vi.fn(),
     isDemoShopEnabled: vi.fn(() => true),
 }));
 
@@ -58,6 +59,10 @@ vi.mock("../../modules/demo-shop/demo-shop-shopee.service", () => ({
     createDemoShopShopeeOrder: mocks.createDemoShopShopeeOrder,
 }));
 
+vi.mock("../../modules/production-control/pc.service", () => ({
+    getPcOverview: mocks.getPcOverview,
+}));
+
 import {
     handleDemoShopOrderCreate,
     handleDemoShopProducts,
@@ -73,6 +78,7 @@ function env(): Env {
 function session(role: "admin" | "manager" | "viewer") {
     return {
         user: {
+            user_id: "user-demo",
             open_id: "ou_demo",
             name: "Demo Operator",
             role,
@@ -92,11 +98,21 @@ function catalog(stockOnHand = 3) {
                 size: "M",
                 price_thb: 1590,
                 stock_on_hand: stockOnHand,
+                min_stock: 5,
                 stock_status:
                     stockOnHand <= 0 ? "OUT_OF_STOCK" : "LOW_STOCK",
             },
         ],
         updated_at: "2026-08-02T00:00:00.000Z",
+    };
+}
+
+function overview() {
+    return {
+        summary: {},
+        products: [],
+        materials: [],
+        production: [],
     };
 }
 
@@ -109,6 +125,7 @@ describe("Demo Shop API route", () => {
             quantity: 2,
         });
         mocks.getDemoShopCatalog.mockResolvedValue(catalog(3));
+        mocks.getPcOverview.mockResolvedValue(overview());
     });
 
     it("requires a Dashboard session and masks the global inventory flag before returning products", async () => {
@@ -130,6 +147,55 @@ describe("Demo Shop API route", () => {
                 PC_DEMO_SHOP_ENABLED: "true",
             })
         );
+        expect(mocks.getPcOverview).toHaveBeenCalledWith(
+            expect.objectContaining({
+                PC_INVENTORY_ENABLED: "false",
+                PC_DEMO_SHOP_ENABLED: "true",
+            })
+        );
+    });
+
+    it("joins the highest-priority active production state to the matching SKU", async () => {
+        mocks.getPcOverview.mockResolvedValue({
+            ...overview(),
+            production: [
+                {
+                    record_id: "production-recommended",
+                    production_id: "PROD-RECOMMENDED",
+                    product_sku: "BNK-LUNA-IV-M",
+                    production_status: "RECOMMENDED",
+                    planned_qty: 12,
+                    recommended_qty: 12,
+                    created_at: 20,
+                },
+                {
+                    record_id: "production-active",
+                    production_id: "PROD-ACTIVE",
+                    product_sku: "bnk-luna-iv-m",
+                    production_status: "IN_PROGRESS",
+                    planned_qty: 16,
+                    recommended_qty: 16,
+                    created_at: 10,
+                },
+            ],
+        });
+
+        const response = await handleDemoShopProducts(
+            new Request("https://worker.example.com/demo-shop/api/products"),
+            env()
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            products: [
+                {
+                    sku: "BNK-LUNA-IV-M",
+                    production_status: "IN_PROGRESS",
+                    production_qty: 16,
+                    production_id: "PROD-ACTIVE",
+                },
+            ],
+        });
     });
 
     it("allows ordering every remaining unit while stock is low but above zero", async () => {
