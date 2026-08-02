@@ -73,7 +73,11 @@ function parseAppliedState(value: unknown): PcOrderInventoryState {
     );
 }
 
-/** ส่ง Low-stock Notification ซ้ำจาก state เดิม โดยไม่ Reconcile และไม่แก้ Stock */
+/**
+ * ส่ง Low-stock Notification จาก state เดิมโดยไม่ Reconcile และไม่แก้ Stock.
+ * Recovery ใช้ Stock หลัง Order <= Min เป็นเกณฑ์ เพื่อกู้ข้อความที่พลาดแม้สินค้า
+ * จะต่ำกว่า Min อยู่ก่อน Order นั้นแล้ว ส่วน Flow อัตโนมัติยังใช้ crossing-only.
+ */
 export async function retryDemoShopLowStockNotification(
     env: Env,
     orderNumberInput: string
@@ -117,7 +121,10 @@ export async function retryDemoShopLowStockNotification(
     const result = await notifyLowStockAfterOrderOnce(
         demoPcEnv(env),
         order.record_id,
-        { inventoryState: state }
+        {
+            inventoryState: state,
+            evaluationMode: "current_low_stock_recovery",
+        }
     );
     const evaluationMessages = result.diagnostics.map(
         (diagnostic) => diagnostic.message
