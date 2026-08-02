@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env";
 import { dashboardPreflight } from "../shared/dashboard-api";
 import {
+    handleDemoShopLowStockRetry,
     handleDemoShopOrderCreate,
     handleDemoShopPage,
     handleDemoShopProducts,
@@ -26,6 +27,8 @@ export async function handleDemoShopRoutes(
             return await handleDemoShopProducts(request, env);
         case "/demo-shop/api/orders":
             return await handleDemoShopOrderCreate(request, env);
+        case "/demo-shop/api/notifications/low-stock/retry":
+            return await handleDemoShopLowStockRetry(request, env);
         default:
             return null;
     }
