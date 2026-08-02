@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
     recordNotificationOnce: vi.fn(),
     sendNotificationByRecordId: vi.fn(),
     sendLarkGroupText: vi.fn(),
+    sendPcLarkActionCard: vi.fn(),
+    buildPcNotificationActionCard: vi.fn(),
     updateNotificationDelivery: vi.fn(),
     enqueueNotificationDelivery: vi.fn(),
     classifyOperationalError: vi.fn(),
@@ -22,6 +24,14 @@ vi.mock("../notifications/notification.repository", () => ({
 
 vi.mock("../../providers/lark/lark-group-webhook.provider", () => ({
     sendLarkGroupText: mocks.sendLarkGroupText,
+}));
+
+vi.mock("./pc.lark-card", () => ({
+    sendPcLarkActionCard: mocks.sendPcLarkActionCard,
+}));
+
+vi.mock("./pc.workflow-card", () => ({
+    buildPcNotificationActionCard: mocks.buildPcNotificationActionCard,
 }));
 
 vi.mock("../../queues/notification.producer", () => ({
@@ -81,6 +91,8 @@ describe("PC alert delivery", () => {
             duplicate: false,
         });
         mocks.sendLarkGroupText.mockResolvedValue({ ok: true, response: {} });
+        mocks.sendPcLarkActionCard.mockResolvedValue({ ok: true, response: {} });
+        mocks.buildPcNotificationActionCard.mockResolvedValue(null);
         mocks.updateNotificationDelivery.mockResolvedValue(
             notificationRecord("Sent", 1)
         );
@@ -112,6 +124,31 @@ describe("PC alert delivery", () => {
         );
         expect(mocks.sendNotificationByRecordId).not.toHaveBeenCalled();
         expect(mocks.enqueueNotificationDelivery).not.toHaveBeenCalled();
+    });
+
+    it("sends an actionable card instead of duplicate text when a production batch is available", async () => {
+        mocks.buildPcNotificationActionCard.mockResolvedValue({
+            title: "📦 สินค้าใกล้หมด",
+            markdown: "Low stock",
+            actions: [
+                {
+                    text: "อนุมัติผลิตสินค้า",
+                    url: "https://worker.example.com/action",
+                },
+            ],
+        });
+
+        await expect(
+            notifyPcExceptionOnce({} as Env, alertInput)
+        ).resolves.toBe(true);
+
+        expect(mocks.sendPcLarkActionCard).toHaveBeenCalledTimes(1);
+        expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
+        expect(mocks.updateNotificationDelivery).toHaveBeenCalledWith(
+            expect.anything(),
+            "notification-rec-1",
+            expect.objectContaining({ status: "Sent" })
+        );
     });
 
     it("does not resend an idempotent readable alert already marked Sent", async () => {
@@ -174,7 +211,7 @@ describe("PC alert delivery", () => {
         expect(mocks.enqueueNotificationDelivery).not.toHaveBeenCalled();
     });
 
-    it("keeps the generic delivery path for PC alerts without custom text", async () => {
+    it("keeps the generic delivery path for PC stock alerts without custom text", async () => {
         mocks.sendNotificationByRecordId.mockResolvedValue({
             ok: true,
         });
@@ -189,6 +226,55 @@ describe("PC alert delivery", () => {
             expect.anything(),
             "notification-rec-1"
         );
+        expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
+    });
+
+    it("defers an automatic material-plan alert until it can be linked to an approved production batch", async () => {
+        const materialInput = {
+            event_id: "pc:material:FAB-IV:18:24",
+            type: "PC_MATERIAL_SHORTAGE" as const,
+            reference_id: "FAB-IV",
+            product_name: "ผ้าสีไอวอรี่",
+            detail: "วัตถุดิบขาด 6 m สำหรับแผนผลิตปัจจุบัน",
+            next_action: "จัดหาวัตถุดิบก่อนอนุมัติ",
+        };
+
+        await expect(
+            notifyPcExceptionOnce({} as Env, materialInput)
+        ).resolves.toBe(true);
+
+        expect(mocks.buildPcNotificationActionCard).toHaveBeenCalledTimes(1);
+        expect(mocks.recordNotificationOnce).not.toHaveBeenCalled();
+        expect(mocks.sendPcLarkActionCard).not.toHaveBeenCalled();
+        expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
+    });
+
+    it("delivers the material purchase card after an approved batch is specifically blocked", async () => {
+        mocks.buildPcNotificationActionCard.mockResolvedValue({
+            title: "🧵 วัตถุดิบไม่เพียงพอ",
+            markdown: "FAB-IV ขาด 6 m",
+            actions: [
+                {
+                    text: "อนุมัติสั่งซื้อวัตถุดิบ",
+                    url: "https://worker.example.com/purchase",
+                },
+            ],
+        });
+        const materialInput = {
+            event_id: "pc:production-blocked:PROD-1:PC_PRODUCTION_MATERIAL_BLOCKED",
+            type: "PC_MATERIAL_SHORTAGE" as const,
+            reference_id: "PROD-1",
+            product_name: "Demo Product",
+            detail: "FAB-IV ขาด 6 m",
+            next_action: "อนุมัติสั่งซื้อวัตถุดิบ",
+        };
+
+        await expect(
+            notifyPcExceptionOnce({} as Env, materialInput)
+        ).resolves.toBe(true);
+
+        expect(mocks.recordNotificationOnce).toHaveBeenCalledTimes(1);
+        expect(mocks.sendPcLarkActionCard).toHaveBeenCalledTimes(1);
         expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
     });
 });
