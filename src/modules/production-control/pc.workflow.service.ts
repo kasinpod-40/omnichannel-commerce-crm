@@ -186,8 +186,9 @@ async function approveAndStart(
             error instanceof OperationalError &&
             error.code === "PC_PRODUCTION_MATERIAL_BLOCKED"
         ) {
+            // updatePcProductionStatus บันทึก BLOCKED_MATERIAL และส่ง
+            // PC_MATERIAL_SHORTAGE ผ่าน notifyPcExceptionOnce แล้ว จึงไม่ส่ง Card ซ้ำที่นี่
             const blocked = await requireBatch(env, batch.record_id);
-            await sendCurrentWorkflowCard(env, blocked);
             return {
                 ok: true,
                 action: "approve-production",
