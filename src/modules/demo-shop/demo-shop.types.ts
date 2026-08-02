@@ -56,7 +56,8 @@ export type DemoShopOrderResult = {
             material_risk_summary: string;
         }>;
     };
-    notification: DemoShopNotificationOutcome;
+    /** Legacy LINE Demo service may omit this; Shopee Demo Shop always returns it. */
+    notification?: DemoShopNotificationOutcome;
     completed_at: string;
 };
 
