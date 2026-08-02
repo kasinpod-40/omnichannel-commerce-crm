@@ -7,7 +7,10 @@ import {
     reconcileOrderInventory,
     refreshPcMaterialPlan,
 } from "../modules/production-control/pc.service";
-import { classifyOperationalError } from "../utils/errors";
+import {
+    classifyOperationalError,
+    OperationalError,
+} from "../utils/errors";
 import type {
     QueueBatchLike,
     QueueMessageLike,
@@ -120,10 +123,19 @@ async function processPcMessage(
         );
 
         if (result.status === "APPLIED") {
-            await notifyLowStockAfterOrderOnce(
+            const alert = await notifyLowStockAfterOrderOnce(
                 env,
                 body.order_record_id
             );
+
+            if (!alert.state_ready || alert.failed > 0) {
+                throw new OperationalError(
+                    "PC_LOW_STOCK_NOTIFICATION_INCOMPLETE",
+                    alert.errors.join("; ") ||
+                        "Inventory state is not ready for low-stock notification",
+                    { retryable: true }
+                );
+            }
         }
         return;
     }
