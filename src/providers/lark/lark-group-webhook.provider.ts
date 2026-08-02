@@ -55,6 +55,8 @@ export type LarkGroupWebhookTarget =
     | "production-control";
 
 const PC_NOTIFICATION_TITLES = [
+    "📦 สินค้าใกล้หมด",
+    "📦 สินค้าหมด",
     "📦 พบข้อยกเว้นด้านสต็อกสินค้า",
     "🧵 วัตถุดิบไม่เพียงพอสำหรับแผนผลิต",
 ] as const;

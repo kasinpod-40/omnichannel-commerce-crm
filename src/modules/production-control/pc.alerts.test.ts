@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../config/env";
+import { NOTIFICATION_FIELDS } from "../../core/lark-fields";
 
 const mocks = vi.hoisted(() => ({
     recordNotificationOnce: vi.fn(),
     sendNotificationByRecordId: vi.fn(),
+    sendLarkGroupText: vi.fn(),
+    updateNotificationDelivery: vi.fn(),
     enqueueNotificationDelivery: vi.fn(),
+    classifyOperationalError: vi.fn(),
 }));
 
 vi.mock("../notifications/notification.service", () => ({
@@ -12,8 +16,20 @@ vi.mock("../notifications/notification.service", () => ({
     sendNotificationByRecordId: mocks.sendNotificationByRecordId,
 }));
 
+vi.mock("../notifications/notification.repository", () => ({
+    updateNotificationDelivery: mocks.updateNotificationDelivery,
+}));
+
+vi.mock("../../providers/lark/lark-group-webhook.provider", () => ({
+    sendLarkGroupText: mocks.sendLarkGroupText,
+}));
+
 vi.mock("../../queues/notification.producer", () => ({
     enqueueNotificationDelivery: mocks.enqueueNotificationDelivery,
+}));
+
+vi.mock("../../utils/errors", () => ({
+    classifyOperationalError: mocks.classifyOperationalError,
 }));
 
 import { notifyPcExceptionOnce } from "./pc.alerts";
@@ -22,54 +38,115 @@ const alertInput = {
     event_id: "pc:low-stock:order-1:fp-1:SKU-1",
     type: "PC_STOCK_EXCEPTION" as const,
     reference_id: "SKU-1",
-    product_name: "Demo Product · Ivory L",
-    detail: "สินค้าใกล้หมด: คงเหลือ 5 ชิ้น",
-    next_action: "เติม Stock ให้ถึงเป้าหมาย 18 ชิ้น",
+    product_name: "Demo Product",
+    detail: [
+        "สี / ไซซ์: Ivory / L",
+        "SKU: SKU-1",
+        "คงเหลือ: 5 ชิ้น",
+        "ขั้นต่ำ: 7 ชิ้น",
+        "ควรเติม: 13 ชิ้น",
+        "เป้าหมาย: 18 ชิ้น",
+    ].join("\n"),
+    next_action: "ตรวจสอบวัตถุดิบและยืนยันแผนผลิตที่ระบบสร้างไว้",
+    lark_text: [
+        "[CRM] 📦 สินค้าใกล้หมด",
+        "",
+        "สินค้า: Demo Product",
+        "สี / ไซซ์: Ivory / L",
+        "SKU: SKU-1",
+        "คงเหลือ: 5 ชิ้น",
+        "ขั้นต่ำ: 7 ชิ้น",
+        "ควรเติม: 13 ชิ้น",
+        "เป้าหมาย: 18 ชิ้น",
+        "",
+        "การดำเนินการ: ตรวจสอบวัตถุดิบและยืนยันแผนผลิตที่ระบบสร้างไว้",
+    ].join("\n"),
 };
+
+function notificationRecord(status = "Pending", attemptCount = 0) {
+    return {
+        record_id: "notification-rec-1",
+        fields: {
+            [NOTIFICATION_FIELDS.STATUS]: status,
+            [NOTIFICATION_FIELDS.ATTEMPT_COUNT]: attemptCount,
+        },
+    };
+}
 
 describe("PC alert delivery", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.recordNotificationOnce.mockResolvedValue({
-            record: {
-                record_id: "notification-rec-1",
-                fields: {},
-            },
+            record: notificationRecord(),
             duplicate: false,
+        });
+        mocks.sendLarkGroupText.mockResolvedValue({ ok: true, response: {} });
+        mocks.updateNotificationDelivery.mockResolvedValue(
+            notificationRecord("Sent", 1)
+        );
+        mocks.enqueueNotificationDelivery.mockResolvedValue(undefined);
+        mocks.classifyOperationalError.mockReturnValue({
+            code: "TRANSIENT_INTEGRATION_ERROR",
+            message: "temporary network failure",
+            retryable: true,
         });
     });
 
-    it("returns success when direct Lark delivery succeeds", async () => {
-        mocks.sendNotificationByRecordId.mockResolvedValue({
-            ok: true,
-            duplicate: false,
-        });
-
+    it("sends the readable low-stock text and marks the record Sent", async () => {
         await expect(
             notifyPcExceptionOnce({} as Env, alertInput)
         ).resolves.toBe(true);
 
-        expect(mocks.sendNotificationByRecordId).toHaveBeenCalledWith(
+        expect(mocks.sendLarkGroupText).toHaveBeenCalledWith(
             expect.anything(),
-            "notification-rec-1"
+            alertInput.lark_text
         );
+        expect(mocks.updateNotificationDelivery).toHaveBeenCalledWith(
+            expect.anything(),
+            "notification-rec-1",
+            expect.objectContaining({
+                status: "Sent",
+                attempt_count: 1,
+                error_message: "",
+            })
+        );
+        expect(mocks.sendNotificationByRecordId).not.toHaveBeenCalled();
         expect(mocks.enqueueNotificationDelivery).not.toHaveBeenCalled();
     });
 
-    it("queues a retryable direct-delivery failure", async () => {
-        mocks.sendNotificationByRecordId.mockResolvedValue({
-            ok: false,
-            duplicate: false,
-            retryable: true,
-            error_code: "TRANSIENT_INTEGRATION_ERROR",
-            error_message: "temporary network failure",
+    it("does not resend an idempotent readable alert already marked Sent", async () => {
+        mocks.recordNotificationOnce.mockResolvedValue({
+            record: notificationRecord("Sent", 1),
+            duplicate: true,
         });
-        mocks.enqueueNotificationDelivery.mockResolvedValue(undefined);
 
         await expect(
             notifyPcExceptionOnce({} as Env, alertInput)
         ).resolves.toBe(true);
 
+        expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
+        expect(mocks.updateNotificationDelivery).not.toHaveBeenCalled();
+        expect(mocks.enqueueNotificationDelivery).not.toHaveBeenCalled();
+    });
+
+    it("queues a readable alert after a retryable Webhook failure", async () => {
+        mocks.sendLarkGroupText.mockRejectedValue(
+            new Error("temporary network failure")
+        );
+
+        await expect(
+            notifyPcExceptionOnce({} as Env, alertInput)
+        ).resolves.toBe(true);
+
+        expect(mocks.updateNotificationDelivery).toHaveBeenCalledWith(
+            expect.anything(),
+            "notification-rec-1",
+            expect.objectContaining({
+                status: "Failed",
+                attempt_count: 1,
+                error_message: "temporary network failure",
+            })
+        );
         expect(mocks.enqueueNotificationDelivery).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
@@ -80,13 +157,14 @@ describe("PC alert delivery", () => {
         );
     });
 
-    it("returns false for a permanent Lark delivery failure", async () => {
-        mocks.sendNotificationByRecordId.mockResolvedValue({
-            ok: false,
-            duplicate: false,
+    it("returns false for a permanent readable-alert failure", async () => {
+        mocks.sendLarkGroupText.mockRejectedValue(
+            new Error("keyword mismatch")
+        );
+        mocks.classifyOperationalError.mockReturnValue({
+            code: "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
+            message: "keyword mismatch",
             retryable: false,
-            error_code: "LARK_GROUP_WEBHOOK_KEYWORD_MISMATCH",
-            error_message: "keyword mismatch",
         });
 
         await expect(
@@ -96,20 +174,21 @@ describe("PC alert delivery", () => {
         expect(mocks.enqueueNotificationDelivery).not.toHaveBeenCalled();
     });
 
-    it("returns false when direct delivery and Queue fallback both fail", async () => {
+    it("keeps the generic delivery path for PC alerts without custom text", async () => {
         mocks.sendNotificationByRecordId.mockResolvedValue({
-            ok: false,
-            duplicate: false,
-            retryable: true,
-            error_code: "TRANSIENT_INTEGRATION_ERROR",
-            error_message: "temporary network failure",
+            ok: true,
         });
-        mocks.enqueueNotificationDelivery.mockRejectedValue(
-            new Error("queue unavailable")
-        );
+
+        const { lark_text: _larkText, ...genericInput } = alertInput;
 
         await expect(
-            notifyPcExceptionOnce({} as Env, alertInput)
-        ).resolves.toBe(false);
+            notifyPcExceptionOnce({} as Env, genericInput)
+        ).resolves.toBe(true);
+
+        expect(mocks.sendNotificationByRecordId).toHaveBeenCalledWith(
+            expect.anything(),
+            "notification-rec-1"
+        );
+        expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
     });
 });

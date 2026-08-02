@@ -270,6 +270,45 @@ function diagnosticMatches(
     );
 }
 
+function buildLowStockMessage(input: {
+    product: PcProduct;
+    newStock: number;
+    stockLabel: string;
+}): {
+    detail: string;
+    nextAction: string;
+    larkText: string;
+} {
+    const { product, newStock, stockLabel } = input;
+    const variant = [product.color, product.size]
+        .filter(Boolean)
+        .join(" / ");
+    const replenishQty = Math.max(0, product.target_stock - newStock);
+    const detailLines = [
+        variant ? `สี / ไซซ์: ${variant}` : "",
+        `SKU: ${product.sku}`,
+        `คงเหลือ: ${formatQuantity(newStock)} ชิ้น`,
+        `ขั้นต่ำ: ${formatQuantity(product.min_stock)} ชิ้น`,
+        `ควรเติม: ${formatQuantity(replenishQty)} ชิ้น`,
+        `เป้าหมาย: ${formatQuantity(product.target_stock)} ชิ้น`,
+    ].filter(Boolean);
+    const nextAction =
+        "ตรวจสอบวัตถุดิบและยืนยันแผนผลิตที่ระบบสร้างไว้";
+
+    return {
+        detail: detailLines.join("\n"),
+        nextAction,
+        larkText: [
+            `[CRM] 📦 ${stockLabel}`,
+            "",
+            `สินค้า: ${product.product_name}`,
+            ...detailLines,
+            "",
+            `การดำเนินการ: ${nextAction}`,
+        ].join("\n"),
+    };
+}
+
 /**
  * Flow ปกติแจ้งเฉพาะตอน Stock ข้ามจากเหนือ Min ลงมาอยู่ที่หรือต่ำกว่า Min.
  * Recovery แบบสั่งโดย Operator แจ้งได้จาก state เดิมเมื่อ Stock หลัง Order <= Min
@@ -348,20 +387,15 @@ export async function notifyLowStockAfterOrderOnce(
             transition.new_stock_on_hand <= 0
                 ? "สินค้าหมด"
                 : "สินค้าใกล้หมด";
-        const variant = [product.color, product.size]
-            .filter(Boolean)
-            .join(" ");
-        const productLabel = [product.product_name, variant]
-            .filter(Boolean)
-            .join(" · ");
         const eventKind =
             evaluationMode === "current_low_stock_recovery"
                 ? "low-stock-recovery"
                 : "low-stock";
-        const recoveryLabel =
-            evaluationMode === "current_low_stock_recovery"
-                ? " [ส่งซ้ำจาก Order เดิม]"
-                : "";
+        const message = buildLowStockMessage({
+            product,
+            newStock: transition.new_stock_on_hand,
+            stockLabel,
+        });
         const dispatched = await notifyPcExceptionOnce(env, {
             event_id: [
                 "pc",
@@ -372,9 +406,10 @@ export async function notifyLowStockAfterOrderOnce(
             ].join(":"),
             type: "PC_STOCK_EXCEPTION",
             reference_id: product.sku,
-            product_name: productLabel,
-            detail: `${stockLabel}${recoveryLabel}: ${productLabel} (${product.sku}) คงเหลือ ${formatQuantity(transition.new_stock_on_hand)} ชิ้น จากขั้นต่ำ ${formatQuantity(product.min_stock)} ชิ้น`,
-            next_action: `ตรวจสอบแผนผลิตอัตโนมัติและเติม Stock ให้ถึงเป้าหมาย ${formatQuantity(product.target_stock)} ชิ้น`,
+            product_name: product.product_name,
+            detail: message.detail,
+            next_action: message.nextAction,
+            lark_text: message.larkText,
         });
 
         if (dispatched) {
