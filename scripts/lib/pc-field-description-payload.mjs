@@ -35,23 +35,19 @@ function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
-function normalizeDescriptionSegment(value) {
-    if (typeof value === "string") return value.trim();
+function descriptionSegmentText(value) {
+    if (typeof value === "string") return value;
     if (isPlainObject(value) && typeof value.text === "string") {
-        return value.text.trim();
+        return value.text;
     }
     return "";
 }
 
 export function normalizeFieldDescription(value) {
     if (Array.isArray(value)) {
-        return value
-            .map(normalizeDescriptionSegment)
-            .filter(Boolean)
-            .join("")
-            .trim();
+        return value.map(descriptionSegmentText).join("").trim();
     }
-    return normalizeDescriptionSegment(value);
+    return descriptionSegmentText(value).trim();
 }
 
 export function buildFieldDescription(description) {
