@@ -35,7 +35,7 @@ function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
 }
 
-export function normalizeFieldDescription(value) {
+function normalizeDescriptionSegment(value) {
     if (typeof value === "string") return value.trim();
     if (isPlainObject(value) && typeof value.text === "string") {
         return value.text.trim();
@@ -43,10 +43,32 @@ export function normalizeFieldDescription(value) {
     return "";
 }
 
+export function normalizeFieldDescription(value) {
+    if (Array.isArray(value)) {
+        return value
+            .map(normalizeDescriptionSegment)
+            .filter(Boolean)
+            .join("")
+            .trim();
+    }
+    return normalizeDescriptionSegment(value);
+}
+
+export function buildFieldDescription(description) {
+    const text = normalizeFieldDescription(description);
+    if (!text) throw new Error("Lark field description is empty");
+
+    // Lark's field-editing contract defines description as
+    // app.table.field.description, not a raw string.
+    return {
+        disable_sync: false,
+        text,
+    };
+}
+
 export function buildFieldUpdatePayload(field, description) {
     const type = Number(field?.type);
     const fieldName = String(field?.field_name ?? "").trim();
-    const normalizedDescription = String(description ?? "").trim();
 
     if (!fieldName) throw new Error("Lark field_name is missing");
     if (!Number.isInteger(type)) {
@@ -57,14 +79,11 @@ export function buildFieldUpdatePayload(field, description) {
             `Lark field ${fieldName} type ${type} cannot be updated through the field API`
         );
     }
-    if (!normalizedDescription) {
-        throw new Error(`Lark field ${fieldName} description is empty`);
-    }
 
     const payload = {
         field_name: fieldName,
         type,
-        description: normalizedDescription,
+        description: buildFieldDescription(description),
     };
 
     const uiType = String(field?.ui_type ?? "").trim();
@@ -72,7 +91,7 @@ export function buildFieldUpdatePayload(field, description) {
 
     // Default ui_type values returned by list-fields are presentation metadata.
     // Sending them back is unnecessary and can make Lark reject an otherwise
-    // valid full-update body with 1254001 WrongRequestBody.
+    // valid full-update body.
     if (uiType && uiType !== defaultUiType) {
         payload.ui_type = uiType;
     }
@@ -91,6 +110,11 @@ export function buildFieldUpdatePayload(field, description) {
 }
 
 export function summarizeFieldUpdatePayload(field, payload) {
+    const description = payload?.description;
+    const descriptionText = isPlainObject(description)
+        ? String(description.text ?? "")
+        : "";
+
     return {
         field_name: payload.field_name,
         field_id: String(field?.field_id ?? ""),
@@ -100,6 +124,15 @@ export function summarizeFieldUpdatePayload(field, payload) {
         property_keys: payload.property
             ? Object.keys(payload.property).sort()
             : [],
-        description_length: payload.description.length,
+        description_shape:
+            isPlainObject(description) &&
+            typeof description.text === "string" &&
+            typeof description.disable_sync === "boolean"
+                ? "object"
+                : "invalid",
+        description_keys: isPlainObject(description)
+            ? Object.keys(description).sort()
+            : [],
+        description_length: descriptionText.length,
     };
 }
