@@ -64,7 +64,10 @@ import {
 } from "./demo-shop.route";
 
 function env(): Env {
-    return {} as Env;
+    return {
+        PC_INVENTORY_ENABLED: "true",
+        PC_DEMO_SHOP_ENABLED: "true",
+    } as Env;
 }
 
 function session(role: "admin" | "manager" | "viewer") {
@@ -87,7 +90,7 @@ describe("Demo Shop API route", () => {
         });
     });
 
-    it("requires a Dashboard session before returning products", async () => {
+    it("requires a Dashboard session and masks the global inventory flag before returning products", async () => {
         mocks.getDemoShopCatalog.mockResolvedValue({
             products: [],
             updated_at: "2026-08-02T00:00:00.000Z",
@@ -100,7 +103,12 @@ describe("Demo Shop API route", () => {
 
         expect(response.status).toBe(200);
         expect(mocks.assertDashboardSession).toHaveBeenCalledTimes(1);
-        expect(mocks.getDemoShopCatalog).toHaveBeenCalledTimes(1);
+        expect(mocks.getDemoShopCatalog).toHaveBeenCalledWith(
+            expect.objectContaining({
+                PC_INVENTORY_ENABLED: "false",
+                PC_DEMO_SHOP_ENABLED: "true",
+            })
+        );
     });
 
     it("checks Origin, role and Idempotency-Key before creating a Shopee Demo Order", async () => {
@@ -131,7 +139,7 @@ describe("Demo Shop API route", () => {
         expect(mocks.assertAllowedOrigin).toHaveBeenCalledTimes(1);
         expect(mocks.assertDashboardSession).toHaveBeenCalledTimes(1);
         expect(mocks.createDemoShopShopeeOrder).toHaveBeenCalledWith(
-            expect.anything(),
+            expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
             {
                 sku: "BNK-LUNA-IV-M",
                 quantity: 2,
