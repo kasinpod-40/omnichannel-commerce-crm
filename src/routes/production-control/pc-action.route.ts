@@ -4,6 +4,7 @@ import {
     verifyPcWorkflowActionToken,
     type PcWorkflowAction,
 } from "../../modules/production-control/pc.action-token";
+import { markPcProductionBlocked } from "../../modules/production-control/pc.service";
 import { runPcWorkflowAction } from "../../modules/production-control/pc.workflow.service";
 import { OperationalError } from "../../utils/errors";
 import { assertDashboardSession } from "../shared/dashboard-api";
@@ -172,6 +173,40 @@ function errorResponse(error: unknown): Response {
     );
 }
 
+function isCompletionMaterialShortage(
+    action: PcWorkflowAction,
+    error: unknown
+): error is OperationalError {
+    return (
+        action === "complete-production" &&
+        error instanceof OperationalError &&
+        error.code === "PC_PRODUCTION_MATERIAL_INSUFFICIENT"
+    );
+}
+
+async function handleCompletionMaterialShortage(input: {
+    env: Env;
+    production_record_id: string;
+    error: OperationalError;
+}): Promise<Response> {
+    await markPcProductionBlocked(input.env, {
+        production_record_id: input.production_record_id,
+        code: input.error.code,
+        message: input.error.message,
+    });
+
+    return htmlResponse(
+        "รอวัตถุดิบ",
+        [
+            "<h1>ยังรับสินค้าเข้าสต็อกไม่ได้</h1>",
+            `<div class="status">${escapeHtml(input.error.message)}</div>`,
+            "<p>ระบบเปลี่ยนแผนเป็นรอวัตถุดิบ และส่งแจ้งเตือนไปยังกลุ่ม Lark เพื่ออนุมัติสั่งซื้อแล้ว</p>",
+            "<p>Stock สินค้าสำเร็จรูปยังไม่เพิ่ม และวัตถุดิบยังไม่ถูกหัก</p>",
+            '<a href="/demo-shop">กลับไป Demo Shop</a>',
+        ].join("")
+    );
+}
+
 export async function handlePcWorkflowActionPage(
     request: Request,
     env: Env,
@@ -266,6 +301,23 @@ export async function handlePcWorkflowActionPage(
     } catch (error) {
         if (isAuthError(error) && error.status === 401) {
             return loginRedirect(request);
+        }
+        if (isCompletionMaterialShortage(action, error)) {
+            try {
+                return await handleCompletionMaterialShortage({
+                    env,
+                    production_record_id: recordId,
+                    error,
+                });
+            } catch (markError) {
+                console.error("PC_COMPLETION_SHORTAGE_ALERT_FAILED", {
+                    production_record_id: recordId,
+                    error:
+                        markError instanceof Error
+                            ? markError.message
+                            : String(markError),
+                });
+            }
         }
         return errorResponse(error);
     }
