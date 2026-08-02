@@ -16,6 +16,8 @@ import type {
     NotificationSnapshot,
     NotificationType,
 } from "../notifications/notification.types";
+import { sendPcLarkActionCard } from "./pc.lark-card";
+import { buildPcNotificationActionCard } from "./pc.workflow-card";
 
 async function enqueuePcNotification(
     env: Env,
@@ -42,10 +44,74 @@ async function enqueuePcNotification(
     }
 }
 
-/**
- * ส่งข้อความ Low-stock ที่จัดรูปแบบสำหรับทีมงานโดยตรง แล้วบันทึกสถานะกลับเข้า
- * Notifications table. หาก Webhook ล้มเหลวแบบชั่วคราว จะใช้ Queue เดิมเป็น fallback.
- */
+async function updateSentStatus(
+    env: Env,
+    input: {
+        event_id: string;
+        notification_record_id: string;
+        attempt_count: number;
+    }
+): Promise<void> {
+    try {
+        await updateNotificationDelivery(env, input.notification_record_id, {
+            status: "Sent",
+            attempt_count: input.attempt_count,
+            sent_at: Date.now(),
+            error_message: "",
+        });
+    } catch (auditError) {
+        console.error("PC_EXCEPTION_NOTIFICATION_AUDIT_FAILED", {
+            event_id: input.event_id,
+            notification_record_id: input.notification_record_id,
+            error:
+                auditError instanceof Error
+                    ? auditError.message
+                    : String(auditError),
+        });
+    }
+}
+
+async function updateFailedStatus(
+    env: Env,
+    input: {
+        notification_record_id: string;
+        attempt_count: number;
+        error_message: string;
+    }
+): Promise<void> {
+    try {
+        await updateNotificationDelivery(env, input.notification_record_id, {
+            status: "Failed",
+            attempt_count: input.attempt_count,
+            sent_at: null,
+            error_message: input.error_message,
+        });
+    } catch {
+        // การบันทึก Error เป็น best effort; การตัดสิน retry ใช้ Error ต้นทาง
+    }
+}
+
+function deliveryState(input: {
+    duplicate: boolean;
+    fields: Record<string, unknown>;
+}): { already_sent: boolean; next_attempt: number } {
+    const currentStatus = getLarkText(
+        input.fields[NOTIFICATION_FIELDS.STATUS],
+        "Pending"
+    ).trim();
+
+    return {
+        already_sent:
+            input.duplicate &&
+            (currentStatus === "Sent" || currentStatus === "Read"),
+        next_attempt:
+            getLarkNumber(
+                input.fields[NOTIFICATION_FIELDS.ATTEMPT_COUNT],
+                0
+            ) + 1,
+    };
+}
+
 async function sendReadablePcText(
     env: Env,
     input: {
@@ -56,68 +122,24 @@ async function sendReadablePcText(
         text: string;
     }
 ): Promise<boolean> {
-    const currentStatus = getLarkText(
-        input.fields[NOTIFICATION_FIELDS.STATUS],
-        "Pending"
-    ).trim();
-
-    if (
-        input.duplicate &&
-        (currentStatus === "Sent" || currentStatus === "Read")
-    ) {
-        return true;
-    }
-
-    const nextAttempt =
-        getLarkNumber(
-            input.fields[NOTIFICATION_FIELDS.ATTEMPT_COUNT],
-            0
-        ) + 1;
+    const state = deliveryState(input);
+    if (state.already_sent) return true;
 
     try {
         await sendLarkGroupText(env, input.text);
-
-        try {
-            await updateNotificationDelivery(
-                env,
-                input.notification_record_id,
-                {
-                    status: "Sent",
-                    attempt_count: nextAttempt,
-                    sent_at: Date.now(),
-                    error_message: "",
-                }
-            );
-        } catch (auditError) {
-            // ข้อความส่งถึงกลุ่มแล้ว ห้าม Queue ซ้ำเพียงเพราะอัปเดต Audit ไม่สำเร็จ
-            console.error("PC_EXCEPTION_NOTIFICATION_AUDIT_FAILED", {
-                event_id: input.event_id,
-                notification_record_id: input.notification_record_id,
-                error:
-                    auditError instanceof Error
-                        ? auditError.message
-                        : String(auditError),
-            });
-        }
-
+        await updateSentStatus(env, {
+            event_id: input.event_id,
+            notification_record_id: input.notification_record_id,
+            attempt_count: state.next_attempt,
+        });
         return true;
     } catch (error) {
         const classification = classifyOperationalError(error);
-
-        try {
-            await updateNotificationDelivery(
-                env,
-                input.notification_record_id,
-                {
-                    status: "Failed",
-                    attempt_count: nextAttempt,
-                    sent_at: null,
-                    error_message: classification.message,
-                }
-            );
-        } catch {
-            // การบันทึก Error เป็น best effort; การตัดสิน retry ใช้ Error ต้นทาง
-        }
+        await updateFailedStatus(env, {
+            notification_record_id: input.notification_record_id,
+            attempt_count: state.next_attempt,
+            error_message: classification.message,
+        });
 
         if (!classification.retryable) {
             console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
@@ -136,11 +158,47 @@ async function sendReadablePcText(
     }
 }
 
-/**
- * บันทึกและส่ง Notification ของ Production & Stock แบบทันที.
- * Low-stock สามารถส่งข้อความที่อ่านง่ายผ่าน lark_text ได้ โดยยังคง Record, retry,
- * Queue fallback และ idempotency เดิมครบถ้วน.
- */
+async function sendReadablePcCard(
+    env: Env,
+    input: {
+        event_id: string;
+        notification_record_id: string;
+        duplicate: boolean;
+        fields: Record<string, unknown>;
+        text_fallback: string;
+        card: Awaited<ReturnType<typeof buildPcNotificationActionCard>>;
+    }
+): Promise<boolean> {
+    if (!input.card) return false;
+    const state = deliveryState(input);
+    if (state.already_sent) return true;
+
+    try {
+        await sendPcLarkActionCard(env, input.card);
+        await updateSentStatus(env, {
+            event_id: input.event_id,
+            notification_record_id: input.notification_record_id,
+            attempt_count: state.next_attempt,
+        });
+        return true;
+    } catch (error) {
+        console.error("PC_ACTION_CARD_DELIVERY_FAILED", {
+            event_id: input.event_id,
+            notification_record_id: input.notification_record_id,
+            error: error instanceof Error ? error.message : String(error),
+        });
+
+        // หาก Card ส่งไม่ได้ ให้ส่งข้อความเดิมทันทีเพื่อไม่ทำให้ Alert หาย
+        return await sendReadablePcText(env, {
+            event_id: input.event_id,
+            notification_record_id: input.notification_record_id,
+            duplicate: false,
+            fields: input.fields,
+            text: input.text_fallback,
+        });
+    }
+}
+
 export async function notifyPcExceptionOnce(
     env: Env,
     input: {
@@ -186,6 +244,34 @@ export async function notifyPcExceptionOnce(
         const readableText = input.lark_text?.trim();
 
         if (readableText) {
+            try {
+                const card = await buildPcNotificationActionCard(env, {
+                    notification_type: input.type,
+                    reference_id: input.reference_id,
+                    fallback_text: readableText,
+                });
+
+                if (card) {
+                    return await sendReadablePcCard(env, {
+                        event_id: input.event_id,
+                        notification_record_id: recorded.record.record_id,
+                        duplicate: recorded.duplicate,
+                        fields: recorded.record.fields,
+                        text_fallback: readableText,
+                        card,
+                    });
+                }
+            } catch (cardError) {
+                console.error("PC_ACTION_CARD_BUILD_FAILED", {
+                    event_id: input.event_id,
+                    reference_id: input.reference_id,
+                    error:
+                        cardError instanceof Error
+                            ? cardError.message
+                            : String(cardError),
+                });
+            }
+
             return await sendReadablePcText(env, {
                 event_id: input.event_id,
                 notification_record_id: recorded.record.record_id,
@@ -200,9 +286,7 @@ export async function notifyPcExceptionOnce(
             recorded.record.record_id
         );
 
-        if (delivery.ok) {
-            return true;
-        }
+        if (delivery.ok) return true;
 
         if (delivery.retryable !== false) {
             return await enqueuePcNotification(env, {
