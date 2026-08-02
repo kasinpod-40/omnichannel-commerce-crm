@@ -135,7 +135,7 @@ describe("Production workflow action page", () => {
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
-    it("renders a confirmation page on GET without mutating Production", async () => {
+    it("renders one auto-submit action without a clickable submit button", async () => {
         const response = await handlePcWorkflowActionPage(
             request("GET"),
             env(),
@@ -146,7 +146,11 @@ describe("Production workflow action page", () => {
 
         expect(response.status).toBe(200);
         expect(html).toContain("อนุมัติผลิตสินค้า");
+        expect(html).toContain('id="action-form"');
+        expect(html).toContain("hidden></form>");
         expect(html).toContain("form.requestSubmit()");
+        expect(html).toContain("__pcActionSubmitted");
+        expect(html).not.toContain("<button");
         expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
