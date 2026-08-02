@@ -74,35 +74,41 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return "ส่งแจ้งเตือนไม่สำเร็จ";
       }
 
+      function appendOutcomeLine(resultBody, labelText, valueText) {
+        if (!valueText) return;
+        const line = document.createElement("div");
+        line.className = "result-line";
+        line.dataset.notificationOutcome = "true";
+        const label = document.createElement("span");
+        label.textContent = labelText;
+        const value = document.createElement("strong");
+        value.textContent = valueText;
+        line.append(label, value);
+        resultBody.append(line);
+      }
+
       function appendNotificationOutcome(payload) {
         const resultBody = document.getElementById("result-body");
         const notification = payload && payload.notification;
         if (!resultBody || !notification) return;
 
         resultBody.querySelectorAll("[data-notification-outcome]").forEach((element) => element.remove());
-        const line = document.createElement("div");
-        line.className = "result-line";
-        line.dataset.notificationOutcome = "true";
-        const label = document.createElement("span");
-        label.textContent = "แจ้งเตือนสต็อก";
-        const value = document.createElement("strong");
-        value.textContent = notificationLabel(notification);
-        line.append(label, value);
-        resultBody.append(line);
+        appendOutcomeLine(resultBody, "แจ้งเตือนสต็อก", notificationLabel(notification));
 
-        if (notification.status === "FAILED" && Array.isArray(notification.error_messages)) {
-          const detail = notification.error_messages.filter(Boolean).join("; ");
-          if (detail) {
-            const errorLine = document.createElement("div");
-            errorLine.className = "result-line";
-            errorLine.dataset.notificationOutcome = "true";
-            const errorLabel = document.createElement("span");
-            errorLabel.textContent = "สาเหตุ";
-            const errorValue = document.createElement("strong");
-            errorValue.textContent = detail;
-            errorLine.append(errorLabel, errorValue);
-            resultBody.append(errorLine);
-          }
+        if (Array.isArray(notification.evaluation_messages)) {
+          appendOutcomeLine(
+            resultBody,
+            "ผลประเมิน",
+            notification.evaluation_messages.filter(Boolean).join("; ")
+          );
+        }
+
+        if (Array.isArray(notification.error_messages)) {
+          appendOutcomeLine(
+            resultBody,
+            "สาเหตุ",
+            notification.error_messages.filter(Boolean).join("; ")
+          );
         }
       }
 

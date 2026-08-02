@@ -119,22 +119,31 @@ export async function retryDemoShopLowStockNotification(
         order.record_id,
         { inventoryState: state }
     );
+    const evaluationMessages = result.diagnostics.map(
+        (diagnostic) => diagnostic.message
+    );
+    const failed = !result.state_ready || result.failed > 0;
 
     return {
-        ok: result.state_ready && result.failed === 0,
+        ok: !failed,
         order_number: orderNumber,
         stock_unchanged: true,
         notification: {
-            status:
-                result.failed > 0
-                    ? "FAILED"
-                    : result.matched > 0
-                      ? "QUEUED"
-                      : "NOT_REQUIRED",
+            status: failed
+                ? "FAILED"
+                : result.matched > 0
+                  ? "QUEUED"
+                  : "NOT_REQUIRED",
             threshold_crossed: result.matched > 0,
             dispatched: result.dispatched,
-            failed: result.failed,
-            error_messages: result.errors,
+            failed: failed ? Math.max(1, result.failed) : 0,
+            error_messages:
+                result.errors.length > 0
+                    ? result.errors
+                    : failed
+                      ? ["ประเมิน Inventory state สำหรับแจ้งเตือนไม่สำเร็จ"]
+                      : [],
+            evaluation_messages: evaluationMessages,
         },
     };
 }
