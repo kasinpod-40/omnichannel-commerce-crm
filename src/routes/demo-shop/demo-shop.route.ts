@@ -41,6 +41,13 @@ function demoShopErrorResponse(
     });
 }
 
+function demoShopCatalogEnv(env: Env): Env {
+    return {
+        ...env,
+        PC_INVENTORY_ENABLED: "false",
+    };
+}
+
 function htmlResponse(html: string, nonce: string): Response {
     return new Response(html, {
         status: 200,
@@ -103,7 +110,9 @@ export async function handleDemoShopProducts(
     try {
         await assertDashboardSession(request, env);
         return addAuthCorsHeaders(
-            dashboardJson(await getDemoShopCatalog(env)),
+            dashboardJson(
+                await getDemoShopCatalog(demoShopCatalogEnv(env))
+            ),
             request,
             env
         );
