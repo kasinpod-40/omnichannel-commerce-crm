@@ -2,6 +2,7 @@ import { renderDemoShopScript } from "./demo-shop-script";
 import { DEMO_SHOP_STYLE } from "./demo-shop-style";
 import { DEMO_SHOP_ENHANCEMENT_STYLE } from "./demo-shop-enhancement-style";
 import { DEMO_SHOP_ENHANCEMENT_SCRIPT } from "./demo-shop-enhancement-script";
+import { DEMO_SHOP_LOGOUT_SCRIPT } from "./demo-shop-logout-script";
 
 function escapeHtml(value: string): string {
     return value
@@ -93,7 +94,7 @@ export function renderDemoShopHtml(input: {
   </div>
 
   <script nonce="${nonce}">${script}</script>
-  <script nonce="${nonce}">${DEMO_SHOP_ENHANCEMENT_SCRIPT}</script>
+  <script nonce="${nonce}">${DEMO_SHOP_ENHANCEMENT_SCRIPT}${DEMO_SHOP_LOGOUT_SCRIPT}</script>
 </body>
 </html>`;
 }
