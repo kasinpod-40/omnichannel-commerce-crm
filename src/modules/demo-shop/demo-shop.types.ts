@@ -17,6 +17,14 @@ export type DemoShopCatalog = {
     updated_at: string;
 };
 
+export type DemoShopNotificationOutcome = {
+    status: "NOT_REQUIRED" | "QUEUED" | "FAILED";
+    threshold_crossed: boolean;
+    dispatched: number;
+    failed: number;
+    error_messages: string[];
+};
+
 export type DemoShopOrderResult = {
     ok: true;
     duplicate: boolean;
@@ -48,12 +56,13 @@ export type DemoShopOrderResult = {
             material_risk_summary: string;
         }>;
     };
-    notification: {
-        status: "NOT_REQUIRED" | "QUEUED" | "FAILED";
-        threshold_crossed: boolean;
-        dispatched: number;
-        failed: number;
-        error_messages: string[];
-    };
+    notification: DemoShopNotificationOutcome;
     completed_at: string;
+};
+
+export type DemoShopNotificationRetryResult = {
+    ok: boolean;
+    order_number: string;
+    stock_unchanged: true;
+    notification: DemoShopNotificationOutcome;
 };
