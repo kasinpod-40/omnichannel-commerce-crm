@@ -104,7 +104,7 @@ describe("PC low stock notification", () => {
         });
     });
 
-    it("uses a provided applied state and reports the threshold evaluation", async () => {
+    it("uses a provided applied state and sends a concise team-facing message", async () => {
         const state = orderState({ oldStock: 7, newStock: 5 });
 
         const result = await notifyLowStockAfterOrderOnce(
@@ -131,7 +131,35 @@ describe("PC low stock notification", () => {
             ],
         });
         expect(mocks.getOrderByRecordId).not.toHaveBeenCalled();
-        expect(mocks.notifyPcExceptionOnce).toHaveBeenCalledTimes(1);
+        expect(mocks.notifyPcExceptionOnce).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                product_name: "Luna Silk Blouse",
+                detail: [
+                    "สี / ไซซ์: Ivory / M",
+                    "SKU: BNK-LUNA-IV-M",
+                    "คงเหลือ: 5 ชิ้น",
+                    "ขั้นต่ำ: 5 ชิ้น",
+                    "ควรเติม: 13 ชิ้น",
+                    "เป้าหมาย: 18 ชิ้น",
+                ].join("\n"),
+                next_action:
+                    "ตรวจสอบวัตถุดิบและยืนยันแผนผลิตที่ระบบสร้างไว้",
+                lark_text: [
+                    "[CRM] 📦 สินค้าใกล้หมด",
+                    "",
+                    "สินค้า: Luna Silk Blouse",
+                    "สี / ไซซ์: Ivory / M",
+                    "SKU: BNK-LUNA-IV-M",
+                    "คงเหลือ: 5 ชิ้น",
+                    "ขั้นต่ำ: 5 ชิ้น",
+                    "ควรเติม: 13 ชิ้น",
+                    "เป้าหมาย: 18 ชิ้น",
+                    "",
+                    "การดำเนินการ: ตรวจสอบวัตถุดิบและยืนยันแผนผลิตที่ระบบสร้างไว้",
+                ].join("\n"),
+            })
+        );
     });
 
     it("resolves the Product by transition record id when the stored SKU format differs", async () => {
@@ -243,7 +271,7 @@ describe("PC low stock notification", () => {
         expect(mocks.notifyPcExceptionOnce).not.toHaveBeenCalled();
     });
 
-    it("manually recovers an alert when stock after the Order is low even if it was already below Min", async () => {
+    it("manually recovers an alert without exposing recovery internals to the group", async () => {
         mocks.getPcOverview.mockResolvedValue({
             summary: {},
             products: [product({ min_stock: 10 })],
@@ -278,7 +306,8 @@ describe("PC low stock notification", () => {
             expect.anything(),
             expect.objectContaining({
                 event_id: expect.stringContaining("pc:low-stock-recovery:"),
-                detail: expect.stringContaining("ส่งซ้ำจาก Order เดิม"),
+                detail: expect.not.stringContaining("ส่งซ้ำจาก Order เดิม"),
+                lark_text: expect.not.stringContaining("ส่งซ้ำจาก Order เดิม"),
             })
         );
     });
