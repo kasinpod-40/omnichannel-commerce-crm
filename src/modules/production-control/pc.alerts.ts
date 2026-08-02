@@ -5,6 +5,11 @@ import type {
     NotificationType,
 } from "../notifications/notification.types";
 
+/**
+ * บันทึกและส่ง Notification ของ Production & Stock แบบ best effort.
+ * คืน false เมื่อสร้าง Record หรือส่งเข้า Queue ไม่สำเร็จ เพื่อให้ caller
+ * ตัดสินใจ retry ได้ โดยไม่กลืนความล้มเหลวเป็นผลสำเร็จเงียบ ๆ.
+ */
 export async function notifyPcExceptionOnce(
     env: Env,
     input: {
@@ -18,7 +23,7 @@ export async function notifyPcExceptionOnce(
         detail: string;
         next_action: string;
     }
-): Promise<void> {
+): Promise<boolean> {
     const payload: NotificationSnapshot = {
         version: 1,
         captured_at: Date.now(),
@@ -40,17 +45,30 @@ export async function notifyPcExceptionOnce(
     };
 
     try {
-        await recordAndDispatchNotificationOnce(env, {
+        const result = await recordAndDispatchNotificationOnce(env, {
             event_id: input.event_id,
             notification_type: input.type,
             message: input.detail,
             payload,
         });
+
+        if (result.dispatch_error) {
+            console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
+                event_id: input.event_id,
+                type: input.type,
+                notification_record_id: result.record.record_id,
+                error: result.dispatch_error,
+            });
+            return false;
+        }
+
+        return true;
     } catch (error) {
         console.error("PC_EXCEPTION_NOTIFICATION_FAILED", {
             event_id: input.event_id,
             type: input.type,
             error: error instanceof Error ? error.message : String(error),
         });
+        return false;
     }
 }
