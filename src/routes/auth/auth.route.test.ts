@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Env } from "../../config/env";
 import { createAuthSession } from "../../modules/auth/auth.session";
 import {
+    createBrowserReturnUrl,
     handleAuthLogout,
     handleAuthMe,
     handleLarkBrowserLogin,
@@ -51,6 +52,38 @@ describe("authentication routes", () => {
         expect(setCookie).toContain("Max-Age=0");
     });
 
+    it("กลับเข้า Demo Shop บน Worker โดยตรงหลัง Lark OAuth", () => {
+        const location = createBrowserReturnUrl(
+            new Request(
+                "https://worker.example.com/auth/lark/callback?code=test"
+            ),
+            env,
+            "/demo-shop?source=lark"
+        );
+
+        expect(location).toBe(
+            "https://worker.example.com/demo-shop?source=lark"
+        );
+    });
+
+    it("ยังส่ง Dashboard route กลับไปที่ Dashboard origin และกัน open redirect", () => {
+        expect(
+            createBrowserReturnUrl(
+                new Request("https://worker.example.com/auth/lark/callback"),
+                env,
+                "/orders?page=2"
+            )
+        ).toBe("https://crm.example.com/orders?page=2");
+
+        expect(
+            createBrowserReturnUrl(
+                new Request("https://worker.example.com/auth/lark/callback"),
+                env,
+                "//evil.example/demo-shop"
+            )
+        ).toBe("https://crm.example.com/");
+    });
+
     it("คืน Session Contract ที่ตรงกับ Frontend จาก /auth/me", async () => {
         const session = await createAuthSession(env, user);
         const response = await handleAuthMe(
@@ -75,7 +108,6 @@ describe("authentication routes", () => {
             },
         });
     });
-
 
     it("คืน Lark app id สำหรับ Client requestAccess พร้อม CORS", async () => {
         const response = handleLarkClientConfig(

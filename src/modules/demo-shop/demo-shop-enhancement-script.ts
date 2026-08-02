@@ -3,6 +3,7 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       const overlay = document.getElementById("processing-overlay");
       const message = document.getElementById("processing-message");
       const toast = document.getElementById("toast");
+      const grid = document.getElementById("product-grid");
 
       if (!overlay || !message || window.__demoShopFetchWrapped) return;
       window.__demoShopFetchWrapped = true;
@@ -66,7 +67,7 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
 
       function notificationLabel(notification) {
         if (!notification || notification.status === "NOT_REQUIRED") {
-          return "ไม่เข้าเงื่อนไขแจ้งเตือน";
+          return "ยังไม่ต้องแจ้งเตือน";
         }
         if (notification.status === "QUEUED") {
           return "ส่งแจ้งเตือนแล้ว";
@@ -110,6 +111,135 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
             notification.error_messages.filter(Boolean).join("; ")
           );
         }
+      }
+
+      function stockFromCard(card) {
+        const stockText = card && card.querySelector(".variant-stock");
+        const matched = String(stockText && stockText.textContent || "").match(/(-?\\d+(?:\\.\\d+)?)/);
+        return matched ? Math.max(0, Number(matched[1]) || 0) : null;
+      }
+
+      function selectedQuantity(card) {
+        const value = card && card.querySelector(".quantity-value");
+        return Math.max(1, Number(value && value.textContent) || 1);
+      }
+
+      function setText(element, value) {
+        if (element && element.textContent !== value) element.textContent = value;
+      }
+
+      function syncLoginLink() {
+        const link = document.querySelector(".login-link");
+        if (!link) return;
+        setText(link, "เข้าสู่ระบบด้วย Lark");
+        const loginHref = "/auth/lark/login?return_to=%2Fdemo-shop";
+        if (link.getAttribute("href") !== loginHref) link.setAttribute("href", loginHref);
+        if (link.getAttribute("target") !== "_self") link.setAttribute("target", "_self");
+        link.removeAttribute("rel");
+
+        const description = link.parentElement && link.parentElement.querySelector("p");
+        setText(
+          description,
+          "ลงชื่อเข้าใช้ด้วยบัญชี Lark แล้วระบบจะกลับมาที่ Demo Shop อัตโนมัติ"
+        );
+      }
+
+      function syncProductCard(card) {
+        if (!card) return;
+        const stock = stockFromCard(card);
+        if (stock === null) return;
+
+        const pill = card.querySelector(".stock-pill");
+        const buy = card.querySelector(".buy-button");
+        const quantityValue = card.querySelector(".quantity-value");
+        const quantityButtons = card.querySelectorAll(".quantity-control button");
+        const currentStatus = String(pill && pill.dataset.status || "");
+        let nextStatus = "NORMAL";
+        let nextLabel = "พร้อมจำหน่าย";
+
+        if (stock <= 0) {
+          nextStatus = "OUT_OF_STOCK";
+          nextLabel = "สินค้าหมด";
+        } else if (currentStatus === "LOW_STOCK" || currentStatus === "OUT_OF_STOCK") {
+          nextStatus = "LOW_STOCK";
+          nextLabel = "สินค้าใกล้หมด";
+        }
+
+        if (pill) {
+          setText(pill, nextLabel);
+          if (pill.dataset.status !== nextStatus) pill.dataset.status = nextStatus;
+        }
+
+        if (quantityValue && selectedQuantity(card) > stock && stock > 0) {
+          setText(quantityValue, String(stock));
+        }
+
+        quantityButtons.forEach((button) => {
+          const isPlus = String(button.textContent || "").trim() === "+";
+          const shouldDisable = stock <= 0 || (isPlus && selectedQuantity(card) >= stock);
+          if (button.disabled !== shouldDisable) button.disabled = shouldDisable;
+        });
+
+        if (buy) {
+          const unavailable = stock <= 0;
+          if (buy.dataset.stockUnavailable !== String(unavailable)) {
+            buy.dataset.stockUnavailable = String(unavailable);
+          }
+          if (buy.disabled !== unavailable) buy.disabled = unavailable;
+          setText(buy, unavailable ? "สินค้าหมด" : "สั่งซื้อสินค้า");
+          buy.setAttribute("aria-disabled", unavailable ? "true" : "false");
+        }
+      }
+
+      function syncDemoShopUi() {
+        syncLoginLink();
+        document.querySelectorAll(".product-card").forEach(syncProductCard);
+      }
+
+      function requestBody(input, init) {
+        const body = init && init.body !== undefined
+          ? init.body
+          : input instanceof Request
+            ? null
+            : null;
+        if (typeof body !== "string") return null;
+        try {
+          return JSON.parse(body);
+        } catch {
+          return null;
+        }
+      }
+
+      function stockValidationResponse(input, init) {
+        const payload = requestBody(input, init);
+        if (!payload || typeof payload.sku !== "string") return null;
+        const button = Array.from(document.querySelectorAll("[data-buy-sku]")).find(
+          (item) => item.dataset.buySku === payload.sku
+        );
+        const card = button && button.closest(".product-card");
+        const stock = stockFromCard(card);
+        const quantity = Number(payload.quantity);
+
+        if (stock === null || !Number.isFinite(quantity)) return null;
+        if (stock <= 0) {
+          return new Response(JSON.stringify({
+            ok: false,
+            message: "สินค้านี้หมดแล้ว กรุณาเลือกสินค้า หรือไซซ์อื่น",
+          }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (quantity > stock) {
+          return new Response(JSON.stringify({
+            ok: false,
+            message: "สินค้าคงเหลือ " + stock + " ชิ้น กรุณาลดจำนวนที่สั่ง",
+          }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return null;
       }
 
       async function retryLowStockNotification() {
@@ -158,10 +288,34 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         toolbar.append(button);
       }
 
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+
+        if (target.classList.contains("size-option")) {
+          window.setTimeout(syncDemoShopUi, 0);
+          return;
+        }
+
+        if (String(target.textContent || "").trim() !== "+") return;
+        const card = target.closest(".product-card");
+        const stock = stockFromCard(card);
+        if (stock !== null && selectedQuantity(card) >= stock) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          showOperatorToast("เลือกได้สูงสุดตาม Stock ที่เหลือ " + stock + " ชิ้น");
+        }
+      }, true);
+
       window.fetch = async function demoShopFetch(input, init) {
         if (!isDemoOrderRequest(input, init)) {
-          return await originalFetch(input, init);
+          const response = await originalFetch(input, init);
+          window.setTimeout(syncDemoShopUi, 0);
+          return response;
         }
+
+        const blocked = stockValidationResponse(input, init);
+        if (blocked) return blocked;
 
         const startedAt = Date.now();
         openProcessing();
@@ -178,8 +332,15 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
             await new Promise((resolve) => window.setTimeout(resolve, remaining));
           }
           closeProcessing();
+          window.setTimeout(syncDemoShopUi, 0);
         }
       };
 
+      if (grid) {
+        const observer = new MutationObserver(() => syncDemoShopUi());
+        observer.observe(grid, { childList: true });
+      }
+
       installRetryButton();
+      syncDemoShopUi();
     })();`;

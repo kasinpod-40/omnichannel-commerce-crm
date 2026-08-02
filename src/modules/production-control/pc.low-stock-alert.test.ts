@@ -245,27 +245,56 @@ describe("PC low stock notification", () => {
         });
     });
 
-    it("explains when stock was already at or below Min before the Order", async () => {
+    it("sends another alert for each new Order while stock remains at or below Min", async () => {
         const result = await notifyLowStockAfterOrderOnce(
             {} as Env,
-            "order-rec-1",
+            "order-rec-2",
             {
-                inventoryState: orderState({ oldStock: 5, newStock: 3 }),
+                inventoryState: orderState({
+                    oldStock: 5,
+                    newStock: 3,
+                    orderRecordId: "order-rec-2",
+                }),
             }
         );
 
         expect(result).toMatchObject({
             state_ready: true,
-            matched: 0,
-            dispatched: 0,
+            matched: 1,
+            dispatched: 1,
             failed: 0,
             diagnostics: [
                 expect.objectContaining({
-                    reason: "ALREADY_AT_OR_BELOW_MIN",
+                    reason: "LOW_STOCK_AFTER_ORDER",
                     old_stock_on_hand: 5,
                     new_stock_on_hand: 3,
                     min_stock: 5,
                 }),
+            ],
+        });
+        expect(mocks.notifyPcExceptionOnce).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                event_id: expect.stringContaining("pc:low-stock:order-rec-2:"),
+                lark_text: expect.stringContaining("คงเหลือ: 3 ชิ้น"),
+            })
+        );
+    });
+
+    it("does not notify while stock after the Order is still above Min", async () => {
+        const result = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            {
+                inventoryState: orderState({ oldStock: 9, newStock: 8 }),
+            }
+        );
+
+        expect(result).toMatchObject({
+            matched: 0,
+            dispatched: 0,
+            diagnostics: [
+                expect.objectContaining({ reason: "STILL_ABOVE_MIN" }),
             ],
         });
         expect(mocks.notifyPcExceptionOnce).not.toHaveBeenCalled();

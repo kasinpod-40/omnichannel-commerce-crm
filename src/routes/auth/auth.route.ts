@@ -62,11 +62,27 @@ function createLarkAuthorizeUrl(
     return url.toString();
 }
 
-function createDashboardRedirect(
+/**
+ * Dashboard routes กลับไปที่ DASHBOARD_URL ตามเดิม ส่วน Demo Shop เป็นหน้า
+ * same-origin ของ Worker จึงกลับเข้า Worker โดยตรงหลัง Lark OAuth สำเร็จ.
+ */
+export function createBrowserReturnUrl(
+    request: Request,
     env: Env,
     returnTo: string
 ): string {
-    return new URL(returnTo, getDashboardUrl(env)).toString();
+    const safeReturnTo = sanitizeReturnTo(returnTo);
+    const parsed = new URL(safeReturnTo, "https://internal.invalid");
+
+    if (parsed.pathname === "/demo-shop") {
+        const workerOrigin = new URL(request.url).origin;
+        return new URL(
+            `${parsed.pathname}${parsed.search}${parsed.hash}`,
+            workerOrigin
+        ).toString();
+    }
+
+    return new URL(safeReturnTo, getDashboardUrl(env)).toString();
 }
 
 function createLoginErrorRedirect(env: Env, code: string): string {
@@ -172,7 +188,7 @@ export async function handleLarkBrowserLogin(
     }
 }
 
-/** GET /auth/lark/callback: ตรวจ state, แลก code, ตั้ง Session Cookie และกลับ Dashboard */
+/** GET /auth/lark/callback: ตรวจ state, แลก code, ตั้ง Session Cookie และกลับหน้าต้นทาง */
 export async function handleLarkBrowserCallback(
     request: Request,
     env: Env
@@ -200,7 +216,7 @@ export async function handleLarkBrowserCallback(
             url.searchParams.get("code") ?? ""
         );
         const headers = new Headers({
-            Location: createDashboardRedirect(env, state.return_to),
+            Location: createBrowserReturnUrl(request, env, state.return_to),
             "Cache-Control": "no-store",
         });
         headers.append(
