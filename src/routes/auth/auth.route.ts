@@ -63,8 +63,8 @@ function createLarkAuthorizeUrl(
 }
 
 /**
- * Dashboard routes กลับไปที่ DASHBOARD_URL ตามเดิม ส่วน Demo Shop เป็นหน้า
- * same-origin ของ Worker จึงกลับเข้า Worker โดยตรงหลัง Lark OAuth สำเร็จ.
+ * Dashboard routes กลับไปที่ DASHBOARD_URL ตามเดิม ส่วน Demo Shop และหน้า Action
+ * ของ Production เป็น same-origin ของ Worker จึงกลับเข้า Worker โดยตรงหลัง Lark OAuth.
  */
 export function createBrowserReturnUrl(
     request: Request,
@@ -74,7 +74,10 @@ export function createBrowserReturnUrl(
     const safeReturnTo = sanitizeReturnTo(returnTo);
     const parsed = new URL(safeReturnTo, "https://internal.invalid");
 
-    if (parsed.pathname === "/demo-shop") {
+    if (
+        parsed.pathname === "/demo-shop" ||
+        parsed.pathname.startsWith("/pc/actions/")
+    ) {
         const workerOrigin = new URL(request.url).origin;
         return new URL(
             `${parsed.pathname}${parsed.search}${parsed.hash}`,
@@ -119,7 +122,6 @@ function authErrorResponse(error: unknown): Response {
               error
           );
 
-    // Error 5xx ส่งข้อความกลางเพื่อไม่เปิดเผย Config หรือข้อมูลจาก Lark
     const message =
         normalized.status >= 500
             ? "Authentication service is unavailable"
@@ -135,7 +137,6 @@ function authErrorResponse(error: unknown): Response {
     );
 }
 
-/** GET /auth/lark/client-config: คืนค่า public app id สำหรับ requestAccess ใน Lark WebView */
 export function handleLarkClientConfig(
     request: Request,
     env: Env
@@ -155,7 +156,6 @@ export function handleLarkClientConfig(
     );
 }
 
-/** GET /auth/lark/login: สร้าง OAuth state และ Redirect Browser ไปหน้า Lark */
 export async function handleLarkBrowserLogin(
     request: Request,
     env: Env
@@ -174,7 +174,6 @@ export async function handleLarkBrowserLogin(
             Location: createLarkAuthorizeUrl(env, state.token),
             "Cache-Control": "no-store",
         });
-        // เริ่ม Login ใหม่จาก Cookie ที่สะอาดเสมอ โดยเฉพาะหลัง Session เดิมหมดอายุ
         headers.append("Set-Cookie", clearSessionCookie(request, env));
         headers.append(
             "Set-Cookie",
@@ -188,7 +187,6 @@ export async function handleLarkBrowserLogin(
     }
 }
 
-/** GET /auth/lark/callback: ตรวจ state, แลก code, ตั้ง Session Cookie และกลับหน้าต้นทาง */
 export async function handleLarkBrowserCallback(
     request: Request,
     env: Env
@@ -247,14 +245,12 @@ export async function handleLarkBrowserCallback(
 
             return new Response(null, { status: 302, headers });
         } catch (redirectError) {
-            // หาก DASHBOARD_URL ยังไม่ถูกตั้ง จะตอบ JSON 500 แทนการเกิด Error ซ้อนใน Catch
             logAuthError(redirectError, "/auth/lark/callback-error-redirect");
             return authErrorResponse(error);
         }
     }
 }
 
-/** POST /auth/lark/client-session: รับ code จาก tt.requestAccess และคืน Session ให้ React */
 export async function handleLarkClientSession(
     request: Request,
     env: Env
@@ -298,7 +294,6 @@ export async function handleLarkClientSession(
     }
 }
 
-/** GET /auth/me: ตรวจลายเซ็นและอายุ Cookie ก่อนคืนผู้ใช้ปัจจุบัน */
 export async function handleAuthMe(
     request: Request,
     env: Env
@@ -355,7 +350,6 @@ export async function handleAuthMe(
     }
 }
 
-/** POST /auth/logout: ตรวจ Origin แล้วล้าง HttpOnly Session Cookie */
 export async function handleAuthLogout(
     request: Request,
     env: Env
