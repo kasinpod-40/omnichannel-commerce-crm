@@ -48,7 +48,7 @@ function batch(
         planned_qty: 16,
         actual_qty: 0,
         material_check_status:
-            status === "BLOCKED_MATERIAL" ? "SHORTAGE" : "SUFFICIENT",
+            status === "BLOCKED_MATERIAL" ? "INSUFFICIENT" : "SUFFICIENT",
         production_status: status,
         material_requirement_summary: "FAB-IV 24 m",
         material_risk_summary: "FAB-IV ขาด 6 m",
@@ -80,7 +80,11 @@ function product(): PcProduct {
         recommended_production_qty: 16,
         production_lead_days: 7,
         materials_json: JSON.stringify([
-            { material_sku: "FAB-IV", quantity_per_unit: 1.5 },
+            {
+                material_sku: "FAB-IV",
+                quantity_per_unit: 1.5,
+                unit: "m",
+            },
         ]),
         active: true,
     };
@@ -91,18 +95,23 @@ function material(): PcMaterial {
         record_id: "material-rec-1",
         material_sku: "FAB-IV",
         material_name: "ผ้าสีไอวอรี่",
+        category: "Fabric",
         unit: "m",
+        source_type: "DOMESTIC",
+        supplier_name: "Demo Supplier",
+        supplier_country: "Thailand",
+        lead_time_days: 5,
         stock_on_hand: 18,
         min_stock: 5,
         target_stock: 40,
         planned_requirement: 24,
-        available_after_plan: -6,
+        projected_stock: -6,
         shortage_qty: 6,
-        alert_level: "CRITICAL",
+        material_status: "OUT_OF_STOCK",
         recommended_reorder_qty: 22,
-        source_type: "PURCHASED",
-        lead_time_days: 5,
+        alert_level: "CRITICAL",
         active: true,
+        notes: "",
     };
 }
 
