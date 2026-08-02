@@ -212,12 +212,17 @@ function replenishmentForMaterial(input: {
         0,
         input.requiredForBatch - input.material.stock_on_hand
     );
+    const targetGap = Math.max(
+        0,
+        input.material.target_stock - input.material.stock_on_hand
+    );
     return roundQuantity(
         Math.max(
             0,
             input.material.recommended_reorder_qty,
             input.material.shortage_qty,
-            batchShortage
+            batchShortage,
+            targetGap
         )
     );
 }
