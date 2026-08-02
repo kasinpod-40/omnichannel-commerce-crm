@@ -1,15 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
-import type { PcProduct, PcProductionBatch } from "../production-control/pc.types";
+import type {
+    PcProduct,
+    PcProductionBatch,
+} from "../production-control/pc.types";
 
 const mocks = vi.hoisted(() => ({
     createCustomer: vi.fn(),
     findCustomerByChannelCustomerId: vi.fn(),
+    getCustomerByRecordId: vi.fn(),
     updateCustomer: vi.fn(),
     createOrder: vi.fn(),
     findOrderByChannelAndExternalId: vi.fn(),
     applyManualPaymentVerification: vi.fn(),
+    getPipelineByRecordId: vi.fn(),
     createOpenPipelineForCustomer: vi.fn(),
     getPcOverview: vi.fn(),
     reconcileOrderInventory: vi.fn(),
@@ -17,21 +22,30 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../customers/customer.repository", () => ({
     createCustomer: mocks.createCustomer,
-    findCustomerByChannelCustomerId: mocks.findCustomerByChannelCustomerId,
+    findCustomerByChannelCustomerId:
+        mocks.findCustomerByChannelCustomerId,
+    getCustomerByRecordId: mocks.getCustomerByRecordId,
     updateCustomer: mocks.updateCustomer,
 }));
 
 vi.mock("../orders/order.repository", () => ({
     createOrder: mocks.createOrder,
-    findOrderByChannelAndExternalId: mocks.findOrderByChannelAndExternalId,
+    findOrderByChannelAndExternalId:
+        mocks.findOrderByChannelAndExternalId,
 }));
 
 vi.mock("../payments/payment.service", () => ({
-    applyManualPaymentVerification: mocks.applyManualPaymentVerification,
+    applyManualPaymentVerification:
+        mocks.applyManualPaymentVerification,
+}));
+
+vi.mock("../pipeline/pipeline.repository", () => ({
+    getPipelineByRecordId: mocks.getPipelineByRecordId,
 }));
 
 vi.mock("../pipeline/pipeline.service", () => ({
-    createOpenPipelineForCustomer: mocks.createOpenPipelineForCustomer,
+    createOpenPipelineForCustomer:
+        mocks.createOpenPipelineForCustomer,
 }));
 
 vi.mock("../production-control/pc.service", () => ({
@@ -73,7 +87,8 @@ function product(overrides: Partial<PcProduct> = {}): PcProduct {
         stock_status: "NORMAL",
         recommended_production_qty: 0,
         production_lead_days: 7,
-        materials_json: '[{"material_sku":"FAB-IV"}]',
+        materials_json:
+            '[{"material_sku":"FAB-IV"}]',
         active: true,
         ...overrides,
     };
@@ -105,18 +120,54 @@ function production(): PcProductionBatch {
     };
 }
 
+function demoItemsJson(
+    selected: PcProduct,
+    quantity: number
+): string {
+    return JSON.stringify([
+        {
+            sku: selected.sku,
+            name: selected.product_name,
+            product_name: selected.product_name,
+            variant: [selected.color, selected.size]
+                .filter(Boolean)
+                .join(" "),
+            product_size: selected.size,
+            quantity,
+        },
+    ]);
+}
+
+function linkedCustomer() {
+    return {
+        record_id: "customer-rec-1",
+        fields: {},
+    };
+}
+
+function linkedPipeline() {
+    return {
+        record_id: "pipeline-rec-1",
+        fields: {},
+    };
+}
+
 describe("Demo Shop service", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
     it("keeps the demo route isolated from the live PC feature flag", () => {
-        expect(() => assertDemoShopSafeMode(env())).not.toThrow();
+        expect(() =>
+            assertDemoShopSafeMode(env())
+        ).not.toThrow();
         expect(() =>
             assertDemoShopSafeMode(
                 env({ PC_INVENTORY_ENABLED: "true" })
             )
-        ).toThrow("cannot run while live PC inventory processing is enabled");
+        ).toThrow(
+            "cannot run while live PC inventory processing is enabled"
+        );
     });
 
     it("returns active products without internal Lark or BOM fields", async () => {
@@ -143,11 +194,15 @@ describe("Demo Shop service", () => {
             price_thb: 2890,
             stock_on_hand: 8,
         });
-        expect(catalog.products[0]).not.toHaveProperty("record_id");
-        expect(catalog.products[0]).not.toHaveProperty("materials_json");
+        expect(catalog.products[0]).not.toHaveProperty(
+            "record_id"
+        );
+        expect(catalog.products[0]).not.toHaveProperty(
+            "materials_json"
+        );
     });
 
-    it("creates a paid demo Order and runs the real inventory reconciliation synchronously", async () => {
+    it("creates a paid demo Order with the exact SKU and runs inventory reconciliation synchronously", async () => {
         const beforeProduct = product();
         const afterProduct = product({
             stock_on_hand: 6,
@@ -157,7 +212,8 @@ describe("Demo Shop service", () => {
         const order = {
             record_id: "order-rec-1",
             fields: {
-                [ORDER_FIELDS.ORDER_NUMBER]: "DEMO-ORDER-1",
+                [ORDER_FIELDS.ORDER_NUMBER]:
+                    "DEMO-ORDER-1",
             },
         };
         const state = {
@@ -166,7 +222,9 @@ describe("Demo Shop service", () => {
             fingerprint: "fingerprint",
             order_record_id: "order-rec-1",
             order_number: "DEMO-ORDER-1",
-            allocations: [{ sku: beforeProduct.sku, quantity: 2 }],
+            allocations: [
+                { sku: beforeProduct.sku, quantity: 2 },
+            ],
             transitions: [
                 {
                     record_id: beforeProduct.record_id,
@@ -205,18 +263,18 @@ describe("Demo Shop service", () => {
                         JSON.stringify(state),
                 },
             });
-        mocks.findCustomerByChannelCustomerId.mockResolvedValue({
-            record_id: "customer-rec-1",
-            fields: {},
-        });
-        mocks.updateCustomer.mockResolvedValue({
-            record_id: "customer-rec-1",
-            fields: {},
-        });
-        mocks.createOpenPipelineForCustomer.mockResolvedValue({
-            record_id: "pipeline-rec-1",
-            fields: {},
-        });
+        mocks.findCustomerByChannelCustomerId.mockResolvedValue(
+            linkedCustomer()
+        );
+        mocks.updateCustomer.mockResolvedValue(
+            linkedCustomer()
+        );
+        mocks.getCustomerByRecordId.mockResolvedValue(
+            linkedCustomer()
+        );
+        mocks.createOpenPipelineForCustomer.mockResolvedValue(
+            linkedPipeline()
+        );
         mocks.createOrder.mockResolvedValue(order);
         mocks.applyManualPaymentVerification.mockResolvedValue({
             order,
@@ -225,7 +283,9 @@ describe("Demo Shop service", () => {
             status: "APPLIED",
             order_record_id: "order-rec-1",
             fingerprint: "fingerprint",
-            allocations: [{ sku: beforeProduct.sku, quantity: 2 }],
+            allocations: [
+                { sku: beforeProduct.sku, quantity: 2 },
+            ],
             production_ids: ["PC-STOCK-LUNA"],
             duplicate: false,
         });
@@ -245,10 +305,18 @@ describe("Demo Shop service", () => {
                 quantity: 2,
                 total_amount: 5780,
                 payment_verified: false,
+                marketplace_items_json: demoItemsJson(
+                    beforeProduct,
+                    2
+                ),
             })
         );
-        expect(mocks.applyManualPaymentVerification).toHaveBeenCalledTimes(1);
-        expect(mocks.reconcileOrderInventory).toHaveBeenCalledWith(
+        expect(
+            mocks.applyManualPaymentVerification
+        ).toHaveBeenCalledTimes(1);
+        expect(
+            mocks.reconcileOrderInventory
+        ).toHaveBeenCalledWith(
             expect.objectContaining({
                 PC_INVENTORY_ENABLED: "true",
                 PC_DEMO_SHOP_ENABLED: "true",
@@ -270,25 +338,41 @@ describe("Demo Shop service", () => {
         });
     });
 
-    it("does not create a second Order for the same idempotency key", async () => {
+    it("resumes payment and stock safely without creating a second Order for the same idempotency key", async () => {
         const selected = product({ stock_on_hand: 6 });
         const existing = {
             record_id: "order-rec-1",
             fields: {
-                [ORDER_FIELDS.ORDER_NUMBER]: "DEMO-ORDER-1",
-                [ORDER_FIELDS.PRODUCT_NAME]: selected.product_name,
+                [ORDER_FIELDS.ORDER_NUMBER]:
+                    "DEMO-ORDER-1",
+                [ORDER_FIELDS.CUSTOMER]: [
+                    { record_id: "customer-rec-1" },
+                ],
+                [ORDER_FIELDS.PIPELINE]: [
+                    { record_id: "pipeline-rec-1" },
+                ],
+                [ORDER_FIELDS.PRODUCT_NAME]:
+                    selected.product_name,
                 [ORDER_FIELDS.PRODUCT_SIZE]: selected.size,
                 [ORDER_FIELDS.QUANTITY]: 2,
-                [ORDER_FIELDS.PC_INVENTORY_STATE_JSON]: JSON.stringify({
-                    version: 1,
-                    phase: "applied",
-                    fingerprint: "same",
-                    order_record_id: "order-rec-1",
-                    order_number: "DEMO-ORDER-1",
-                    allocations: [{ sku: selected.sku, quantity: 2 }],
-                    transitions: [],
-                    prepared_at: Date.now(),
-                }),
+                [ORDER_FIELDS.MARKETPLACE_ITEMS_JSON]:
+                    demoItemsJson(selected, 2),
+                [ORDER_FIELDS.PC_INVENTORY_STATE_JSON]:
+                    JSON.stringify({
+                        version: 1,
+                        phase: "applied",
+                        fingerprint: "same",
+                        order_record_id: "order-rec-1",
+                        order_number: "DEMO-ORDER-1",
+                        allocations: [
+                            {
+                                sku: selected.sku,
+                                quantity: 2,
+                            },
+                        ],
+                        transitions: [],
+                        prepared_at: Date.now(),
+                    }),
             },
         };
 
@@ -308,11 +392,22 @@ describe("Demo Shop service", () => {
         mocks.findOrderByChannelAndExternalId
             .mockResolvedValueOnce(existing)
             .mockResolvedValueOnce(existing);
+        mocks.getCustomerByRecordId.mockResolvedValue(
+            linkedCustomer()
+        );
+        mocks.getPipelineByRecordId.mockResolvedValue(
+            linkedPipeline()
+        );
+        mocks.applyManualPaymentVerification.mockResolvedValue({
+            order: existing,
+        });
         mocks.reconcileOrderInventory.mockResolvedValue({
             status: "APPLIED",
             order_record_id: "order-rec-1",
             fingerprint: "same",
-            allocations: [{ sku: selected.sku, quantity: 2 }],
+            allocations: [
+                { sku: selected.sku, quantity: 2 },
+            ],
             production_ids: [],
             duplicate: true,
         });
@@ -325,13 +420,29 @@ describe("Demo Shop service", () => {
 
         expect(result.duplicate).toBe(true);
         expect(mocks.createOrder).not.toHaveBeenCalled();
-        expect(mocks.reconcileOrderInventory).toHaveBeenCalledWith(
-            expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
+        expect(
+            mocks.applyManualPaymentVerification
+        ).toHaveBeenCalledWith(
+            expect.anything(),
+            existing,
+            expect.objectContaining({
+                record_id: "customer-rec-1",
+            }),
+            expect.objectContaining({
+                record_id: "pipeline-rec-1",
+            })
+        );
+        expect(
+            mocks.reconcileOrderInventory
+        ).toHaveBeenCalledWith(
+            expect.objectContaining({
+                PC_INVENTORY_ENABLED: "true",
+            }),
             "order-rec-1"
         );
     });
 
-    it("rejects reuse of an idempotency key with a different quantity", async () => {
+    it("rejects reuse of an idempotency key with a different quantity before payment or stock mutation", async () => {
         const selected = product();
         mocks.getPcOverview.mockResolvedValue({
             summary: {},
@@ -342,10 +453,14 @@ describe("Demo Shop service", () => {
         mocks.findOrderByChannelAndExternalId.mockResolvedValue({
             record_id: "order-rec-1",
             fields: {
-                [ORDER_FIELDS.ORDER_NUMBER]: "DEMO-ORDER-1",
-                [ORDER_FIELDS.PRODUCT_NAME]: selected.product_name,
+                [ORDER_FIELDS.ORDER_NUMBER]:
+                    "DEMO-ORDER-1",
+                [ORDER_FIELDS.PRODUCT_NAME]:
+                    selected.product_name,
                 [ORDER_FIELDS.PRODUCT_SIZE]: selected.size,
                 [ORDER_FIELDS.QUANTITY]: 1,
+                [ORDER_FIELDS.MARKETPLACE_ITEMS_JSON]:
+                    demoItemsJson(selected, 1),
             },
         });
 
@@ -357,7 +472,12 @@ describe("Demo Shop service", () => {
             })
         ).rejects.toThrow("สินค้า หรือจำนวนต่างกัน");
 
-        expect(mocks.reconcileOrderInventory).not.toHaveBeenCalled();
+        expect(
+            mocks.applyManualPaymentVerification
+        ).not.toHaveBeenCalled();
+        expect(
+            mocks.reconcileOrderInventory
+        ).not.toHaveBeenCalled();
         expect(mocks.createOrder).not.toHaveBeenCalled();
     });
 });
