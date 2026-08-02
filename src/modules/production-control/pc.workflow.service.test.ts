@@ -205,7 +205,7 @@ describe("Production workflow service", () => {
         });
     });
 
-    it("keeps the batch blocked and sends a material purchase card after approval finds a shortage", async () => {
+    it("keeps the batch blocked without sending a second material card after the existing service notification", async () => {
         mocks.getPcProductionByRecordId
             .mockResolvedValueOnce(batch("BLOCKED_MATERIAL"))
             .mockResolvedValueOnce(batch("BLOCKED_MATERIAL"));
@@ -223,14 +223,8 @@ describe("Production workflow service", () => {
             actor_name: "Manager A",
         });
 
-        expect(mocks.buildPcNotificationActionCard).toHaveBeenCalledWith(
-            env(),
-            expect.objectContaining({
-                notification_type: "PC_MATERIAL_SHORTAGE",
-                reference_id: "PROD-1",
-            })
-        );
-        expect(mocks.sendPcLarkActionCard).toHaveBeenCalledTimes(1);
+        expect(mocks.buildPcNotificationActionCard).not.toHaveBeenCalled();
+        expect(mocks.sendPcLarkActionCard).not.toHaveBeenCalled();
         expect(result).toMatchObject({
             production_status: "BLOCKED_MATERIAL",
             message: "ยังเริ่มผลิตไม่ได้ เนื่องจากวัตถุดิบไม่เพียงพอ",
