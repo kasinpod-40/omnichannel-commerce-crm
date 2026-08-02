@@ -23,6 +23,7 @@ export type DemoShopNotificationOutcome = {
     dispatched: number;
     failed: number;
     error_messages: string[];
+    evaluation_messages: string[];
 };
 
 export type DemoShopOrderResult = {
