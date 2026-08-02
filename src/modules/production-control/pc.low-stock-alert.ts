@@ -6,6 +6,12 @@ import { notifyPcExceptionOnce } from "./pc.alerts";
 import { getPcOverview } from "./pc.service";
 import type { PcOrderInventoryState } from "./pc.types";
 
+const DEFAULT_STATE_READ_DELAYS_MS = [0, 100, 250, 500] as const;
+
+type LowStockReadOptions = {
+    retryDelaysMs?: readonly number[];
+};
+
 function parseOrderInventoryState(value: unknown): PcOrderInventoryState | null {
     const text = getLarkText(value, "").trim();
 
@@ -18,7 +24,6 @@ function parseOrderInventoryState(value: unknown): PcOrderInventoryState | null 
 
         if (
             parsed.version !== 1 ||
-            parsed.phase !== "applied" ||
             !Array.isArray(parsed.transitions)
         ) {
             return null;
@@ -30,6 +35,51 @@ function parseOrderInventoryState(value: unknown): PcOrderInventoryState | null 
     }
 }
 
+function waitForState(delayMs: number): Promise<void> {
+    if (delayMs <= 0) {
+        return Promise.resolve();
+    }
+
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+async function readAppliedInventoryState(
+    env: Env,
+    orderRecordId: string,
+    retryDelaysMs: readonly number[]
+): Promise<PcOrderInventoryState | null> {
+    for (const delayMs of retryDelaysMs) {
+        await waitForState(delayMs);
+
+        const order = await getOrderByRecordId(env, orderRecordId);
+        if (!order) {
+            continue;
+        }
+
+        const state = parseOrderInventoryState(
+            order.fields[ORDER_FIELDS.PC_INVENTORY_STATE_JSON]
+        );
+
+        if (!state) {
+            continue;
+        }
+
+        if (state.phase === "applied") {
+            return state;
+        }
+
+        if (state.phase !== "prepared") {
+            return null;
+        }
+    }
+
+    console.warn("PC_LOW_STOCK_STATE_NOT_READY", {
+        order_record_id: orderRecordId,
+        attempts: retryDelaysMs.length,
+    });
+    return null;
+}
+
 function formatQuantity(value: number): string {
     return new Intl.NumberFormat("th-TH", {
         maximumFractionDigits: 2,
@@ -39,19 +89,21 @@ function formatQuantity(value: number): string {
 /**
  * แจ้งเตือนเมื่อ Order ทำให้ Stock ข้ามจากเหนือ Min Stock ลงมาอยู่ที่หรือต่ำกว่า Min Stock.
  * Event ID ผูกกับ Order fingerprint และ SKU เพื่อให้ Queue retry ได้โดยไม่ยิงซ้ำ.
+ * อ่าน Inventory state แบบ bounded retry เพราะ Lark อาจยังคืน Record รุ่นก่อนหน้าทันทีหลัง update.
  */
 export async function notifyLowStockAfterOrderOnce(
     env: Env,
-    orderRecordId: string
+    orderRecordId: string,
+    options: LowStockReadOptions = {}
 ): Promise<number> {
-    const order = await getOrderByRecordId(env, orderRecordId);
-
-    if (!order) {
-        return 0;
-    }
-
-    const state = parseOrderInventoryState(
-        order.fields[ORDER_FIELDS.PC_INVENTORY_STATE_JSON]
+    const retryDelaysMs =
+        options.retryDelaysMs?.length
+            ? options.retryDelaysMs
+            : DEFAULT_STATE_READ_DELAYS_MS;
+    const state = await readAppliedInventoryState(
+        env,
+        orderRecordId,
+        retryDelaysMs
     );
 
     if (!state) {
