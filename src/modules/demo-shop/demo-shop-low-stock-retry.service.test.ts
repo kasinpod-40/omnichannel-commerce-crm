@@ -76,15 +76,15 @@ describe("Demo Shop low-stock retry", () => {
                     resolved_sku: "BNK-LUNA-IV-M",
                     old_stock_on_hand: 7,
                     new_stock_on_hand: 5,
-                    min_stock: 5,
-                    reason: "MATCHED",
-                    message: "SKU BNK-LUNA-IV-M: Stock ข้ามเกณฑ์ 7 → 5 (Min 5)",
+                    min_stock: 10,
+                    reason: "RECOVERY_CURRENT_LOW_STOCK",
+                    message: "SKU BNK-LUNA-IV-M: ส่ง Recovery จาก Stock หลัง Order 5 ซึ่งเท่ากับหรือต่ำกว่า Min 10 (ก่อน Order 7)",
                 },
             ],
         });
     });
 
-    it("replays an applied Demo Order without reconciling stock", async () => {
+    it("replays a current low-stock Demo Order without reconciling stock", async () => {
         const state = appliedState();
         const result = await retryDemoShopLowStockNotification(
             { PC_INVENTORY_ENABLED: "true" } as Env,
@@ -97,7 +97,10 @@ describe("Demo Shop low-stock retry", () => {
         expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
             expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
             "order-rec-1",
-            { inventoryState: state }
+            {
+                inventoryState: state,
+                evaluationMode: "current_low_stock_recovery",
+            }
         );
         expect(result).toEqual({
             ok: true,
@@ -110,13 +113,13 @@ describe("Demo Shop low-stock retry", () => {
                 failed: 0,
                 error_messages: [],
                 evaluation_messages: [
-                    "SKU BNK-LUNA-IV-M: Stock ข้ามเกณฑ์ 7 → 5 (Min 5)",
+                    "SKU BNK-LUNA-IV-M: ส่ง Recovery จาก Stock หลัง Order 5 ซึ่งเท่ากับหรือต่ำกว่า Min 10 (ก่อน Order 7)",
                 ],
             },
         });
     });
 
-    it("returns the exact reason when the Order did not cross Min Stock", async () => {
+    it("does not send recovery when stock after the Order remains above Min", async () => {
         mocks.notifyLowStockAfterOrderOnce.mockResolvedValue({
             state_ready: true,
             matched: 0,
@@ -128,11 +131,11 @@ describe("Demo Shop low-stock retry", () => {
                     transition_record_id: "product-rec-1",
                     transition_sku: "BNK-LUNA-IV-M",
                     resolved_sku: "BNK-LUNA-IV-M",
-                    old_stock_on_hand: 5,
-                    new_stock_on_hand: 3,
-                    min_stock: 5,
-                    reason: "ALREADY_AT_OR_BELOW_MIN",
-                    message: "SKU BNK-LUNA-IV-M: ก่อน Order มี Stock 5 ซึ่งเท่ากับหรือต่ำกว่า Min 5 อยู่แล้ว",
+                    old_stock_on_hand: 14,
+                    new_stock_on_hand: 12,
+                    min_stock: 10,
+                    reason: "STILL_ABOVE_MIN",
+                    message: "SKU BNK-LUNA-IV-M: หลัง Order ยังเหลือ 12 มากกว่า Min 10",
                 },
             ],
         });
@@ -149,7 +152,7 @@ describe("Demo Shop low-stock retry", () => {
             failed: 0,
             error_messages: [],
             evaluation_messages: [
-                "SKU BNK-LUNA-IV-M: ก่อน Order มี Stock 5 ซึ่งเท่ากับหรือต่ำกว่า Min 5 อยู่แล้ว",
+                "SKU BNK-LUNA-IV-M: หลัง Order ยังเหลือ 12 มากกว่า Min 10",
             ],
         });
     });
