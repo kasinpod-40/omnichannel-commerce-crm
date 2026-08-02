@@ -262,38 +262,22 @@ export async function notifyPcExceptionOnce(
     let prebuiltCard: PcActionCard | undefined;
 
     /*
-     * refreshPcMaterialPlan อาจพบวัตถุดิบ Critical ตั้งแต่ตอนสร้างแผนแนะนำ
-     * จาก Order แต่ Flow ที่ผู้ใช้อนุมัติไว้ต้องเริ่มจากปุ่มอนุมัติผลิตก่อน
-     * จึงไม่ส่ง Alert ระดับ material SKU ที่ยังผูกกับ Production batch ไม่ได้
-     * ข้อมูลความเสี่ยงยังถูกบันทึกใน PC_Materials/PC_Production ตามเดิม และ
-     * updatePcProductionStatus จะส่ง Alert แบบมีปุ่มสั่งซื้อเมื่ออนุมัติแล้วไม่พอจริง
+     * refreshPcMaterialPlan มีหน้าที่คำนวณ Dashboard และอาจตรวจพบ Material
+     * Critical หลายครั้งระหว่างการเปลี่ยนสถานะแผนผลิต ห้าม Event ระดับ
+     * material SKU ส่ง Card เอง เพราะ updatePcProductionStatus หรือ
+     * markPcProductionBlocked จะส่ง Event ระดับ Production batch ที่มีปุ่ม
+     * อนุมัติสั่งซื้อและ Idempotency ของแผนนั้นเพียงใบเดียว
      */
     if (
         input.type === "PC_MATERIAL_SHORTAGE" &&
         input.event_id.startsWith("pc:material:") &&
         !input.lark_text?.trim()
     ) {
-        try {
-            prebuiltCard = await buildPcNotificationActionCard(env, {
-                notification_type: input.type,
-                reference_id: input.reference_id,
-                fallback_text: readableText,
-            });
-
-            if (!prebuiltCard) {
-                console.info("PC_MATERIAL_ALERT_DEFERRED_UNTIL_APPROVAL", {
-                    event_id: input.event_id,
-                    reference_id: input.reference_id,
-                });
-                return true;
-            }
-        } catch (error) {
-            logCardBuildFailure({
-                event_id: input.event_id,
-                reference_id: input.reference_id,
-                error,
-            });
-        }
+        console.info("PC_MATERIAL_ALERT_DEFERRED_TO_PRODUCTION_WORKFLOW", {
+            event_id: input.event_id,
+            reference_id: input.reference_id,
+        });
+        return true;
     }
 
     const payload: NotificationSnapshot = {
