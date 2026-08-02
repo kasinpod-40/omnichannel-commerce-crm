@@ -169,4 +169,5 @@ dist
 # Local OS and operator verification artifacts
 .DS_Store
 pc-runtime-schema-result.json
+pc-field-descriptions-result.json
 pc-lark-group-notification-result.json

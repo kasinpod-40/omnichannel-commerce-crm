@@ -206,6 +206,26 @@ describe("Production workflow service", () => {
         });
     });
 
+    it("does not resend a progress card when approval is replayed after production started", async () => {
+        mocks.getPcProductionByRecordId.mockResolvedValue(
+            batch("IN_PROGRESS")
+        );
+
+        const result = await runPcWorkflowAction(env(), {
+            action: "approve-production",
+            production_record_id: "production-rec-1",
+            actor_name: "Manager A",
+        });
+
+        expect(mocks.updatePcProductionStatus).not.toHaveBeenCalled();
+        expect(mocks.buildProductionProgressCard).not.toHaveBeenCalled();
+        expect(mocks.sendPcLarkActionCard).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            production_status: "IN_PROGRESS",
+            duplicate: true,
+        });
+    });
+
     it("keeps the batch blocked without sending a second material card after the existing service notification", async () => {
         mocks.getPcProductionByRecordId
             .mockResolvedValueOnce(batch("BLOCKED_MATERIAL"))
@@ -256,6 +276,7 @@ describe("Production workflow service", () => {
         ]);
         expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledTimes(1);
         expect(mocks.updatePcProductionStatus).toHaveBeenCalledTimes(2);
+        expect(mocks.sendPcLarkActionCard).toHaveBeenCalledTimes(1);
         expect(result).toMatchObject({
             production_status: "IN_PROGRESS",
             message: "จำลองรับวัตถุดิบเข้าและเริ่มผลิตต่อแล้ว",
@@ -268,6 +289,28 @@ describe("Production workflow service", () => {
                 },
             ],
             duplicate: false,
+        });
+    });
+
+    it("does not replenish or resend a progress card when purchase is replayed after production started", async () => {
+        mocks.getPcProductionByRecordId.mockResolvedValue(
+            batch("IN_PROGRESS")
+        );
+
+        const result = await runPcWorkflowAction(env(), {
+            action: "purchase-materials",
+            production_record_id: "production-rec-1",
+            actor_name: "Manager A",
+        });
+
+        expect(mocks.batchUpdatePcMaterials).not.toHaveBeenCalled();
+        expect(mocks.updatePcProductionStatus).not.toHaveBeenCalled();
+        expect(mocks.buildProductionProgressCard).not.toHaveBeenCalled();
+        expect(mocks.sendPcLarkActionCard).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            production_status: "IN_PROGRESS",
+            materials_replenished: [],
+            duplicate: true,
         });
     });
 
@@ -365,7 +408,7 @@ describe("Production workflow service", () => {
         expect(mocks.sendPcLarkActionCard).toHaveBeenCalledTimes(1);
     });
 
-    it("treats a repeated completion click as a duplicate without posting stock again", async () => {
+    it("treats a repeated completion click as a duplicate without posting stock or sending another card", async () => {
         mocks.getPcProductionByRecordId.mockResolvedValue(
             batch("COMPLETED")
         );
@@ -378,6 +421,8 @@ describe("Production workflow service", () => {
         });
 
         expect(mocks.completePcProduction).not.toHaveBeenCalled();
+        expect(mocks.buildProductionCompletedCard).not.toHaveBeenCalled();
+        expect(mocks.sendPcLarkActionCard).not.toHaveBeenCalled();
         expect(result).toMatchObject({
             production_status: "COMPLETED",
             product_stock_on_hand: 20,

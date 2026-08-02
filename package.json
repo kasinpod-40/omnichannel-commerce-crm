@@ -20,6 +20,9 @@
     "pc:schema:plan": "node scripts/apply-pc-runtime-schema.mjs --plan",
     "pc:schema:apply": "node scripts/apply-pc-runtime-schema.mjs --apply",
     "pc:schema:verify": "node scripts/apply-pc-runtime-schema.mjs --verify",
+    "pc:descriptions:plan": "node scripts/apply-pc-field-descriptions.mjs --plan",
+    "pc:descriptions:apply": "node scripts/apply-pc-field-descriptions.mjs --apply",
+    "pc:descriptions:verify": "node scripts/apply-pc-field-descriptions.mjs --verify",
     "pc:notifications:plan": "node scripts/verify-pc-lark-group-notifications.mjs --plan",
     "pc:notifications:test": "node scripts/verify-pc-lark-group-notifications.mjs --send-test",
     "pc:notifications:verify": "node scripts/verify-pc-lark-group-notifications.mjs --verify"

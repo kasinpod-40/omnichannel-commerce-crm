@@ -1,7 +1,7 @@
 import type { Env } from "../../config/env";
 import { PC_MATERIAL_FIELDS } from "../../core/lark-fields";
 import { OperationalError } from "../../utils/errors";
-import { parseBom } from "./pc.logic";
+import { normalizePcBusinessKey, parseBom } from "./pc.logic";
 import {
     assertPcInventoryEnabled,
     batchUpdatePcMaterials,
@@ -55,10 +55,6 @@ function workflowError(
     });
 }
 
-function normalizeKey(value: string): string {
-    return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
 function roundQuantity(value: number): number {
     return Math.round(value * 1_000_000) / 1_000_000;
 }
@@ -88,9 +84,9 @@ function findProduct(
     products: PcProduct[],
     batch: PcProductionBatch
 ): PcProduct {
-    const key = normalizeKey(batch.product_sku);
+    const key = normalizePcBusinessKey(batch.product_sku);
     const product = products.find(
-        (item) => normalizeKey(item.sku) === key
+        (item) => normalizePcBusinessKey(item.sku) === key
     );
     if (!product) {
         throw workflowError(
@@ -145,7 +141,6 @@ async function approveAndStart(
     }
 
     if (batch.production_status === "IN_PROGRESS") {
-        await sendCurrentWorkflowCard(env, batch);
         return {
             ok: true,
             action: "approve-production",
@@ -240,26 +235,33 @@ async function purchaseMaterialsAndStart(
         );
     }
 
-    if (
-        batch.production_status === "IN_PROGRESS" ||
-        batch.production_status === "APPROVED"
-    ) {
-        const current =
-            batch.production_status === "APPROVED"
-                ? await updatePcProductionStatus(env, {
-                      production_record_id: batch.record_id,
-                      action: "start",
-                      owner,
-                  })
-                : batch;
-        await sendCurrentWorkflowCard(env, current);
+    if (batch.production_status === "IN_PROGRESS") {
         return {
             ok: true,
             action: "purchase-materials",
-            production_record_id: current.record_id,
-            production_id: current.production_id,
-            production_status: current.production_status,
+            production_record_id: batch.record_id,
+            production_id: batch.production_id,
+            production_status: batch.production_status,
             message: "วัตถุดิบพร้อมและแผนผลิตกำลังดำเนินการอยู่แล้ว",
+            materials_replenished: [],
+            duplicate: true,
+        };
+    }
+
+    if (batch.production_status === "APPROVED") {
+        const started = await updatePcProductionStatus(env, {
+            production_record_id: batch.record_id,
+            action: "start",
+            owner,
+        });
+        await sendCurrentWorkflowCard(env, started);
+        return {
+            ok: true,
+            action: "purchase-materials",
+            production_record_id: started.record_id,
+            production_id: started.production_id,
+            production_status: started.production_status,
+            message: "วัตถุดิบพร้อมและเริ่มผลิตแล้ว",
             materials_replenished: [],
             duplicate: true,
         };
@@ -301,7 +303,7 @@ async function purchaseMaterialsAndStart(
 
     const materialBySku = new Map(
         materials.map((material) => [
-            normalizeKey(material.material_sku),
+            normalizePcBusinessKey(material.material_sku),
             material,
         ])
     );
@@ -313,7 +315,9 @@ async function purchaseMaterialsAndStart(
     }> = [];
 
     for (const item of bom) {
-        const material = materialBySku.get(normalizeKey(item.material_sku));
+        const material = materialBySku.get(
+            normalizePcBusinessKey(item.material_sku)
+        );
         if (!material) {
             throw workflowError(
                 "PC_PRODUCTION_MATERIAL_NOT_FOUND",
@@ -388,14 +392,6 @@ async function completeProduction(
     if (batch.production_status === "COMPLETED" || batch.inventory_posted) {
         const products = await listPcProducts(env);
         const product = findProduct(products, batch);
-        await sendPcLarkActionCard(
-            env,
-            buildProductionCompletedCard({
-                batch,
-                actual_qty: batch.actual_qty || quantity,
-                stock_on_hand: product.stock_on_hand,
-            })
-        );
         return {
             ok: true,
             action: "complete-production",
