@@ -9,6 +9,7 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       window.__demoShopFetchWrapped = true;
 
       const originalFetch = window.fetch.bind(window);
+      const minStockBySku = new Map();
       const steps = [
         "กำลังสร้างคำสั่งซื้อจำลองจากช่องทาง Shopee",
         "กำลังส่ง Order เข้า Activity และ Notification Flow เดิม",
@@ -29,10 +30,33 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return "GET";
       }
 
+      function requestPath(input) {
+        return new URL(requestUrl(input), window.location.origin).pathname;
+      }
+
       function isDemoOrderRequest(input, init) {
         const method = requestMethod(input, init);
-        const url = new URL(requestUrl(input), window.location.origin);
-        return method === "POST" && url.pathname === "/demo-shop/api/orders";
+        return method === "POST" && requestPath(input) === "/demo-shop/api/orders";
+      }
+
+      function isProductCatalogRequest(input, init) {
+        const method = requestMethod(input, init);
+        return method === "GET" && requestPath(input) === "/demo-shop/api/products";
+      }
+
+      function rememberProductThresholds(payload) {
+        minStockBySku.clear();
+        const products = payload && Array.isArray(payload.products)
+          ? payload.products
+          : [];
+
+        products.forEach((product) => {
+          const sku = String(product && product.sku || "").trim();
+          const minStock = Number(product && product.min_stock);
+          if (sku && Number.isFinite(minStock)) {
+            minStockBySku.set(sku, Math.max(0, minStock));
+          }
+        });
       }
 
       function showOperatorToast(text) {
@@ -119,6 +143,14 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return matched ? Math.max(0, Number(matched[1]) || 0) : null;
       }
 
+      function minStockFromCard(card) {
+        const buy = card && card.querySelector(".buy-button");
+        const sku = String(buy && buy.dataset.buySku || "").trim();
+        return sku && minStockBySku.has(sku)
+          ? minStockBySku.get(sku)
+          : null;
+      }
+
       function selectedQuantity(card) {
         const value = card && card.querySelector(".quantity-value");
         return Math.max(1, Number(value && value.textContent) || 1);
@@ -147,20 +179,21 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       function syncProductCard(card) {
         if (!card) return;
         const stock = stockFromCard(card);
+        const minStock = minStockFromCard(card);
         if (stock === null) return;
 
         const pill = card.querySelector(".stock-pill");
+        const stockText = card.querySelector(".variant-stock");
         const buy = card.querySelector(".buy-button");
         const quantityValue = card.querySelector(".quantity-value");
         const quantityButtons = card.querySelectorAll(".quantity-control button");
-        const currentStatus = String(pill && pill.dataset.status || "");
         let nextStatus = "NORMAL";
         let nextLabel = "พร้อมจำหน่าย";
 
         if (stock <= 0) {
           nextStatus = "OUT_OF_STOCK";
           nextLabel = "สินค้าหมด";
-        } else if (currentStatus === "LOW_STOCK" || currentStatus === "OUT_OF_STOCK") {
+        } else if (minStock !== null && stock <= minStock) {
           nextStatus = "LOW_STOCK";
           nextLabel = "สินค้าใกล้หมด";
         }
@@ -168,6 +201,13 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         if (pill) {
           setText(pill, nextLabel);
           if (pill.dataset.status !== nextStatus) pill.dataset.status = nextStatus;
+        }
+
+        if (stockText && minStock !== null) {
+          setText(
+            stockText,
+            "คงเหลือ " + stock + " ชิ้น · ขั้นต่ำ " + minStock + " ชิ้น"
+          );
         }
 
         if (quantityValue && selectedQuantity(card) > stock && stock > 0) {
@@ -310,6 +350,12 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       window.fetch = async function demoShopFetch(input, init) {
         if (!isDemoOrderRequest(input, init)) {
           const response = await originalFetch(input, init);
+
+          if (isProductCatalogRequest(input, init)) {
+            const payload = await response.clone().json().catch(() => null);
+            rememberProductThresholds(payload);
+          }
+
           window.setTimeout(syncDemoShopUi, 0);
           return response;
         }

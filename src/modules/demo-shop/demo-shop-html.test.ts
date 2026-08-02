@@ -27,7 +27,7 @@ describe("Demo Shop HTML", () => {
         expect(html).not.toContain("materials_json");
     });
 
-    it("emits syntactically valid inline JavaScript for both page scripts", () => {
+    it("emits syntactically valid inline JavaScript for all page scripts", () => {
         const html = renderDemoShopHtml({
             dashboardUrl: "https://dashboard.example.com",
             nonce: "nonce123",
@@ -38,20 +38,35 @@ describe("Demo Shop HTML", () => {
             ),
         ].map((match) => match[1]);
 
-        expect(scripts).toHaveLength(2);
+        expect(scripts).toHaveLength(3);
         for (const script of scripts) {
             expect(() => new Function(script)).not.toThrow();
         }
     });
 
-    it("uses actual stock for availability and limits orders to the remaining quantity", () => {
+    it("uses actual stock and each SKU Min Stock for the availability label", () => {
         const html = renderDemoShopHtml({
             dashboardUrl: "https://dashboard.example.com",
             nonce: "abc",
         });
 
+        expect(html).toContain("minStockBySku");
+        expect(html).toContain("product.min_stock");
+        expect(html).toContain("stock <= minStock");
         expect(html).toContain('nextLabel = "สินค้าใกล้หมด"');
         expect(html).toContain('nextLabel = "สินค้าหมด"');
+        expect(html).toContain("ขั้นต่ำ \" + minStock + \" ชิ้น");
+        expect(html).not.toContain(
+            'currentStatus === "LOW_STOCK" || currentStatus === "OUT_OF_STOCK"'
+        );
+    });
+
+    it("limits orders to the actual remaining quantity", () => {
+        const html = renderDemoShopHtml({
+            dashboardUrl: "https://dashboard.example.com",
+            nonce: "abc",
+        });
+
         expect(html).toContain("quantity > stock");
         expect(html).toContain("selectedQuantity(card) >= stock");
         expect(html).toContain("สินค้าคงเหลือ \" + stock + \" ชิ้น");

@@ -93,8 +93,9 @@ export function renderDemoShopHtml(input: {
     </section>
   </div>
 
+  <script nonce="${nonce}">${DEMO_SHOP_ENHANCEMENT_SCRIPT}</script>
   <script nonce="${nonce}">${script}</script>
-  <script nonce="${nonce}">${DEMO_SHOP_ENHANCEMENT_SCRIPT}${DEMO_SHOP_LOGOUT_SCRIPT}</script>
+  <script nonce="${nonce}">${DEMO_SHOP_LOGOUT_SCRIPT}</script>
 </body>
 </html>`;
 }

@@ -9,6 +9,7 @@ export type DemoShopProduct = {
     size: string;
     price_thb: number;
     stock_on_hand: number;
+    min_stock: number;
     stock_status: PcStockStatus;
 };
 
