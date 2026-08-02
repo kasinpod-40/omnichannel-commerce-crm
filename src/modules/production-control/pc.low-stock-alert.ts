@@ -8,8 +8,13 @@ import type { PcOrderInventoryState, PcProduct } from "./pc.types";
 
 const DEFAULT_STATE_READ_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 4_000] as const;
 
+export type PcLowStockEvaluationMode =
+    | "threshold_crossing"
+    | "current_low_stock_recovery";
+
 export type PcLowStockDiagnosticReason =
     | "MATCHED"
+    | "RECOVERY_CURRENT_LOW_STOCK"
     | "PRODUCT_NOT_FOUND"
     | "STOCK_NOT_DECREASED"
     | "ALREADY_AT_OR_BELOW_MIN"
@@ -38,6 +43,7 @@ export type PcLowStockNotificationResult = {
 type LowStockReadOptions = {
     retryDelaysMs?: readonly number[];
     inventoryState?: PcOrderInventoryState | null;
+    evaluationMode?: PcLowStockEvaluationMode;
 };
 
 function emptyResult(stateReady: boolean): PcLowStockNotificationResult {
@@ -171,8 +177,9 @@ function resolveTransitionProduct(
 function diagnosticForTransition(input: {
     transition: PcOrderInventoryState["transitions"][number];
     product: PcProduct | null;
+    evaluationMode: PcLowStockEvaluationMode;
 }): PcLowStockDiagnostic {
-    const { transition, product } = input;
+    const { transition, product, evaluationMode } = input;
     const base = {
         transition_record_id: transition.record_id,
         transition_sku: transition.sku,
@@ -199,6 +206,28 @@ function diagnosticForTransition(input: {
             message:
                 `SKU ${product.sku}: Stock ไม่ได้ลดลง ` +
                 `(${formatQuantity(transition.old_stock_on_hand)} → ${formatQuantity(transition.new_stock_on_hand)})`,
+        };
+    }
+
+    if (evaluationMode === "current_low_stock_recovery") {
+        if (transition.new_stock_on_hand > product.min_stock) {
+            return {
+                ...base,
+                reason: "STILL_ABOVE_MIN",
+                message:
+                    `SKU ${product.sku}: หลัง Order ยังเหลือ ${formatQuantity(transition.new_stock_on_hand)} ` +
+                    `มากกว่า Min ${formatQuantity(product.min_stock)}`,
+            };
+        }
+
+        return {
+            ...base,
+            reason: "RECOVERY_CURRENT_LOW_STOCK",
+            message:
+                `SKU ${product.sku}: ส่ง Recovery จาก Stock หลัง Order ` +
+                `${formatQuantity(transition.new_stock_on_hand)} ซึ่งเท่ากับหรือต่ำกว่า Min ` +
+                `${formatQuantity(product.min_stock)} ` +
+                `(ก่อน Order ${formatQuantity(transition.old_stock_on_hand)})`,
         };
     }
 
@@ -232,11 +261,20 @@ function diagnosticForTransition(input: {
     };
 }
 
+function diagnosticMatches(
+    reason: PcLowStockDiagnosticReason
+): boolean {
+    return (
+        reason === "MATCHED" ||
+        reason === "RECOVERY_CURRENT_LOW_STOCK"
+    );
+}
+
 /**
- * แจ้งเตือนเมื่อ Order ทำให้ Stock ข้ามจากเหนือ Min Stock ลงมาอยู่ที่หรือต่ำกว่า Min Stock.
- * Event ID ผูกกับ Order fingerprint และ SKU เพื่อให้ Queue retry ได้โดยไม่ยิงซ้ำ.
- * Caller ที่มี Inventory state หลัง Reconcile แล้วควรส่งเข้ามาโดยตรง เพื่อไม่พึ่ง
- * read-after-write consistency ของ Lark. เส้นทางอื่นยังมี bounded retry เป็น fallback.
+ * Flow ปกติแจ้งเฉพาะตอน Stock ข้ามจากเหนือ Min ลงมาอยู่ที่หรือต่ำกว่า Min.
+ * Recovery แบบสั่งโดย Operator แจ้งได้จาก state เดิมเมื่อ Stock หลัง Order <= Min
+ * เพื่อกู้ข้อความที่พลาด โดยไม่ Reconcile และไม่เปลี่ยน Stock.
+ * Event ID ผูกกับ Order fingerprint, SKU และ mode เพื่อให้ retry ได้โดยไม่ยิงซ้ำ.
  */
 export async function notifyLowStockAfterOrderOnce(
     env: Env,
@@ -251,6 +289,8 @@ export async function notifyLowStockAfterOrderOnce(
         options.retryDelaysMs?.length
             ? options.retryDelaysMs
             : DEFAULT_STATE_READ_DELAYS_MS;
+    const evaluationMode =
+        options.evaluationMode ?? "threshold_crossing";
     const state =
         providedState ??
         (await readAppliedInventoryState(
@@ -286,7 +326,11 @@ export async function notifyLowStockAfterOrderOnce(
             productsBySku,
             transition
         );
-        const diagnostic = diagnosticForTransition({ transition, product });
+        const diagnostic = diagnosticForTransition({
+            transition,
+            product,
+            evaluationMode,
+        });
         result.diagnostics.push(diagnostic);
 
         if (!product) {
@@ -295,7 +339,7 @@ export async function notifyLowStockAfterOrderOnce(
             continue;
         }
 
-        if (diagnostic.reason !== "MATCHED") {
+        if (!diagnosticMatches(diagnostic.reason)) {
             continue;
         }
 
@@ -310,10 +354,18 @@ export async function notifyLowStockAfterOrderOnce(
         const productLabel = [product.product_name, variant]
             .filter(Boolean)
             .join(" · ");
+        const eventKind =
+            evaluationMode === "current_low_stock_recovery"
+                ? "low-stock-recovery"
+                : "low-stock";
+        const recoveryLabel =
+            evaluationMode === "current_low_stock_recovery"
+                ? " [ส่งซ้ำจาก Order เดิม]"
+                : "";
         const dispatched = await notifyPcExceptionOnce(env, {
             event_id: [
                 "pc",
-                "low-stock",
+                eventKind,
                 orderRecordId,
                 state.fingerprint || "no-fingerprint",
                 product.sku,
@@ -321,7 +373,7 @@ export async function notifyLowStockAfterOrderOnce(
             type: "PC_STOCK_EXCEPTION",
             reference_id: product.sku,
             product_name: productLabel,
-            detail: `${stockLabel}: ${productLabel} (${product.sku}) คงเหลือ ${formatQuantity(transition.new_stock_on_hand)} ชิ้น จากขั้นต่ำ ${formatQuantity(product.min_stock)} ชิ้น`,
+            detail: `${stockLabel}${recoveryLabel}: ${productLabel} (${product.sku}) คงเหลือ ${formatQuantity(transition.new_stock_on_hand)} ชิ้น จากขั้นต่ำ ${formatQuantity(product.min_stock)} ชิ้น`,
             next_action: `ตรวจสอบแผนผลิตอัตโนมัติและเติม Stock ให้ถึงเป้าหมาย ${formatQuantity(product.target_stock)} ชิ้น`,
         });
 
