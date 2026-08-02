@@ -100,4 +100,4 @@
 
 ## Deployment state
 
-Source branch สำหรับ TH-52 ต้องผ่าน TypeScript, Unit/Worker/Integration tests และ Wrangler dry-run ก่อน Deploy Exact SHA. หลัง Deploy ให้ตรวจ `/health`, Demo Shop catalog, Demo Order, Stock ก่อน–หลัง, Production recommendation และ Notification record/Lark Group โดยใช้ SKU ทดสอบที่ Stock อยู่เหนือ Min Stock เล็กน้อย.
+Source branch สำหรับ TH-52 ต้องผ่าน TypeScript, Unit/Worker/Integration tests และ Wrangler dry-run ก่อน Deploy Exact SHA. Workflow `Validate TH-52` รัน `npm ci` และ `npm run check` บน Pull Request. หลัง Deploy ให้ตรวจ `/health`, Demo Shop catalog, Demo Order, Stock ก่อน–หลัง, Production recommendation และ Notification record/Lark Group โดยใช้ SKU ทดสอบที่ Stock อยู่เหนือ Min Stock เล็กน้อย.
