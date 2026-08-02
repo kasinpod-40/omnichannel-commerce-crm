@@ -10,6 +10,7 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
 
       const originalFetch = window.fetch.bind(window);
       const minStockBySku = new Map();
+      const productionBySku = new Map();
       const steps = [
         "กำลังสร้างคำสั่งซื้อจำลองจากช่องทาง Shopee",
         "กำลังส่ง Order เข้า Activity และ Notification Flow เดิม",
@@ -44,8 +45,9 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return method === "GET" && requestPath(input) === "/demo-shop/api/products";
       }
 
-      function rememberProductThresholds(payload) {
+      function rememberProductData(payload) {
         minStockBySku.clear();
+        productionBySku.clear();
         const products = payload && Array.isArray(payload.products)
           ? payload.products
           : [];
@@ -55,6 +57,13 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
           const minStock = Number(product && product.min_stock);
           if (sku && Number.isFinite(minStock)) {
             minStockBySku.set(sku, Math.max(0, minStock));
+          }
+          if (sku && product && product.production_status) {
+            productionBySku.set(sku, {
+              status: String(product.production_status || ""),
+              quantity: Math.max(0, Number(product.production_qty) || 0),
+              productionId: String(product.production_id || ""),
+            });
           }
         });
       }
@@ -143,9 +152,13 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return matched ? Math.max(0, Number(matched[1]) || 0) : null;
       }
 
-      function minStockFromCard(card) {
+      function selectedSku(card) {
         const buy = card && card.querySelector(".buy-button");
-        const sku = String(buy && buy.dataset.buySku || "").trim();
+        return String(buy && buy.dataset.buySku || "").trim();
+      }
+
+      function minStockFromCard(card) {
+        const sku = selectedSku(card);
         return sku && minStockBySku.has(sku)
           ? minStockBySku.get(sku)
           : null;
@@ -176,6 +189,38 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         );
       }
 
+      function productionLabel(value) {
+        if (!value) return "";
+        const quantity = Number(value.quantity) || 0;
+        const suffix = quantity > 0 ? " " + quantity + " ชิ้น" : "";
+        if (value.status === "IN_PROGRESS") return "กำลังผลิต" + suffix;
+        if (value.status === "APPROVED") return "อนุมัติผลิตแล้ว" + suffix;
+        if (value.status === "BLOCKED_MATERIAL") return "รอวัตถุดิบสำหรับผลิต" + suffix;
+        if (value.status === "RECOMMENDED") return "แนะนำผลิต" + suffix;
+        return "";
+      }
+
+      function syncProductionBadge(card) {
+        const sku = selectedSku(card);
+        const production = sku ? productionBySku.get(sku) : null;
+        let badge = card.querySelector(".production-badge");
+        const label = productionLabel(production);
+
+        if (!label) {
+          if (badge) badge.remove();
+          return;
+        }
+
+        if (!badge) {
+          badge = document.createElement("div");
+          badge.className = "production-badge";
+          const variantMeta = card.querySelector(".variant-meta");
+          if (variantMeta) variantMeta.insertAdjacentElement("afterend", badge);
+        }
+        setText(badge, label);
+        badge.dataset.status = production.status;
+      }
+
       function syncProductCard(card) {
         if (!card) return;
         const stock = stockFromCard(card);
@@ -203,12 +248,11 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
           if (pill.dataset.status !== nextStatus) pill.dataset.status = nextStatus;
         }
 
-        if (stockText && minStock !== null) {
-          setText(
-            stockText,
-            "คงเหลือ " + stock + " ชิ้น · ขั้นต่ำ " + minStock + " ชิ้น"
-          );
+        if (stockText) {
+          setText(stockText, "คงเหลือ " + stock + " ชิ้น");
         }
+
+        syncProductionBadge(card);
 
         if (quantityValue && selectedQuantity(card) > stock && stock > 0) {
           setText(quantityValue, String(stock));
@@ -353,7 +397,7 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
 
           if (isProductCatalogRequest(input, init)) {
             const payload = await response.clone().json().catch(() => null);
-            rememberProductThresholds(payload);
+            rememberProductData(payload);
           }
 
           window.setTimeout(syncDemoShopUi, 0);
