@@ -1,0 +1,55 @@
+name: Quality Gates
+
+on:
+  pull_request:
+    branches:
+      - backend-Dashboard
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, tests and Worker dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run full quality gate
+        run: npm run check
+
+      - name: Verify safety flags
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+          const source = fs.readFileSync("wrangler.jsonc", "utf8");
+          const config = JSON.parse(source);
+          if (config.vars?.PC_INVENTORY_ENABLED !== "false") {
+            throw new Error("PC_INVENTORY_ENABLED must remain false");
+          }
+          if (config.vars?.PC_DEMO_SHOP_ENABLED !== "true") {
+            throw new Error("PC_DEMO_SHOP_ENABLED must be true for this release");
+          }
+          if (config.vars?.ENABLE_TEST_ROUTES !== "false") {
+            throw new Error("ENABLE_TEST_ROUTES must remain false");
+          }
+          console.log("Safety flags verified");
+          NODE
