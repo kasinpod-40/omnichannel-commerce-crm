@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
     verifyPcWorkflowActionToken: vi.fn(),
     runPcWorkflowAction: vi.fn(),
     markPcProductionBlocked: vi.fn(),
-    refreshPcMaterialPlan: vi.fn(),
+    refreshPcDerivedState: vi.fn(),
     assertDashboardSession: vi.fn(),
 }));
 
@@ -18,9 +18,12 @@ vi.mock("../../modules/production-control/pc.workflow.service", () => ({
     runPcWorkflowAction: mocks.runPcWorkflowAction,
 }));
 
+vi.mock("../../modules/production-control/pc.derived-state", () => ({
+    refreshPcDerivedState: mocks.refreshPcDerivedState,
+}));
+
 vi.mock("../../modules/production-control/pc.service", () => ({
     markPcProductionBlocked: mocks.markPcProductionBlocked,
-    refreshPcMaterialPlan: mocks.refreshPcMaterialPlan,
 }));
 
 vi.mock("../shared/dashboard-api", () => ({
@@ -60,15 +63,16 @@ describe("Production completion material-shortage handling", () => {
                 role: "manager",
             },
         });
-        mocks.refreshPcMaterialPlan.mockResolvedValue({
-            materials_updated: 1,
-            production_updated: 1,
-            critical_materials: 1,
+        mocks.refreshPcDerivedState.mockResolvedValue({
+            materials_updated: 23,
+            material_critical_count: 4,
+            products_reconciled: 2,
+            production_reconciled: 1,
         });
         mocks.markPcProductionBlocked.mockResolvedValue(undefined);
     });
 
-    it("refreshes PC_Materials before blocking and sending the Lark shortage workflow", async () => {
+    it("reconciles all PC state before blocking and sending the Lark shortage workflow", async () => {
         const shortage = new OperationalError(
             "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
             "วัตถุดิบ FAB-TWEED-IVORY ไม่พอ ขาด 3.8 เมตร",
@@ -85,14 +89,14 @@ describe("Production completion material-shortage handling", () => {
         const html = await response.text();
 
         expect(response.status).toBe(200);
-        expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledWith(env());
+        expect(mocks.refreshPcDerivedState).toHaveBeenCalledWith(env());
         expect(mocks.markPcProductionBlocked).toHaveBeenCalledWith(env(), {
             production_record_id: "production-rec-1",
             code: "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
             message: "วัตถุดิบ FAB-TWEED-IVORY ไม่พอ ขาด 3.8 เมตร",
         });
         expect(
-            mocks.refreshPcMaterialPlan.mock.invocationCallOrder[0]
+            mocks.refreshPcDerivedState.mock.invocationCallOrder[0]
         ).toBeLessThan(
             mocks.markPcProductionBlocked.mock.invocationCallOrder[0]
         );
@@ -101,7 +105,7 @@ describe("Production completion material-shortage handling", () => {
         expect(html).toContain("Stock สินค้าสำเร็จรูปยังไม่เพิ่ม");
     });
 
-    it("does not refresh material planning for unrelated completion errors", async () => {
+    it("does not reconcile planning for unrelated completion errors", async () => {
         mocks.runPcWorkflowAction.mockRejectedValue(
             new OperationalError(
                 "PC_PRODUCTION_STATUS_INVALID",
@@ -119,7 +123,7 @@ describe("Production completion material-shortage handling", () => {
         const html = await response.text();
 
         expect(response.status).toBe(409);
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.markPcProductionBlocked).not.toHaveBeenCalled();
         expect(html).toContain("สถานะนี้ยังปิดงานผลิตไม่ได้");
     });
