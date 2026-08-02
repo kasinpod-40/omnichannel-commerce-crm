@@ -188,7 +188,6 @@ async function sendReadablePcCard(
             error: error instanceof Error ? error.message : String(error),
         });
 
-        // หาก Card ส่งไม่ได้ ให้ส่งข้อความเดิมทันทีเพื่อไม่ทำให้ Alert หาย
         return await sendReadablePcText(env, {
             event_id: input.event_id,
             notification_record_id: input.notification_record_id,
@@ -197,6 +196,32 @@ async function sendReadablePcCard(
             text: input.text_fallback,
         });
     }
+}
+
+function readableFallback(input: {
+    type: "PC_STOCK_EXCEPTION" | "PC_MATERIAL_SHORTAGE";
+    reference_id: string;
+    product_name: string;
+    detail: string;
+    next_action: string;
+    lark_text?: string;
+}): string {
+    const supplied = input.lark_text?.trim();
+    if (supplied) return supplied;
+
+    if (input.type === "PC_MATERIAL_SHORTAGE") {
+        return [
+            "[CRM] 🧵 วัตถุดิบไม่เพียงพอสำหรับแผนผลิต",
+            "",
+            `สินค้า: ${input.product_name}`,
+            `อ้างอิง: ${input.reference_id}`,
+            input.detail,
+            "",
+            `การดำเนินการ: ${input.next_action}`,
+        ].join("\n");
+    }
+
+    return "";
 }
 
 export async function notifyPcExceptionOnce(
@@ -214,6 +239,7 @@ export async function notifyPcExceptionOnce(
         lark_text?: string;
     }
 ): Promise<boolean> {
+    const readableText = readableFallback(input);
     const payload: NotificationSnapshot = {
         version: 1,
         captured_at: Date.now(),
@@ -238,10 +264,9 @@ export async function notifyPcExceptionOnce(
         const recorded = await recordNotificationOnce(env, {
             event_id: input.event_id,
             notification_type: input.type,
-            message: input.lark_text?.trim() || input.detail,
+            message: readableText || input.detail,
             payload,
         });
-        const readableText = input.lark_text?.trim();
 
         if (readableText) {
             try {
