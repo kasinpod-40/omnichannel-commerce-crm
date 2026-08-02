@@ -105,15 +105,48 @@ async function requireOperator(request: Request, env: Env) {
     return session;
 }
 
+function hasSameOriginUrl(value: string, requestOrigin: string): boolean {
+    try {
+        return new URL(value).origin === requestOrigin;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Browser บางตัวไม่ส่ง Origin มากับ same-origin form POST หลังเปิดจาก Lark
+ * จึงยอมรับหลักฐานจาก Origin, Referer หรือ Sec-Fetch-Site ตามลำดับ
+ * โดยยังปฏิเสธ cross-site และ request ที่ไม่มีหลักฐาน same-origin แบบ fail-closed
+ */
 function assertSameOriginPost(request: Request): void {
+    const requestOrigin = new URL(request.url).origin;
     const origin = request.headers.get("Origin")?.trim() ?? "";
-    if (!origin || origin !== new URL(request.url).origin) {
+
+    if (origin && origin !== "null") {
+        if (origin === requestOrigin) return;
         throw new AuthError(
             "PC_ACTION_ORIGIN_FORBIDDEN",
             "คำขออนุมัติต้องมาจากหน้าระบบเดียวกัน",
             403
         );
     }
+
+    const referer = request.headers.get("Referer")?.trim() ?? "";
+    if (referer && hasSameOriginUrl(referer, requestOrigin)) {
+        return;
+    }
+
+    const fetchSite =
+        request.headers.get("Sec-Fetch-Site")?.trim().toLowerCase() ?? "";
+    if (fetchSite === "same-origin") {
+        return;
+    }
+
+    throw new AuthError(
+        "PC_ACTION_ORIGIN_FORBIDDEN",
+        "คำขออนุมัติต้องมาจากหน้าระบบเดียวกัน",
+        403
+    );
 }
 
 function errorResponse(error: unknown): Response {
