@@ -1,7 +1,8 @@
-/* ครอบเฉพาะ POST Order เพื่อแสดงสถานะกำลังดำเนินการ โดยไม่เปลี่ยน API contract */
+/* ครอบ POST Order เพื่อแสดงสถานะดำเนินการ ผล Notification และเครื่องมือ retry แบบไม่แก้ Stock */
 export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       const overlay = document.getElementById("processing-overlay");
       const message = document.getElementById("processing-message");
+      const toast = document.getElementById("toast");
 
       if (!overlay || !message || window.__demoShopFetchWrapped) return;
       window.__demoShopFetchWrapped = true;
@@ -33,16 +34,26 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return method === "POST" && url.pathname === "/demo-shop/api/orders";
       }
 
-      function openProcessing() {
+      function showOperatorToast(text) {
+        if (!toast) return;
+        toast.textContent = text;
+        toast.classList.add("is-visible");
+        window.clearTimeout(showOperatorToast.timer);
+        showOperatorToast.timer = window.setTimeout(() => {
+          toast.classList.remove("is-visible");
+        }, 4200);
+      }
+
+      function openProcessing(customSteps = steps) {
         let stepIndex = 0;
-        message.textContent = steps[stepIndex];
+        message.textContent = customSteps[stepIndex];
         overlay.classList.add("is-open");
         overlay.setAttribute("aria-hidden", "false");
         document.body.classList.add("processing-lock");
         window.clearInterval(stepTimer);
         stepTimer = window.setInterval(() => {
-          stepIndex = Math.min(stepIndex + 1, steps.length - 1);
-          message.textContent = steps[stepIndex];
+          stepIndex = Math.min(stepIndex + 1, customSteps.length - 1);
+          message.textContent = customSteps[stepIndex];
         }, 1150);
       }
 
@@ -51,6 +62,94 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         overlay.classList.remove("is-open");
         overlay.setAttribute("aria-hidden", "true");
         document.body.classList.remove("processing-lock");
+      }
+
+      function notificationLabel(notification) {
+        if (!notification || notification.status === "NOT_REQUIRED") {
+          return "ไม่เข้าเงื่อนไขแจ้งเตือน";
+        }
+        if (notification.status === "QUEUED") {
+          return "ส่งแจ้งเตือนแล้ว";
+        }
+        return "ส่งแจ้งเตือนไม่สำเร็จ";
+      }
+
+      function appendNotificationOutcome(payload) {
+        const resultBody = document.getElementById("result-body");
+        const notification = payload && payload.notification;
+        if (!resultBody || !notification) return;
+
+        resultBody.querySelectorAll("[data-notification-outcome]").forEach((element) => element.remove());
+        const line = document.createElement("div");
+        line.className = "result-line";
+        line.dataset.notificationOutcome = "true";
+        const label = document.createElement("span");
+        label.textContent = "แจ้งเตือนสต็อก";
+        const value = document.createElement("strong");
+        value.textContent = notificationLabel(notification);
+        line.append(label, value);
+        resultBody.append(line);
+
+        if (notification.status === "FAILED" && Array.isArray(notification.error_messages)) {
+          const detail = notification.error_messages.filter(Boolean).join("; ");
+          if (detail) {
+            const errorLine = document.createElement("div");
+            errorLine.className = "result-line";
+            errorLine.dataset.notificationOutcome = "true";
+            const errorLabel = document.createElement("span");
+            errorLabel.textContent = "สาเหตุ";
+            const errorValue = document.createElement("strong");
+            errorValue.textContent = detail;
+            errorLine.append(errorLabel, errorValue);
+            resultBody.append(errorLine);
+          }
+        }
+      }
+
+      async function retryLowStockNotification() {
+        const orderNumber = window.prompt("กรอกเลขที่ Shopee Demo Order ที่ต้องการส่งแจ้งเตือนซ้ำ");
+        if (!orderNumber || !orderNumber.trim()) return;
+
+        openProcessing([
+          "กำลังอ่าน Inventory state จาก Order เดิม",
+          "กำลังส่งแจ้งเตือนเข้ากลุ่ม Production & Stock",
+        ]);
+
+        try {
+          const response = await originalFetch("/demo-shop/api/notifications/low-stock/retry", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_number: orderNumber.trim() }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.message || "ส่งแจ้งเตือนซ้ำไม่สำเร็จ");
+          }
+
+          appendNotificationOutcome(payload);
+          showOperatorToast(
+            payload.notification && payload.notification.status === "QUEUED"
+              ? "ส่งแจ้งเตือนจาก Order เดิมแล้ว โดยไม่แก้ Stock"
+              : notificationLabel(payload.notification)
+          );
+        } catch (error) {
+          showOperatorToast(error instanceof Error ? error.message : "ส่งแจ้งเตือนซ้ำไม่สำเร็จ");
+        } finally {
+          closeProcessing();
+        }
+      }
+
+      function installRetryButton() {
+        const toolbar = document.querySelector(".toolbar");
+        if (!toolbar || document.getElementById("retry-low-stock-button")) return;
+        const button = document.createElement("button");
+        button.className = "ghost-button";
+        button.id = "retry-low-stock-button";
+        button.type = "button";
+        button.textContent = "ส่งแจ้งเตือนจาก Order เดิม";
+        button.addEventListener("click", retryLowStockNotification);
+        toolbar.append(button);
       }
 
       window.fetch = async function demoShopFetch(input, init) {
@@ -62,7 +161,10 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         openProcessing();
 
         try {
-          return await originalFetch(input, init);
+          const response = await originalFetch(input, init);
+          const payload = await response.clone().json().catch(() => null);
+          window.setTimeout(() => appendNotificationOutcome(payload), 0);
+          return response;
         } finally {
           const minimumVisibleMs = 650;
           const remaining = minimumVisibleMs - (Date.now() - startedAt);
@@ -72,4 +174,6 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
           closeProcessing();
         }
       };
+
+      installRetryButton();
     })();`;

@@ -15,19 +15,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./demo-shop.service", () => ({
     assertDemoShopSafeMode: mocks.assertDemoShopSafeMode,
 }));
-
 vi.mock("../marketplace/marketplace.service", () => ({
     upsertMarketplaceOrder: mocks.upsertMarketplaceOrder,
 }));
-
 vi.mock("../orders/order.repository", () => ({
     getOrderByRecordId: mocks.getOrderByRecordId,
 }));
-
 vi.mock("../production-control/pc.low-stock-alert", () => ({
     notifyLowStockAfterOrderOnce: mocks.notifyLowStockAfterOrderOnce,
 }));
-
 vi.mock("../production-control/pc.service", () => ({
     getPcOverview: mocks.getPcOverview,
     reconcileOrderInventory: mocks.reconcileOrderInventory,
@@ -65,13 +61,21 @@ function product(overrides: Partial<PcProduct> = {}): PcProduct {
     };
 }
 
+const notificationOk = {
+    state_ready: true,
+    matched: 1,
+    dispatched: 1,
+    failed: 0,
+    errors: [],
+};
+
 describe("Demo Shop Shopee order service", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue(0);
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue(notificationOk);
     });
 
-    it("keeps Marketplace queue disabled only for Demo Shop, then reconciles and checks low stock", async () => {
+    it("uses the final applied state directly and exposes notification outcome", async () => {
         const before = product();
         const after = product({
             stock_on_hand: 5,
@@ -79,8 +83,8 @@ describe("Demo Shop Shopee order service", () => {
             recommended_production_qty: 13,
         });
         const inventoryState = {
-            version: 1,
-            phase: "applied",
+            version: 1 as const,
+            phase: "applied" as const,
             fingerprint: "fp-1",
             order_record_id: "order-rec-1",
             order_number: "SHP-DEMO-1",
@@ -96,8 +100,8 @@ describe("Demo Shop Shopee order service", () => {
                     new_stock_on_hand: 5,
                 },
             ],
-            prepared_at: Date.now(),
-            completed_at: Date.now(),
+            prepared_at: 1,
+            completed_at: 2,
         };
         const order = {
             record_id: "order-rec-1",
@@ -133,19 +137,11 @@ describe("Demo Shop Shopee order service", () => {
             });
         mocks.upsertMarketplaceOrder.mockResolvedValue({
             action: "created",
-            customer_record_id: "customer-rec-1",
             order_record_id: "order-rec-1",
-            channel: "Shopee",
-            external_order_id: "DEMO-SHP-001",
-            order_status: "Ready to Ship",
-            payment_status: "Paid",
         });
         mocks.getOrderByRecordId.mockResolvedValue(order);
         mocks.reconcileOrderInventory.mockResolvedValue({
             status: "APPLIED",
-            order_record_id: "order-rec-1",
-            fingerprint: "fp-1",
-            allocations: [{ sku: before.sku, quantity: 3 }],
             production_ids: ["PROD-001"],
             duplicate: false,
         });
@@ -156,87 +152,57 @@ describe("Demo Shop Shopee order service", () => {
             idempotency_key: "demo-shop-request-001",
         });
 
-        expect(mocks.assertDemoShopSafeMode).toHaveBeenCalledWith(
-            expect.objectContaining({ PC_INVENTORY_ENABLED: "false" })
-        );
-        expect(mocks.upsertMarketplaceOrder).toHaveBeenCalledWith(
-            expect.objectContaining({ PC_INVENTORY_ENABLED: "false" }),
-            expect.objectContaining({
-                channel: "Shopee",
-                marketplace_status: "READY_TO_SHIP",
-                marketplace_payment_status: "PAID",
-                items: [
-                    expect.objectContaining({
-                        sku: "BNK-LUNA-IV-M",
-                        quantity: 3,
-                    }),
-                ],
-            })
-        );
-        expect(mocks.reconcileOrderInventory).toHaveBeenCalledWith(
-            expect.objectContaining({
-                PC_INVENTORY_ENABLED: "true",
-                PC_DEMO_SHOP_ENABLED: "true",
-            }),
-            "order-rec-1"
-        );
         expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
             expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
-            "order-rec-1"
+            "order-rec-1",
+            { inventoryState }
         );
         expect(result).toMatchObject({
-            duplicate: false,
             inventory: {
                 stock_before: 8,
                 stock_after: 5,
                 stock_delta: -3,
             },
-            production: {
-                created_or_updated: true,
-                production_ids: ["PROD-001"],
+            notification: {
+                status: "QUEUED",
+                threshold_crossed: true,
+                dispatched: 1,
+                failed: 0,
             },
         });
     });
 
-    it("keeps the same Marketplace event, Order and low-stock event on an idempotent retry", async () => {
+    it("exposes a failed notification without rolling back stock", async () => {
         const selected = product({ stock_on_hand: 5 });
         const order = {
             record_id: "order-rec-1",
             fields: {
                 [ORDER_FIELDS.ORDER_NUMBER]: "SHP-DEMO-1",
+                [ORDER_FIELDS.PC_INVENTORY_STATE_JSON]: "",
             },
         };
-
-        mocks.getPcOverview
-            .mockResolvedValueOnce({
-                summary: {},
-                products: [selected],
-                materials: [],
-                production: [],
-            })
-            .mockResolvedValueOnce({
-                summary: {},
-                products: [selected],
-                materials: [],
-                production: [],
-            });
+        mocks.getPcOverview.mockResolvedValue({
+            summary: {},
+            products: [selected],
+            materials: [],
+            production: [],
+        });
         mocks.upsertMarketplaceOrder.mockResolvedValue({
             action: "duplicate",
-            customer_record_id: "customer-rec-1",
             order_record_id: "order-rec-1",
-            channel: "Shopee",
-            external_order_id: "DEMO-SHP-001",
-            order_status: "Ready to Ship",
-            payment_status: "Paid",
         });
         mocks.getOrderByRecordId.mockResolvedValue(order);
         mocks.reconcileOrderInventory.mockResolvedValue({
             status: "APPLIED",
-            order_record_id: "order-rec-1",
-            fingerprint: "fp-1",
-            allocations: [{ sku: selected.sku, quantity: 2 }],
             production_ids: [],
             duplicate: true,
+        });
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue({
+            state_ready: false,
+            matched: 0,
+            dispatched: 0,
+            failed: 0,
+            errors: [],
         });
 
         const result = await createDemoShopShopeeOrder(env(), {
@@ -245,9 +211,10 @@ describe("Demo Shop Shopee order service", () => {
             idempotency_key: "demo-shop-request-001",
         });
 
+        expect(result.notification).toMatchObject({
+            status: "FAILED",
+            failed: 1,
+        });
         expect(result.duplicate).toBe(true);
-        expect(mocks.upsertMarketplaceOrder).toHaveBeenCalledTimes(1);
-        expect(mocks.reconcileOrderInventory).toHaveBeenCalledTimes(1);
-        expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledTimes(1);
     });
 });

@@ -2,7 +2,10 @@ import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
 import { upsertMarketplaceOrder } from "../marketplace/marketplace.service";
 import { getOrderByRecordId } from "../orders/order.repository";
-import { notifyLowStockAfterOrderOnce } from "../production-control/pc.low-stock-alert";
+import {
+    notifyLowStockAfterOrderOnce,
+    type PcLowStockNotificationResult,
+} from "../production-control/pc.low-stock-alert";
 import {
     getPcOverview,
     reconcileOrderInventory,
@@ -128,6 +131,40 @@ function parseInventoryState(value: unknown): PcOrderInventoryState | null {
     }
 }
 
+function notificationStatus(
+    result: PcLowStockNotificationResult
+): DemoShopOrderResult["notification"] {
+    if (!result.state_ready) {
+        return {
+            status: "FAILED",
+            threshold_crossed: false,
+            dispatched: 0,
+            failed: 1,
+            error_messages: [
+                "ยังอ่าน Inventory state หลังตัด Stock ไม่สำเร็จ",
+            ],
+        };
+    }
+
+    if (result.matched === 0) {
+        return {
+            status: "NOT_REQUIRED",
+            threshold_crossed: false,
+            dispatched: 0,
+            failed: 0,
+            error_messages: [],
+        };
+    }
+
+    return {
+        status: result.failed > 0 ? "FAILED" : "QUEUED",
+        threshold_crossed: true,
+        dispatched: result.dispatched,
+        failed: result.failed,
+        error_messages: result.errors,
+    };
+}
+
 function resultFromState(input: {
     orderNumber: string;
     product: PcProduct;
@@ -137,6 +174,7 @@ function resultFromState(input: {
     productionIds: string[];
     batches: Awaited<ReturnType<typeof getPcOverview>>["production"];
     duplicate: boolean;
+    notification: PcLowStockNotificationResult;
 }): DemoShopOrderResult {
     const transition = input.state?.transitions.find(
         (item) =>
@@ -185,6 +223,7 @@ function resultFromState(input: {
             production_ids: input.productionIds,
             batches,
         },
+        notification: notificationStatus(input.notification),
         completed_at: new Date().toISOString(),
     };
 }
@@ -282,11 +321,6 @@ export async function createDemoShopShopeeOrder(
         pcEnv,
         order.record_id
     );
-
-    if (inventory.status === "APPLIED") {
-        await notifyLowStockAfterOrderOnce(pcEnv, order.record_id);
-    }
-
     const afterOverview = await getPcOverview(env);
     const productAfter = findSelectedProduct(
         afterOverview.products,
@@ -297,6 +331,24 @@ export async function createDemoShopShopeeOrder(
     const state = parseInventoryState(
         refreshedOrder.fields[ORDER_FIELDS.PC_INVENTORY_STATE_JSON]
     );
+
+    /*
+     * ใช้ state รอบเดียวกับที่คืนให้หน้า Demo Shop โดยตรง เพื่อไม่พึ่ง
+     * read-after-write consistency ของ Lark หลัง Reconcile.
+     */
+    const lowStockNotification =
+        inventory.status === "APPLIED"
+            ? await notifyLowStockAfterOrderOnce(pcEnv, order.record_id, {
+                  inventoryState: state,
+              })
+            : {
+                  state_ready: true,
+                  matched: 0,
+                  dispatched: 0,
+                  failed: 0,
+                  errors: [],
+              };
+
     const existingProductionIds = afterOverview.production
         .filter((batch) => batch.source_order_id === order.record_id)
         .map((batch) => batch.production_id)
@@ -321,5 +373,6 @@ export async function createDemoShopShopeeOrder(
         batches: afterOverview.production,
         duplicate:
             marketplace.action === "duplicate" || inventory.duplicate,
+        notification: lowStockNotification,
     });
 }

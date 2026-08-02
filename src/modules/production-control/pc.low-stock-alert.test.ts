@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
-import type { PcProduct } from "./pc.types";
+import type {
+    PcOrderInventoryState,
+    PcProduct,
+} from "./pc.types";
 
 const mocks = vi.hoisted(() => ({
     getOrderByRecordId: vi.fn(),
@@ -49,8 +52,8 @@ function product(overrides: Partial<PcProduct> = {}): PcProduct {
 function orderState(input: {
     oldStock: number;
     newStock: number;
-    phase?: "prepared" | "applied" | "released" | "blocked";
-}) {
+    phase?: PcOrderInventoryState["phase"];
+}): PcOrderInventoryState {
     return {
         version: 1,
         phase: input.phase ?? "applied",
@@ -74,7 +77,7 @@ function orderState(input: {
     };
 }
 
-function orderWithState(state: ReturnType<typeof orderState>) {
+function orderWithState(state: PcOrderInventoryState) {
     return {
         record_id: "order-rec-1",
         fields: {
@@ -88,6 +91,7 @@ const noDelay = { retryDelaysMs: [0] } as const;
 describe("PC low stock notification", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.notifyPcExceptionOnce.mockResolvedValue(true);
         mocks.getPcOverview.mockResolvedValue({
             summary: {},
             products: [product()],
@@ -96,19 +100,22 @@ describe("PC low stock notification", () => {
         });
     });
 
-    it("notifies once when stock crosses from above Min Stock to the threshold", async () => {
-        mocks.getOrderByRecordId.mockResolvedValue(
-            orderWithState(orderState({ oldStock: 7, newStock: 5 }))
-        );
+    it("uses a provided applied state without re-reading Lark", async () => {
+        const state = orderState({ oldStock: 7, newStock: 5 });
 
         await expect(
-            notifyLowStockAfterOrderOnce(
-                {} as Env,
-                "order-rec-1",
-                noDelay
-            )
-        ).resolves.toBe(1);
+            notifyLowStockAfterOrderOnce({} as Env, "order-rec-1", {
+                inventoryState: state,
+            })
+        ).resolves.toEqual({
+            state_ready: true,
+            matched: 1,
+            dispatched: 1,
+            failed: 0,
+            errors: [],
+        });
 
+        expect(mocks.getOrderByRecordId).not.toHaveBeenCalled();
         expect(mocks.notifyPcExceptionOnce).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
@@ -122,31 +129,25 @@ describe("PC low stock notification", () => {
         );
     });
 
-    it("retries when the first Lark read has not exposed the applied inventory state yet", async () => {
+    it("retries when the first Lark read has not exposed the applied state", async () => {
         mocks.getOrderByRecordId
-            .mockResolvedValueOnce({
-                record_id: "order-rec-1",
-                fields: {},
-            })
+            .mockResolvedValueOnce({ record_id: "order-rec-1", fields: {} })
             .mockResolvedValueOnce(
-                orderWithState(
-                    orderState({ oldStock: 7, newStock: 5 })
-                )
+                orderWithState(orderState({ oldStock: 7, newStock: 5 }))
             );
 
-        await expect(
-            notifyLowStockAfterOrderOnce(
-                {} as Env,
-                "order-rec-1",
-                { retryDelaysMs: [0, 0] }
-            )
-        ).resolves.toBe(1);
+        const result = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            { retryDelaysMs: [0, 0] }
+        );
 
+        expect(result.dispatched).toBe(1);
+        expect(result.state_ready).toBe(true);
         expect(mocks.getOrderByRecordId).toHaveBeenCalledTimes(2);
-        expect(mocks.notifyPcExceptionOnce).toHaveBeenCalledTimes(1);
     });
 
-    it("retries a prepared state until the applied state is visible", async () => {
+    it("retries a prepared state until applied is visible", async () => {
         mocks.getOrderByRecordId
             .mockResolvedValueOnce(
                 orderWithState(
@@ -158,49 +159,68 @@ describe("PC low stock notification", () => {
                 )
             )
             .mockResolvedValueOnce(
-                orderWithState(
-                    orderState({ oldStock: 7, newStock: 5 })
-                )
+                orderWithState(orderState({ oldStock: 7, newStock: 5 }))
             );
 
-        await expect(
-            notifyLowStockAfterOrderOnce(
-                {} as Env,
-                "order-rec-1",
-                { retryDelaysMs: [0, 0] }
-            )
-        ).resolves.toBe(1);
+        const result = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            { retryDelaysMs: [0, 0] }
+        );
 
+        expect(result.dispatched).toBe(1);
         expect(mocks.getOrderByRecordId).toHaveBeenCalledTimes(2);
     });
 
-    it("does not notify repeatedly while stock was already below the threshold", async () => {
+    it("reports dispatch failure instead of counting it as success", async () => {
+        mocks.notifyPcExceptionOnce.mockResolvedValue(false);
+
+        await expect(
+            notifyLowStockAfterOrderOnce({} as Env, "order-rec-1", {
+                inventoryState: orderState({ oldStock: 7, newStock: 5 }),
+            })
+        ).resolves.toEqual({
+            state_ready: true,
+            matched: 1,
+            dispatched: 0,
+            failed: 1,
+            errors: [
+                "ไม่สามารถสร้างหรือส่ง Notification สำหรับ SKU BNK-LUNA-IV-M",
+            ],
+        });
+    });
+
+    it("does not notify repeatedly while stock was already low", async () => {
         mocks.getOrderByRecordId.mockResolvedValue(
             orderWithState(orderState({ oldStock: 5, newStock: 3 }))
         );
 
-        await expect(
-            notifyLowStockAfterOrderOnce(
-                {} as Env,
-                "order-rec-1",
-                noDelay
-            )
-        ).resolves.toBe(0);
+        const result = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            noDelay
+        );
+
+        expect(result).toMatchObject({
+            state_ready: true,
+            matched: 0,
+            dispatched: 0,
+            failed: 0,
+        });
         expect(mocks.notifyPcExceptionOnce).not.toHaveBeenCalled();
     });
 
-    it("does not notify for stock releases or terminal incomplete inventory state", async () => {
+    it("does not notify for stock releases or terminal states", async () => {
         mocks.getOrderByRecordId.mockResolvedValueOnce(
             orderWithState(orderState({ oldStock: 4, newStock: 6 }))
         );
 
-        await expect(
-            notifyLowStockAfterOrderOnce(
-                {} as Env,
-                "order-rec-1",
-                noDelay
-            )
-        ).resolves.toBe(0);
+        const release = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            noDelay
+        );
+        expect(release.matched).toBe(0);
 
         mocks.getOrderByRecordId.mockResolvedValueOnce(
             orderWithState(
@@ -212,17 +232,16 @@ describe("PC low stock notification", () => {
             )
         );
 
-        await expect(
-            notifyLowStockAfterOrderOnce(
-                {} as Env,
-                "order-rec-1",
-                noDelay
-            )
-        ).resolves.toBe(0);
+        const blocked = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            noDelay
+        );
+        expect(blocked.state_ready).toBe(false);
         expect(mocks.notifyPcExceptionOnce).not.toHaveBeenCalled();
     });
 
-    it("returns without alerting when the applied state is still unavailable after bounded retries", async () => {
+    it("marks state as not ready after bounded retries", async () => {
         mocks.getOrderByRecordId.mockResolvedValue({
             record_id: "order-rec-1",
             fields: {},
@@ -234,10 +253,15 @@ describe("PC low stock notification", () => {
                 "order-rec-1",
                 { retryDelaysMs: [0, 0, 0] }
             )
-        ).resolves.toBe(0);
+        ).resolves.toEqual({
+            state_ready: false,
+            matched: 0,
+            dispatched: 0,
+            failed: 0,
+            errors: [],
+        });
 
         expect(mocks.getOrderByRecordId).toHaveBeenCalledTimes(3);
         expect(mocks.getPcOverview).not.toHaveBeenCalled();
-        expect(mocks.notifyPcExceptionOnce).not.toHaveBeenCalled();
     });
 });
