@@ -155,7 +155,7 @@ describe("Demo Shop API route", () => {
         );
     });
 
-    it("joins the highest-priority active production state to the matching SKU", async () => {
+    it("joins the highest-priority visible production state to the matching SKU", async () => {
         mocks.getPcOverview.mockResolvedValue({
             ...overview(),
             production: [
@@ -167,6 +167,15 @@ describe("Demo Shop API route", () => {
                     planned_qty: 12,
                     recommended_qty: 12,
                     created_at: 20,
+                },
+                {
+                    record_id: "production-blocked",
+                    production_id: "PROD-BLOCKED",
+                    product_sku: "BNK-LUNA-IV-M",
+                    production_status: "BLOCKED_MATERIAL",
+                    planned_qty: 15,
+                    recommended_qty: 15,
+                    created_at: 30,
                 },
                 {
                     record_id: "production-active",
@@ -193,6 +202,49 @@ describe("Demo Shop API route", () => {
                     production_status: "IN_PROGRESS",
                     production_qty: 16,
                     production_id: "PROD-ACTIVE",
+                },
+            ],
+        });
+    });
+
+    it("does not expose recommended or approved internal states as production badges", async () => {
+        mocks.getPcOverview.mockResolvedValue({
+            ...overview(),
+            production: [
+                {
+                    record_id: "production-recommended",
+                    production_id: "PROD-RECOMMENDED",
+                    product_sku: "BNK-LUNA-IV-M",
+                    production_status: "RECOMMENDED",
+                    planned_qty: 15,
+                    recommended_qty: 15,
+                    created_at: 20,
+                },
+                {
+                    record_id: "production-approved",
+                    production_id: "PROD-APPROVED",
+                    product_sku: "BNK-LUNA-IV-M",
+                    production_status: "APPROVED",
+                    planned_qty: 15,
+                    recommended_qty: 15,
+                    created_at: 30,
+                },
+            ],
+        });
+
+        const response = await handleDemoShopProducts(
+            new Request("https://worker.example.com/demo-shop/api/products"),
+            env()
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            products: [
+                {
+                    sku: "BNK-LUNA-IV-M",
+                    production_status: null,
+                    production_qty: 0,
+                    production_id: "",
                 },
             ],
         });

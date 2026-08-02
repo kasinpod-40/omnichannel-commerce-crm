@@ -22,9 +22,9 @@ import {
     dashboardMethodNotAllowed,
 } from "../shared/dashboard-api";
 
-const ACTIVE_PRODUCTION = new Set([
-    "RECOMMENDED",
-    "APPROVED",
+// หน้า Demo แสดงเฉพาะสถานะที่มีผลกับการผลิตจริงแล้ว
+// RECOMMENDED และ APPROVED เป็นสถานะภายใน/ชั่วคราว จึงไม่ควรทำให้ผู้สาธิตเข้าใจว่าอนุมัติแล้ว
+const VISIBLE_PRODUCTION = new Set([
     "IN_PROGRESS",
     "BLOCKED_MATERIAL",
 ]);
@@ -63,19 +63,16 @@ function normalizeKey(value: string): string {
 }
 
 function productionRank(batch: PcProductionBatch): number {
-    if (batch.production_status === "IN_PROGRESS") return 4;
-    if (batch.production_status === "APPROVED") return 3;
-    if (batch.production_status === "BLOCKED_MATERIAL") return 2;
-    return 1;
+    return batch.production_status === "IN_PROGRESS" ? 2 : 1;
 }
 
-function activeProductionBySku(
+function visibleProductionBySku(
     production: PcProductionBatch[]
 ): Map<string, PcProductionBatch> {
     const result = new Map<string, PcProductionBatch>();
 
     for (const batch of production) {
-        if (!ACTIVE_PRODUCTION.has(batch.production_status)) continue;
+        if (!VISIBLE_PRODUCTION.has(batch.production_status)) continue;
         const key = normalizeKey(batch.product_sku);
         const current = result.get(key);
 
@@ -219,7 +216,7 @@ export async function handleDemoShopProducts(
             getDemoShopCatalog(catalogEnv),
             getPcOverview(catalogEnv),
         ]);
-        const productionBySku = activeProductionBySku(overview.production);
+        const productionBySku = visibleProductionBySku(overview.production);
 
         return addAuthCorsHeaders(
             dashboardJson({
