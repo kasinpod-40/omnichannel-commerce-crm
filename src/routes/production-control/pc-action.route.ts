@@ -40,9 +40,7 @@ function htmlResponse(
     h1 { margin: 0 0 12px; font-size: 25px; }
     p { color: #625b54; line-height: 1.7; }
     .status { margin: 18px 0; padding: 16px; border-radius: 16px; background: #f4efe8; line-height: 1.7; }
-    button, a { display: inline-flex; justify-content: center; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 999px; font: inherit; font-weight: 700; text-decoration: none; }
-    button { width: 100%; border: 0; background: #1c1917; color: #fff; cursor: pointer; }
-    a { border: 1px solid rgba(28,25,23,.16); color: #1c1917; }
+    a { display: inline-flex; justify-content: center; align-items: center; min-height: 44px; padding: 0 18px; border: 1px solid rgba(28,25,23,.16); border-radius: 999px; color: #1c1917; font: inherit; font-weight: 700; text-decoration: none; }
     ul { padding-left: 20px; color: #625b54; line-height: 1.7; }
   </style>
 </head>
@@ -244,18 +242,19 @@ export async function handlePcWorkflowActionPage(
             label,
             [
                 `<h1>${escapeHtml(label)}</h1>`,
-                "<p>ระบบกำลังตรวจสอบสิทธิ์และดำเนินการตามคำสั่งจาก Lark</p>",
-                '<div class="status" id="action-status">กำลังดำเนินการ…</div>',
-                `<form id="action-form" method="post" action="${escapeHtml(requestReturnPath(request))}">`,
-                `<button type="submit">${escapeHtml(label)}</button>`,
-                "</form>",
+                "<p>ระบบตรวจสอบสิทธิ์แล้ว และจะดำเนินการให้อัตโนมัติเพียงครั้งเดียว</p>",
+                '<div class="status" id="action-status">กำลังดำเนินการ กรุณาอย่าปิดหรือรีเฟรชหน้านี้…</div>',
+                `<form id="action-form" method="post" action="${escapeHtml(requestReturnPath(request))}" hidden></form>`,
+                "<noscript><p>กรุณาเปิด JavaScript แล้วเปิดคำสั่งจาก Lark ใหม่อีกครั้ง</p></noscript>",
             ].join(""),
             200,
             `window.setTimeout(() => {
   const form = document.getElementById("action-form");
   const status = document.getElementById("action-status");
+  if (window.__pcActionSubmitted === true) return;
+  window.__pcActionSubmitted = true;
   if (form instanceof HTMLFormElement) {
-    if (status) status.textContent = "กำลังบันทึกผล กรุณาอย่าปิดหน้านี้";
+    if (status) status.textContent = "กำลังบันทึกผล กรุณาอย่าปิดหรือรีเฟรชหน้านี้";
     form.requestSubmit();
   }
 }, 350);`
