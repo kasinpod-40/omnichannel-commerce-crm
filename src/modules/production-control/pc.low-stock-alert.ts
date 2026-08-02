@@ -14,10 +14,10 @@ export type PcLowStockEvaluationMode =
 
 export type PcLowStockDiagnosticReason =
     | "MATCHED"
+    | "LOW_STOCK_AFTER_ORDER"
     | "RECOVERY_CURRENT_LOW_STOCK"
     | "PRODUCT_NOT_FOUND"
     | "STOCK_NOT_DECREASED"
-    | "ALREADY_AT_OR_BELOW_MIN"
     | "STILL_ABOVE_MIN";
 
 export type PcLowStockDiagnostic = {
@@ -231,16 +231,6 @@ function diagnosticForTransition(input: {
         };
     }
 
-    if (transition.old_stock_on_hand <= product.min_stock) {
-        return {
-            ...base,
-            reason: "ALREADY_AT_OR_BELOW_MIN",
-            message:
-                `SKU ${product.sku}: ก่อน Order มี Stock ${formatQuantity(transition.old_stock_on_hand)} ` +
-                `ซึ่งเท่ากับหรือต่ำกว่า Min ${formatQuantity(product.min_stock)} อยู่แล้ว`,
-        };
-    }
-
     if (transition.new_stock_on_hand > product.min_stock) {
         return {
             ...base,
@@ -248,6 +238,17 @@ function diagnosticForTransition(input: {
             message:
                 `SKU ${product.sku}: หลัง Order ยังเหลือ ${formatQuantity(transition.new_stock_on_hand)} ` +
                 `มากกว่า Min ${formatQuantity(product.min_stock)}`,
+        };
+    }
+
+    if (transition.old_stock_on_hand <= product.min_stock) {
+        return {
+            ...base,
+            reason: "LOW_STOCK_AFTER_ORDER",
+            message:
+                `SKU ${product.sku}: หลัง Order ใหม่ Stock ลดจาก ` +
+                `${formatQuantity(transition.old_stock_on_hand)} → ${formatQuantity(transition.new_stock_on_hand)} ` +
+                `และยังเท่ากับหรือต่ำกว่า Min ${formatQuantity(product.min_stock)}`,
         };
     }
 
@@ -266,6 +267,7 @@ function diagnosticMatches(
 ): boolean {
     return (
         reason === "MATCHED" ||
+        reason === "LOW_STOCK_AFTER_ORDER" ||
         reason === "RECOVERY_CURRENT_LOW_STOCK"
     );
 }
@@ -310,10 +312,9 @@ function buildLowStockMessage(input: {
 }
 
 /**
- * Flow ปกติแจ้งเฉพาะตอน Stock ข้ามจากเหนือ Min ลงมาอยู่ที่หรือต่ำกว่า Min.
- * Recovery แบบสั่งโดย Operator แจ้งได้จาก state เดิมเมื่อ Stock หลัง Order <= Min
- * เพื่อกู้ข้อความที่พลาด โดยไม่ Reconcile และไม่เปลี่ยน Stock.
- * Event ID ผูกกับ Order fingerprint, SKU และ mode เพื่อให้ retry ได้โดยไม่ยิงซ้ำ.
+ * ทุก Order ใหม่ที่ทำให้ Stock หลังสั่งอยู่ที่หรือต่ำกว่า Min จะมี Alert ของ Order นั้น
+ * เพื่อเตือนซ้ำจนกว่าจะเติม Stock โดย Event ID ต่อ Order/SKU ยังป้องกัน Queue retry ยิงซ้ำ.
+ * Recovery แบบสั่งโดย Operator ใช้ state เดิมเพื่อกู้ข้อความ โดยไม่ Reconcile หรือเปลี่ยน Stock.
  */
 export async function notifyLowStockAfterOrderOnce(
     env: Env,
