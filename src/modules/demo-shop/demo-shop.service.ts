@@ -88,6 +88,26 @@ export function assertDemoShopSafeMode(env: Env): void {
     }
 }
 
+function resolveDemoShopStockStatus(
+    product: PcProduct
+): PcProduct["stock_status"] {
+    const stockOnHand = Math.max(
+        0,
+        Number(product.stock_on_hand) || 0
+    );
+    const minStock = Math.max(0, Number(product.min_stock) || 0);
+
+    if (stockOnHand <= 0) {
+        return "OUT_OF_STOCK";
+    }
+
+    if (stockOnHand <= minStock) {
+        return "LOW_STOCK";
+    }
+
+    return "NORMAL";
+}
+
 function sanitizeProduct(product: PcProduct): DemoShopProduct {
     return {
         sku: product.sku,
@@ -98,7 +118,8 @@ function sanitizeProduct(product: PcProduct): DemoShopProduct {
         size: product.size,
         price_thb: product.sales_price_thb,
         stock_on_hand: product.stock_on_hand,
-        stock_status: product.stock_status,
+        min_stock: Math.max(0, Number(product.min_stock) || 0),
+        stock_status: resolveDemoShopStockStatus(product),
     };
 }
 
