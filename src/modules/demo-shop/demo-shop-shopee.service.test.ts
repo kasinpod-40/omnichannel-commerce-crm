@@ -67,6 +67,18 @@ const notificationOk = {
     dispatched: 1,
     failed: 0,
     errors: [],
+    diagnostics: [
+        {
+            transition_record_id: "product-rec-1",
+            transition_sku: "BNK-LUNA-IV-M",
+            resolved_sku: "BNK-LUNA-IV-M",
+            old_stock_on_hand: 8,
+            new_stock_on_hand: 5,
+            min_stock: 5,
+            reason: "MATCHED",
+            message: "SKU BNK-LUNA-IV-M: Stock ข้ามเกณฑ์ 8 → 5 (Min 5)",
+        },
+    ],
 };
 
 describe("Demo Shop Shopee order service", () => {
@@ -168,6 +180,9 @@ describe("Demo Shop Shopee order service", () => {
                 threshold_crossed: true,
                 dispatched: 1,
                 failed: 0,
+                evaluation_messages: [
+                    "SKU BNK-LUNA-IV-M: Stock ข้ามเกณฑ์ 8 → 5 (Min 5)",
+                ],
             },
         });
     });
@@ -201,8 +216,9 @@ describe("Demo Shop Shopee order service", () => {
             state_ready: false,
             matched: 0,
             dispatched: 0,
-            failed: 0,
-            errors: [],
+            failed: 1,
+            errors: ["ไม่พบ Inventory state แบบ applied"],
+            diagnostics: [],
         });
 
         const result = await createDemoShopShopeeOrder(env(), {
@@ -214,6 +230,8 @@ describe("Demo Shop Shopee order service", () => {
         expect(result.notification).toMatchObject({
             status: "FAILED",
             failed: 1,
+            error_messages: ["ไม่พบ Inventory state แบบ applied"],
+            evaluation_messages: [],
         });
         expect(result.duplicate).toBe(true);
     });
