@@ -113,7 +113,7 @@ function product(stockOnHand = 4): PcProduct {
     };
 }
 
-function material(): PcMaterial {
+function material(overrides: Partial<PcMaterial> = {}): PcMaterial {
     return {
         record_id: "material-rec-1",
         material_sku: "FAB-IV",
@@ -135,6 +135,7 @@ function material(): PcMaterial {
         alert_level: "CRITICAL",
         active: true,
         notes: "",
+        ...overrides,
     };
 }
 
@@ -268,6 +269,48 @@ describe("Production workflow service", () => {
             ],
             duplicate: false,
         });
+    });
+
+    it("replenishes Demo material to target stock even when the current shortage is smaller", async () => {
+        mocks.getPcProductionByRecordId
+            .mockResolvedValueOnce(batch("BLOCKED_MATERIAL"))
+            .mockResolvedValueOnce(batch("RECOMMENDED"));
+        mocks.listPcMaterials.mockResolvedValue([
+            material({
+                stock_on_hand: 0,
+                target_stock: 260,
+                planned_requirement: 34.2,
+                projected_stock: -34.2,
+                shortage_qty: 34.2,
+                recommended_reorder_qty: 34.2,
+            }),
+        ]);
+        mocks.updatePcProductionStatus
+            .mockResolvedValueOnce(batch("APPROVED"))
+            .mockResolvedValueOnce(batch("IN_PROGRESS"));
+
+        const result = await runPcWorkflowAction(env(), {
+            action: "purchase-materials",
+            production_record_id: "production-rec-1",
+            actor_name: "Manager A",
+        });
+
+        expect(mocks.batchUpdatePcMaterials).toHaveBeenCalledWith(env(), [
+            {
+                record_id: "material-rec-1",
+                fields: {
+                    [PC_MATERIAL_FIELDS.STOCK_ON_HAND]: 260,
+                },
+            },
+        ]);
+        expect(result.materials_replenished).toEqual([
+            {
+                material_sku: "FAB-IV",
+                added_qty: 260,
+                stock_after: 260,
+                unit: "m",
+            },
+        ]);
     });
 
     it("never allows simulated material receipt outside Demo Shop", async () => {
