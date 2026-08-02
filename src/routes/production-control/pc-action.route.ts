@@ -274,6 +274,11 @@ export async function handlePcWorkflowActionPage(
     try {
         assertSameOriginPost(request);
         const session = await requireOperator(request, env);
+        if (action === "approve-production") {
+            // ใช้แผนที่มีอยู่ใน Lark มาคำนวณ PC_Materials ก่อนอนุมัติ
+            // เพื่อให้ Dashboard พร้อมก่อนเส้นทาง Production ส่ง Card วัตถุดิบขาด
+            await refreshPcMaterialPlan(env);
+        }
         const result = await runPcWorkflowAction(env, {
             action,
             production_record_id: recordId,
