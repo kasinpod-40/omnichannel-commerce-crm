@@ -134,15 +134,32 @@ function parseInventoryState(value: unknown): PcOrderInventoryState | null {
 function notificationStatus(
     result: PcLowStockNotificationResult
 ): DemoShopOrderResult["notification"] {
+    const evaluationMessages = result.diagnostics.map(
+        (diagnostic) => diagnostic.message
+    );
+
     if (!result.state_ready) {
         return {
             status: "FAILED",
             threshold_crossed: false,
             dispatched: 0,
-            failed: 1,
-            error_messages: [
-                "ยังอ่าน Inventory state หลังตัด Stock ไม่สำเร็จ",
-            ],
+            failed: Math.max(1, result.failed),
+            error_messages:
+                result.errors.length > 0
+                    ? result.errors
+                    : ["ยังอ่าน Inventory state หลังตัด Stock ไม่สำเร็จ"],
+            evaluation_messages: evaluationMessages,
+        };
+    }
+
+    if (result.failed > 0) {
+        return {
+            status: "FAILED",
+            threshold_crossed: result.matched > 0,
+            dispatched: result.dispatched,
+            failed: result.failed,
+            error_messages: result.errors,
+            evaluation_messages: evaluationMessages,
         };
     }
 
@@ -153,15 +170,17 @@ function notificationStatus(
             dispatched: 0,
             failed: 0,
             error_messages: [],
+            evaluation_messages: evaluationMessages,
         };
     }
 
     return {
-        status: result.failed > 0 ? "FAILED" : "QUEUED",
+        status: "QUEUED",
         threshold_crossed: true,
         dispatched: result.dispatched,
-        failed: result.failed,
-        error_messages: result.errors,
+        failed: 0,
+        error_messages: [],
+        evaluation_messages: evaluationMessages,
     };
 }
 
@@ -347,6 +366,7 @@ export async function createDemoShopShopeeOrder(
                   dispatched: 0,
                   failed: 0,
                   errors: [],
+                  diagnostics: [],
               };
 
     const existingProductionIds = afterOverview.production
