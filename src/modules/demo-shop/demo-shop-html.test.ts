@@ -24,6 +24,19 @@ describe("Demo Shop HTML", () => {
         expect(html).not.toContain("materials_json");
     });
 
+    it("emits syntactically valid inline JavaScript for the size selector", () => {
+        const html = renderDemoShopHtml({
+            dashboardUrl: "https://dashboard.example.com",
+            nonce: "nonce123",
+        });
+        const match = html.match(
+            /<script nonce="nonce123">([\s\S]*?)<\/script>/
+        );
+
+        expect(match?.[1]).toBeTruthy();
+        expect(() => new Function(match?.[1] ?? "")).not.toThrow();
+    });
+
     it("serializes the dashboard URL for the login handoff", () => {
         const html = renderDemoShopHtml({
             dashboardUrl: "https://dashboard.example.com",
