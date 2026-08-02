@@ -22,6 +22,19 @@ function normalizeKey(value: string): string {
     return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/**
+ * Product/Material SKU อาจมาจาก Lark, Marketplace หรือ BOM ด้วยตัวคั่นต่างกัน
+ * เช่น `FAB-TWEED-IVORY`, `FAB_TWEED_IVORY` หรือ `FAB/TWEED/IVORY`
+ * ทุกจุดที่ใช้ SKU เป็น Business key ต้องเรียกตัวนี้เพื่อไม่ให้ Map คนละรูปแบบ
+ */
+export function normalizePcBusinessKey(value: string): string {
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/[()\[\]{}._\-/]+/g, " ")
+        .replace(/\s+/g, " ");
+}
+
 export function deriveProductInventory(
     stockOnHand: number,
     minStock: number,
@@ -165,7 +178,7 @@ export function parseBom(materialsJson: string): PcBomItem[] {
             throw new Error("PC_BOM_INVALID_ITEM");
         }
 
-        const key = normalizeKey(materialSku);
+        const key = normalizePcBusinessKey(materialSku);
         const existing = aggregated.get(key);
 
         if (existing && normalizeKey(existing.unit) !== normalizeKey(unit)) {
@@ -299,7 +312,10 @@ export function productionMaterialRequirements(
     products: PcProduct[]
 ): Map<string, number> {
     const productBySku = new Map(
-        products.map((product) => [normalizeKey(product.sku), product])
+        products.map((product) => [
+            normalizePcBusinessKey(product.sku),
+            product,
+        ])
     );
     const requirements = new Map<string, number>();
 
@@ -311,7 +327,9 @@ export function productionMaterialRequirements(
             continue;
         }
 
-        const product = productBySku.get(normalizeKey(batch.product_sku));
+        const product = productBySku.get(
+            normalizePcBusinessKey(batch.product_sku)
+        );
 
         if (!product) {
             continue;
@@ -328,7 +346,7 @@ export function productionMaterialRequirements(
         const plannedQty = Math.max(0, batch.planned_qty || batch.recommended_qty);
 
         for (const item of bom) {
-            const key = normalizeKey(item.material_sku);
+            const key = normalizePcBusinessKey(item.material_sku);
             requirements.set(
                 key,
                 roundQuantity(
@@ -381,7 +399,7 @@ export function checkBatchMaterials(input: {
 
     const materialsBySku = new Map(
         input.materials.map((material) => [
-            normalizeKey(material.material_sku),
+            normalizePcBusinessKey(material.material_sku),
             material,
         ])
     );
@@ -391,7 +409,9 @@ export function checkBatchMaterials(input: {
 
     for (const item of bom) {
         const required = roundQuantity(item.quantity_per_unit * quantity);
-        const material = materialsBySku.get(normalizeKey(item.material_sku));
+        const material = materialsBySku.get(
+            normalizePcBusinessKey(item.material_sku)
+        );
         requirements.push(`${item.material_sku} ${required} ${item.unit}`);
 
         if (!material) {
