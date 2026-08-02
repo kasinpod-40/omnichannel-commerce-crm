@@ -3,6 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import {
+    buildFieldUpdatePayload,
+    normalizeFieldDescription,
+    summarizeFieldUpdatePayload,
+} from "./lib/pc-field-description-payload.mjs";
 
 const args = process.argv.slice(2);
 const mode = args.includes("--apply")
@@ -120,11 +125,14 @@ async function request(method, endpoint, { token, body, retries = 4 } = {}) {
         }
 
         if (!response.ok || payload.code !== 0) {
-            throw new Error(
+            const error = new Error(
                 redacted(
                     `${method} ${endpoint} failed: HTTP ${response.status}; code=${payload.code}; msg=${payload.msg}`
                 )
             );
+            error.lark_code = payload.code;
+            error.http_status = response.status;
+            throw error;
         }
 
         await sleep(120);
@@ -172,39 +180,21 @@ async function listFields(token, tableId) {
     return fields;
 }
 
-function normalizeText(value) {
-    return String(value || "").trim();
-}
-
-function updateFieldPayload(field, description) {
-    const payload = {
-        field_name: field.field_name,
-        type: Number(field.type),
-        description,
-    };
-
-    if (field.ui_type) {
-        payload.ui_type = field.ui_type;
-    }
-    if (field.property !== undefined && field.property !== null) {
-        payload.property = field.property;
-    }
-
-    return payload;
-}
-
 async function applyTable(token, tableSpec) {
     const tableId = env[tableSpec.table_id_env];
     assert(tableId, `Missing ${tableSpec.table_id_env}`);
     const fields = await listFields(token, tableId);
     const byName = new Map(fields.map((field) => [field.field_name, field]));
     const actions = [];
+    const pendingUpdates = [];
 
+    // Build and validate every payload before the first mutation. This keeps the
+    // apply fail-closed when a later field type/property cannot be written.
     for (const spec of tableSpec.fields) {
         const field = byName.get(spec.field_name);
         assert(field, `Missing field ${tableSpec.table}.${spec.field_name}`);
-        const current = normalizeText(field.description);
-        const expected = normalizeText(spec.description);
+        const current = normalizeFieldDescription(field.description);
+        const expected = normalizeFieldDescription(spec.description);
         assert(expected, `Empty description ${tableSpec.table}.${spec.field_name}`);
 
         if (current === expected) {
@@ -222,25 +212,43 @@ async function applyTable(token, tableSpec) {
             );
         }
 
-        if (mode === "apply") {
-            await request(
-                "PUT",
-                `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields/${field.field_id}`,
-                {
-                    token,
-                    body: updateFieldPayload(field, expected),
-                }
-            );
-        }
-
+        const payload = buildFieldUpdatePayload(field, expected);
+        const payloadSummary = summarizeFieldUpdatePayload(field, payload);
+        pendingUpdates.push({
+            table: tableSpec.table,
+            field: spec.field_name,
+            fieldId: field.field_id,
+            payload,
+            payloadSummary,
+        });
         actions.push({
             table: tableSpec.table,
             field: spec.field_name,
             action: "update_description",
+            payload: payloadSummary,
         });
     }
 
     if (mode === "apply") {
+        for (const update of pendingUpdates) {
+            try {
+                await request(
+                    "PUT",
+                    `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields/${update.fieldId}`,
+                    {
+                        token,
+                        body: update.payload,
+                    }
+                );
+            } catch (error) {
+                throw new Error(
+                    `Field update failed ${update.table}.${update.field}; ` +
+                        `payload=${JSON.stringify(update.payloadSummary)}; ` +
+                        `${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+        }
+
         const verifiedFields = await listFields(token, tableId);
         const verifiedByName = new Map(
             verifiedFields.map((field) => [field.field_name, field])
@@ -248,10 +256,13 @@ async function applyTable(token, tableSpec) {
 
         for (const spec of tableSpec.fields) {
             const field = verifiedByName.get(spec.field_name);
-            assert(field, `Apply verification missing ${tableSpec.table}.${spec.field_name}`);
             assert(
-                normalizeText(field.description) ===
-                    normalizeText(spec.description),
+                field,
+                `Apply verification missing ${tableSpec.table}.${spec.field_name}`
+            );
+            assert(
+                normalizeFieldDescription(field.description) ===
+                    normalizeFieldDescription(spec.description),
                 `Apply verification description mismatch ${tableSpec.table}.${spec.field_name}`
             );
         }
@@ -268,6 +279,9 @@ async function main() {
     console.log(`PC field-description mode: ${mode.toUpperCase()}`);
     console.log(`Contract: ${contract.contract_version}`);
     console.log("Scope: descriptions only; no table, field, option, or record deletion.");
+    console.log(
+        "Payload policy: omit empty property/default ui_type; preserve meaningful formatter/options/property."
+    );
 
     const token = await tenantToken();
     const metadata = await request(
@@ -278,7 +292,7 @@ async function main() {
     const actions = [];
 
     for (const table of contract.tables) {
-        actions.push(...(await applyTable(token, table)));
+        actions.push(...(await applyTable(token, table));
     }
 
     const result = {

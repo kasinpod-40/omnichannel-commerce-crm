@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "pc-action-once-descriptions-th-69",
+            version: "pc-field-description-payload-th-70",
         });
     });
 
