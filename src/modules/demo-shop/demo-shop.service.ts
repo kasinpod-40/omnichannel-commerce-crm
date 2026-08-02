@@ -3,11 +3,17 @@ import { ORDER_FIELDS } from "../../core/lark-fields";
 import {
     createCustomer,
     findCustomerByChannelCustomerId,
+    getCustomerByRecordId,
     updateCustomer,
     type LarkCustomerRecord,
 } from "../customers/customer.repository";
-import { createOrder, findOrderByChannelAndExternalId } from "../orders/order.repository";
+import {
+    createOrder,
+    findOrderByChannelAndExternalId,
+    type LarkOrderRecord,
+} from "../orders/order.repository";
 import { applyManualPaymentVerification } from "../payments/payment.service";
+import { getPipelineByRecordId } from "../pipeline/pipeline.repository";
 import { createOpenPipelineForCustomer } from "../pipeline/pipeline.service";
 import {
     getPcOverview,
@@ -18,7 +24,11 @@ import type {
     PcOrderInventoryState,
     PcProduct,
 } from "../production-control/pc.types";
-import { getLarkNumber, getLarkText } from "../../utils/lark-field-value";
+import {
+    getFirstLinkedRecordId,
+    getLarkNumber,
+    getLarkText,
+} from "../../utils/lark-field-value";
 import { OperationalError } from "../../utils/errors";
 import type {
     DemoShopCatalog,
@@ -156,7 +166,11 @@ function generateDemoOrderNumber(now = new Date()): string {
         .toISOString()
         .replace(/[-:TZ.]/g, "")
         .slice(0, 14);
-    const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
+    const suffix = crypto
+        .randomUUID()
+        .replace(/-/g, "")
+        .slice(0, 6)
+        .toUpperCase();
     return `DEMO-${stamp}-${suffix}`;
 }
 
@@ -238,7 +252,9 @@ function demoPcEnv(env: Env): Env {
 function findSelectedProduct(products: PcProduct[], sku: string): PcProduct {
     const normalizedSku = sku.trim().toLowerCase();
     const product = products.find(
-        (item) => item.active && item.sku.trim().toLowerCase() === normalizedSku
+        (item) =>
+            item.active &&
+            item.sku.trim().toLowerCase() === normalizedSku
     );
 
     if (!product) {
@@ -252,8 +268,128 @@ function findSelectedProduct(products: PcProduct[], sku: string): PcProduct {
     return product;
 }
 
+function buildDemoItemsJson(product: PcProduct, quantity: number): string {
+    return JSON.stringify([
+        {
+            sku: product.sku,
+            name: product.product_name,
+            product_name: product.product_name,
+            variant: [product.color, product.size]
+                .filter(Boolean)
+                .join(" "),
+            product_size: product.size,
+            quantity,
+        },
+    ]);
+}
+
+function readDemoOrderIdentity(order: LarkOrderRecord): {
+    sku: string;
+    product_name: string;
+    size: string;
+    quantity: number;
+} {
+    const fallback = {
+        sku: "",
+        product_name: getLarkText(
+            order.fields[ORDER_FIELDS.PRODUCT_NAME]
+        ).trim(),
+        size: getLarkText(
+            order.fields[ORDER_FIELDS.PRODUCT_SIZE]
+        ).trim(),
+        quantity: getLarkNumber(
+            order.fields[ORDER_FIELDS.QUANTITY]
+        ),
+    };
+    const itemsJson = getLarkText(
+        order.fields[ORDER_FIELDS.MARKETPLACE_ITEMS_JSON]
+    ).trim();
+
+    if (!itemsJson) {
+        return fallback;
+    }
+
+    try {
+        const parsed = JSON.parse(itemsJson) as unknown;
+        if (!Array.isArray(parsed) || parsed.length !== 1) {
+            return fallback;
+        }
+
+        const rawItem = parsed[0];
+        if (typeof rawItem !== "object" || rawItem === null) {
+            return fallback;
+        }
+
+        const item = rawItem as Record<string, unknown>;
+        const quantity = Number(item.quantity);
+        return {
+            sku: String(item.sku ?? "").trim(),
+            product_name: String(
+                item.name ?? item.product_name ?? fallback.product_name
+            ).trim(),
+            size: String(
+                item.product_size ?? fallback.size
+            ).trim(),
+            quantity: Number.isFinite(quantity)
+                ? quantity
+                : fallback.quantity,
+        };
+    } catch {
+        return fallback;
+    }
+}
+
+async function resumeExistingDemoOrder(
+    env: Env,
+    order: LarkOrderRecord
+): Promise<LarkOrderRecord> {
+    const customerRecordId = getFirstLinkedRecordId(
+        order.fields[ORDER_FIELDS.CUSTOMER]
+    );
+    const pipelineRecordId = getFirstLinkedRecordId(
+        order.fields[ORDER_FIELDS.PIPELINE]
+    );
+
+    if (!customerRecordId || !pipelineRecordId) {
+        throw demoError(
+            "DEMO_SHOP_ORDER_LINKS_MISSING",
+            "Demo Order เดิมไม่มี Customer หรือ Pipeline link สำหรับทำรายการต่อ",
+            409
+        );
+    }
+
+    const [customer, pipeline] = await Promise.all([
+        getCustomerByRecordId(env, customerRecordId),
+        getPipelineByRecordId(env, pipelineRecordId),
+    ]);
+
+    if (!customer || !pipeline) {
+        throw demoError(
+            "DEMO_SHOP_ORDER_CONTEXT_MISSING",
+            "ไม่พบ Customer หรือ Pipeline ของ Demo Order เดิม",
+            409
+        );
+    }
+
+    const verified = await applyManualPaymentVerification(
+        env,
+        order,
+        customer,
+        pipeline
+    );
+
+    if (!verified?.order) {
+        throw demoError(
+            "DEMO_SHOP_ORDER_RECOVERY_BLOCKED",
+            "Demo Order เดิมไม่สามารถยืนยันการชำระเงินต่อได้",
+            409
+        );
+    }
+
+    return verified.order;
+}
+
 function resultFromState(input: {
-    orderRecordId: string;
     orderNumber: string;
     product: PcProduct;
     quantity: number;
@@ -264,7 +400,9 @@ function resultFromState(input: {
     duplicate: boolean;
 }): DemoShopOrderResult {
     const transition = input.state?.transitions.find(
-        (item) => item.sku.trim().toLowerCase() === input.product.sku.trim().toLowerCase()
+        (item) =>
+            item.sku.trim().toLowerCase() ===
+            input.product.sku.trim().toLowerCase()
     );
     const productionIdSet = new Set(input.productionIds);
     const batches = input.batches
@@ -295,11 +433,13 @@ function resultFromState(input: {
         inventory: {
             status: input.state?.phase?.toUpperCase() ?? "UNKNOWN",
             stock_before: transition?.old_stock_on_hand ?? null,
-            stock_after: transition?.new_stock_on_hand ?? input.currentStock,
+            stock_after:
+                transition?.new_stock_on_hand ?? input.currentStock,
             stock_delta:
                 transition === undefined
                     ? null
-                    : transition.new_stock_on_hand - transition.old_stock_on_hand,
+                    : transition.new_stock_on_hand -
+                      transition.old_stock_on_hand,
         },
         production: {
             created_or_updated: input.productionIds.length > 0,
@@ -319,7 +459,9 @@ export async function createDemoShopOrder(
     }
 ): Promise<DemoShopOrderResult> {
     assertDemoShopSafeMode(env);
-    const idempotencyKey = normalizeIdempotencyKey(input.idempotency_key);
+    const idempotencyKey = normalizeIdempotencyKey(
+        input.idempotency_key
+    );
     const quantity = normalizeQuantity(input.quantity);
     const sku = input.sku.trim();
 
@@ -332,7 +474,10 @@ export async function createDemoShopOrder(
     }
 
     const beforeOverview = await getPcOverview(env);
-    const productBefore = findSelectedProduct(beforeOverview.products, sku);
+    const productBefore = findSelectedProduct(
+        beforeOverview.products,
+        sku
+    );
     const externalOrderId = `demo-shop:${idempotencyKey}`;
     const existingOrder = await findOrderByChannelAndExternalId(
         env,
@@ -341,21 +486,14 @@ export async function createDemoShopOrder(
     );
 
     if (existingOrder) {
-        const existingProductName = getLarkText(
-            existingOrder.fields[ORDER_FIELDS.PRODUCT_NAME]
-        ).trim();
-        const existingSize = getLarkText(
-            existingOrder.fields[ORDER_FIELDS.PRODUCT_SIZE]
-        ).trim();
-        const existingQuantity = getLarkNumber(
-            existingOrder.fields[ORDER_FIELDS.QUANTITY]
-        );
+        const identity = readDemoOrderIdentity(existingOrder);
+        const productMatches = identity.sku
+            ? identity.sku.toLowerCase() ===
+              productBefore.sku.toLowerCase()
+            : identity.product_name === productBefore.product_name &&
+              identity.size === productBefore.size;
 
-        if (
-            existingProductName !== productBefore.product_name ||
-            existingSize !== productBefore.size ||
-            existingQuantity !== quantity
-        ) {
+        if (!productMatches || identity.quantity !== quantity) {
             throw demoError(
                 "DEMO_SHOP_IDEMPOTENCY_CONFLICT",
                 "Idempotency-Key นี้ถูกใช้กับคำสั่งซื้อที่มีสินค้า หรือจำนวนต่างกันแล้ว",
@@ -363,23 +501,37 @@ export async function createDemoShopOrder(
             );
         }
 
+        const effectiveOrder = await resumeExistingDemoOrder(
+            env,
+            existingOrder
+        );
         const inventory = await reconcileOrderInventory(
             demoPcEnv(env),
-            existingOrder.record_id
+            effectiveOrder.record_id
         );
         const afterOverview = await getPcOverview(env);
-        const productAfter = findSelectedProduct(afterOverview.products, sku);
+        const productAfter = findSelectedProduct(
+            afterOverview.products,
+            sku
+        );
         const refreshedOrder = await findOrderByChannelAndExternalId(
             env,
             "LINE",
             externalOrderId
         );
         const state = parseInventoryState(
-            refreshedOrder?.fields[ORDER_FIELDS.PC_INVENTORY_STATE_JSON] ??
-                existingOrder.fields[ORDER_FIELDS.PC_INVENTORY_STATE_JSON]
+            refreshedOrder?.fields[
+                ORDER_FIELDS.PC_INVENTORY_STATE_JSON
+            ] ??
+                effectiveOrder.fields[
+                    ORDER_FIELDS.PC_INVENTORY_STATE_JSON
+                ]
         );
         const existingProductionIds = afterOverview.production
-            .filter((batch) => batch.source_order_id === existingOrder.record_id)
+            .filter(
+                (batch) =>
+                    batch.source_order_id === effectiveOrder.record_id
+            )
             .map((batch) => batch.production_id)
             .filter(Boolean);
         const productionIds = [
@@ -390,9 +542,8 @@ export async function createDemoShopOrder(
         ];
 
         return resultFromState({
-            orderRecordId: existingOrder.record_id,
             orderNumber: getLarkText(
-                existingOrder.fields[ORDER_FIELDS.ORDER_NUMBER],
+                effectiveOrder.fields[ORDER_FIELDS.ORDER_NUMBER],
                 "DEMO"
             ),
             product: productBefore,
@@ -405,7 +556,11 @@ export async function createDemoShopOrder(
         });
     }
 
-    const customer = await ensureDemoCustomer(env, productBefore, quantity);
+    const customer = await ensureDemoCustomer(
+        env,
+        productBefore,
+        quantity
+    );
     const pipeline = await createOpenPipelineForCustomer(env, {
         customer_record_id: customer.record_id,
         stage: "Closing",
@@ -427,24 +582,36 @@ export async function createDemoShopOrder(
         product_size: productBefore.size,
         product_unit: "ชิ้น",
         quantity,
-        total_amount: Math.max(0, productBefore.sales_price_thb) * quantity,
+        total_amount:
+            Math.max(0, productBefore.sales_price_thb) * quantity,
         payment_status: "Waiting Payment",
         payment_verified: false,
         order_status: "Waiting Payment",
         sales_owner: DEMO_OWNER,
         payment_due_at: Date.now() + 24 * 60 * 60 * 1000,
+        marketplace_items_json: buildDemoItemsJson(
+            productBefore,
+            quantity
+        ),
         currency: "THB",
     });
 
-    await updateCustomer(env, customer.record_id, {
-        active_pipeline_id: pipeline.record_id,
-        active_order_id: order.record_id,
-    });
+    const updatedCustomer = await updateCustomer(
+        env,
+        customer.record_id,
+        {
+            active_pipeline_id: pipeline.record_id,
+            active_order_id: order.record_id,
+        }
+    );
+    const linkedCustomer =
+        (await getCustomerByRecordId(env, customer.record_id)) ??
+        updatedCustomer;
 
     const verified = await applyManualPaymentVerification(
         env,
         order,
-        customer,
+        linkedCustomer,
         pipeline
     );
 
@@ -461,7 +628,10 @@ export async function createDemoShopOrder(
         verified.order.record_id
     );
     const afterOverview = await getPcOverview(env);
-    const productAfter = findSelectedProduct(afterOverview.products, sku);
+    const productAfter = findSelectedProduct(
+        afterOverview.products,
+        sku
+    );
     const refreshedOrder = await findOrderByChannelAndExternalId(
         env,
         "LINE",
@@ -472,7 +642,6 @@ export async function createDemoShopOrder(
     );
 
     return resultFromState({
-        orderRecordId: verified.order.record_id,
         orderNumber,
         product: productBefore,
         quantity,
