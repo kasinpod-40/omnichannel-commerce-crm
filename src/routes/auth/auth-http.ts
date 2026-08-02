@@ -7,14 +7,35 @@ function getRequestOrigin(request: Request): string | null {
     return origin || null;
 }
 
+function isSameOriginRequest(request: Request, origin: string): boolean {
+    try {
+        return new URL(request.url).origin === origin;
+    } catch {
+        return false;
+    }
+}
+
+function isAllowedRequestOrigin(
+    request: Request,
+    env: Env,
+    origin: string
+): boolean {
+    if (isSameOriginRequest(request, origin)) {
+        return true;
+    }
+
+    return getAllowedOrigins(env).has(origin);
+}
+
 /**
  * ตรวจ Origin สำหรับ request ที่เปลี่ยนสถานะ เช่น client-session และ logout
  * การ Navigation ตรงไป /auth/lark/login ไม่มี Origin ก็ยังอนุญาต เพราะเป็น Top-level GET
+ * Request ที่มาจาก Origin เดียวกับ Worker อนุญาตโดยตรง เพื่อรองรับ Demo Shop แบบ same-origin.
  */
 export function assertAllowedOrigin(request: Request, env: Env): void {
     const origin = getRequestOrigin(request);
 
-    if (!origin || !getAllowedOrigins(env).has(origin)) {
+    if (!origin || !isAllowedRequestOrigin(request, env, origin)) {
         throw new AuthError(
             "AUTH_ORIGIN_FORBIDDEN",
             "Request origin is not allowed",
@@ -37,7 +58,7 @@ export function addAuthCorsHeaders(
     let allowed = false;
 
     try {
-        allowed = getAllowedOrigins(env).has(origin);
+        allowed = isAllowedRequestOrigin(request, env, origin);
     } catch {
         // หาก Config ยังไม่ครบ ให้คง Response เดิมแทนการทำ Error ซ้อนในขั้นตอนแนบ CORS
         return response;
@@ -50,7 +71,10 @@ export function addAuthCorsHeaders(
     const headers = new Headers(response.headers);
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Allow-Credentials", "true");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key");
+    headers.set(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, Idempotency-Key"
+    );
     headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     headers.append("Vary", "Origin");
 
@@ -95,7 +119,11 @@ export async function readJsonObject(
     try {
         const payload = (await request.json()) as unknown;
 
-        if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+        if (
+            typeof payload !== "object" ||
+            payload === null ||
+            Array.isArray(payload)
+        ) {
             throw new Error("JSON body must be an object");
         }
 
