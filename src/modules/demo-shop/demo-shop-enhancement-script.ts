@@ -1,7 +1,8 @@
-/* ครอบเฉพาะ POST Order เพื่อแสดงสถานะกำลังดำเนินการและผล Notification โดยไม่แก้ Flow หลัก */
+/* ครอบ POST Order เพื่อแสดงสถานะดำเนินการ ผล Notification และเครื่องมือ retry แบบไม่แก้ Stock */
 export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       const overlay = document.getElementById("processing-overlay");
       const message = document.getElementById("processing-message");
+      const toast = document.getElementById("toast");
 
       if (!overlay || !message || window.__demoShopFetchWrapped) return;
       window.__demoShopFetchWrapped = true;
@@ -33,16 +34,26 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return method === "POST" && url.pathname === "/demo-shop/api/orders";
       }
 
-      function openProcessing() {
+      function showOperatorToast(text) {
+        if (!toast) return;
+        toast.textContent = text;
+        toast.classList.add("is-visible");
+        window.clearTimeout(showOperatorToast.timer);
+        showOperatorToast.timer = window.setTimeout(() => {
+          toast.classList.remove("is-visible");
+        }, 4200);
+      }
+
+      function openProcessing(customSteps = steps) {
         let stepIndex = 0;
-        message.textContent = steps[stepIndex];
+        message.textContent = customSteps[stepIndex];
         overlay.classList.add("is-open");
         overlay.setAttribute("aria-hidden", "false");
         document.body.classList.add("processing-lock");
         window.clearInterval(stepTimer);
         stepTimer = window.setInterval(() => {
-          stepIndex = Math.min(stepIndex + 1, steps.length - 1);
-          message.textContent = steps[stepIndex];
+          stepIndex = Math.min(stepIndex + 1, customSteps.length - 1);
+          message.textContent = customSteps[stepIndex];
         }, 1150);
       }
 
@@ -58,7 +69,7 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
           return "ไม่เข้าเงื่อนไขแจ้งเตือน";
         }
         if (notification.status === "QUEUED") {
-          return "ส่งเข้าคิวแจ้งเตือนแล้ว";
+          return "ส่งแจ้งเตือนแล้ว";
         }
         return "ส่งแจ้งเตือนไม่สำเร็จ";
       }
@@ -95,6 +106,52 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         }
       }
 
+      async function retryLowStockNotification() {
+        const orderNumber = window.prompt("กรอกเลขที่ Shopee Demo Order ที่ต้องการส่งแจ้งเตือนซ้ำ");
+        if (!orderNumber || !orderNumber.trim()) return;
+
+        openProcessing([
+          "กำลังอ่าน Inventory state จาก Order เดิม",
+          "กำลังส่งแจ้งเตือนเข้ากลุ่ม Production & Stock",
+        ]);
+
+        try {
+          const response = await originalFetch("/demo-shop/api/notifications/low-stock/retry", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_number: orderNumber.trim() }),
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.message || "ส่งแจ้งเตือนซ้ำไม่สำเร็จ");
+          }
+
+          appendNotificationOutcome(payload);
+          showOperatorToast(
+            payload.notification && payload.notification.status === "QUEUED"
+              ? "ส่งแจ้งเตือนจาก Order เดิมแล้ว โดยไม่แก้ Stock"
+              : notificationLabel(payload.notification)
+          );
+        } catch (error) {
+          showOperatorToast(error instanceof Error ? error.message : "ส่งแจ้งเตือนซ้ำไม่สำเร็จ");
+        } finally {
+          closeProcessing();
+        }
+      }
+
+      function installRetryButton() {
+        const toolbar = document.querySelector(".toolbar");
+        if (!toolbar || document.getElementById("retry-low-stock-button")) return;
+        const button = document.createElement("button");
+        button.className = "ghost-button";
+        button.id = "retry-low-stock-button";
+        button.type = "button";
+        button.textContent = "ส่งแจ้งเตือนจาก Order เดิม";
+        button.addEventListener("click", retryLowStockNotification);
+        toolbar.append(button);
+      }
+
       window.fetch = async function demoShopFetch(input, init) {
         if (!isDemoOrderRequest(input, init)) {
           return await originalFetch(input, init);
@@ -117,4 +174,6 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
           closeProcessing();
         }
       };
+
+      installRetryButton();
     })();`;
