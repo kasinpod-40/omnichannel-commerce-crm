@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "lark-production-workflow-th-61",
+            version: "demo-shop-production-badge-th-62",
         });
     });
 
