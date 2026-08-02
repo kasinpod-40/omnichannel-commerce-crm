@@ -1,0 +1,81 @@
+{
+  "contract_version": "pc_field_descriptions_v1",
+  "tables": [
+    {
+      "table": "PC_Products",
+      "table_id_env": "PC_PRODUCTS_TABLE_ID",
+      "description": "ข้อมูลสินค้าสำเร็จรูปแต่ละ SKU พร้อมสต็อก จุดเติมสินค้า และสูตรวัตถุดิบ",
+      "fields": [
+        { "field_name": "sku", "description": "รหัสสินค้าเฉพาะของรุ่น สี และไซซ์ ใช้เชื่อม Order แผนผลิต และสต็อก ห้ามซ้ำ" },
+        { "field_name": "product_id", "description": "รหัสสินค้าแม่หรือรหัสรุ่น ใช้รวม SKU ที่เป็นสินค้ารุ่นเดียวกัน" },
+        { "field_name": "style_code", "description": "รหัสแบบหรือคอลเลกชันของสินค้า ใช้จัดกลุ่มและค้นหาแบบสินค้า" },
+        { "field_name": "product_name", "description": "ชื่อสินค้าแบบอ่านง่ายสำหรับแสดงใน Dashboard การแจ้งเตือน และแผนผลิต" },
+        { "field_name": "category", "description": "หมวดหมู่สินค้า เช่น เดรส เสื้อ กระโปรง หรือชุดเซต" },
+        { "field_name": "color", "description": "สีของ SKU นี้ ใช้แยกตัวเลือกสินค้าและจับคู่ Order" },
+        { "field_name": "size", "description": "ไซซ์ของ SKU นี้ เช่น S M หรือ L ใช้จับคู่ Order และวางแผนผลิต" },
+        { "field_name": "sales_price_thb", "description": "ราคาขายต่อชิ้นหน่วยบาท ใช้เป็นข้อมูลอ้างอิงของสินค้า" },
+        { "field_name": "stock_on_hand", "description": "จำนวนสินค้าสำเร็จรูปที่พร้อมขายอยู่จริง ระบบหักเมื่อขายและเพิ่มเมื่อผลิตเสร็จ" },
+        { "field_name": "min_stock", "description": "จุดสต็อกขั้นต่ำ เมื่อคงเหลือน้อยกว่าหรือเท่าค่านี้ ระบบจะแจ้งใกล้หมดและแนะนำผลิต" },
+        { "field_name": "target_stock", "description": "จำนวนสต็อกเป้าหมายหลังเติมสินค้า ใช้คำนวณจำนวนที่ควรผลิต" },
+        { "field_name": "stock_status", "description": "สถานะสต็อกที่ระบบคำนวณจาก stock_on_hand และ min_stock ได้แก่ NORMAL LOW_STOCK หรือ OUT_OF_STOCK ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "recommended_production_qty", "description": "จำนวนที่ระบบแนะนำให้ผลิตเพื่อเติมสต็อกกลับสู่ target_stock ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "production_lead_days", "description": "จำนวนวันโดยประมาณที่ใช้ผลิตสินค้า SKU นี้ ใช้กำหนดวันครบกำหนดของแผนผลิต" },
+        { "field_name": "materials_json", "description": "สูตร BOM ของสินค้าในรูป JSON ระบุ material_sku quantity_per_unit และ unit ของวัตถุดิบแต่ละรายการ" },
+        { "field_name": "active", "description": "เปิดหรือปิดการใช้งาน SKU ระบบจะวางแผนและตัดสต็อกเฉพาะรายการที่เปิดใช้งาน" }
+      ]
+    },
+    {
+      "table": "PC_Materials",
+      "table_id_env": "PC_MATERIALS_TABLE_ID",
+      "description": "ข้อมูลวัตถุดิบ คงเหลือจริง ความต้องการจากแผนผลิต และจำนวนที่ควรสั่งซื้อ",
+      "fields": [
+        { "field_name": "material_sku", "description": "รหัสวัตถุดิบเฉพาะ ใช้เชื่อมกับ BOM ใน PC_Products ห้ามซ้ำ" },
+        { "field_name": "material_name", "description": "ชื่อวัตถุดิบแบบอ่านง่ายสำหรับแสดงใน Dashboard และการแจ้งเตือน" },
+        { "field_name": "category", "description": "หมวดวัตถุดิบ เช่น ผ้า ลูกไม้ ซิป กระดุม ป้าย หรือบรรจุภัณฑ์" },
+        { "field_name": "unit", "description": "หน่วยนับของวัตถุดิบ เช่น เมตร ชิ้น หลอด หรือใบ ต้องตรงกับหน่วยใน BOM" },
+        { "field_name": "source_type", "description": "แหล่งจัดหา ได้แก่ IN_HOUSE ผลิตเอง DOMESTIC ซื้อในประเทศ หรือ IMPORT นำเข้า" },
+        { "field_name": "supplier_name", "description": "ชื่อผู้ขายหรือแหล่งจัดหาวัตถุดิบ ใช้สำหรับติดตามการสั่งซื้อ" },
+        { "field_name": "supplier_country", "description": "ประเทศของผู้ขายหรือแหล่งผลิตวัตถุดิบ" },
+        { "field_name": "lead_time_days", "description": "จำนวนวันโดยประมาณตั้งแต่สั่งซื้อจนรับวัตถุดิบ ใช้ประเมินระดับความเร่งด่วน" },
+        { "field_name": "stock_on_hand", "description": "จำนวนวัตถุดิบคงเหลือจริง ระบบเพิ่มเมื่อรับเข้าและหักเมื่อผลิตเสร็จ" },
+        { "field_name": "min_stock", "description": "จุดสต็อกขั้นต่ำของวัตถุดิบ ใช้เตือนให้เริ่มสั่งซื้อก่อนกระทบการผลิต" },
+        { "field_name": "target_stock", "description": "จำนวนวัตถุดิบเป้าหมายหลังเติม ใช้คำนวณจำนวนแนะนำสั่งซื้อ" },
+        { "field_name": "planned_requirement", "description": "จำนวนวัตถุดิบรวมที่ต้องใช้จากแผนผลิตที่ยังเปิดอยู่ทั้งหมด ระบบคำนวณจาก BOM ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "projected_stock", "description": "ยอดคงเหลือคาดการณ์หลังหัก planned_requirement คำนวณจาก stock_on_hand ลบ planned_requirement ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "shortage_qty", "description": "จำนวนที่ขาดจนไม่พอสำหรับแผนผลิต หากมากกว่า 0 แสดงว่ามีแผนผลิตที่เดินต่อไม่ได้ ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "material_status", "description": "สถานะวัตถุดิบที่ระบบคำนวณ ได้แก่ NORMAL LOW_STOCK REORDER_REQUIRED หรือ OUT_OF_STOCK ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "recommended_reorder_qty", "description": "จำนวนที่ระบบแนะนำให้สั่งซื้อเพื่อรองรับแผนผลิตและเติมกลับถึง target_stock ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "alert_level", "description": "ระดับการแจ้งเตือนที่ระบบคำนวณ ได้แก่ NONE INFO WARNING หรือ CRITICAL โดยพิจารณายอดขาดและระยะเวลาจัดหา" },
+        { "field_name": "active", "description": "เปิดหรือปิดการใช้งานวัตถุดิบ ระบบคำนวณแผนและแสดง Dashboard เฉพาะรายการที่เปิดใช้งาน" },
+        { "field_name": "notes", "description": "หมายเหตุเพิ่มเติมเกี่ยวกับวัตถุดิบ ผู้ขาย เงื่อนไขสั่งซื้อ หรือข้อควรระวัง" }
+      ]
+    },
+    {
+      "table": "PC_Production",
+      "table_id_env": "PC_PRODUCTION_TABLE_ID",
+      "description": "แผนผลิตสินค้าแต่ละรอบ ตั้งแต่แนะนำ อนุมัติ รอวัตถุดิบ กำลังผลิต จนรับเข้าสต็อก",
+      "fields": [
+        { "field_name": "production_id", "description": "รหัสแผนผลิตเฉพาะ ใช้อ้างอิงใน Dashboard การแจ้งเตือน และ Audit ห้ามซ้ำ" },
+        { "field_name": "source_order_id", "description": "รหัส Order หรือแหล่งเหตุการณ์ที่ทำให้สร้างหรือปรับแผนผลิตนี้" },
+        { "field_name": "product_sku", "description": "SKU สินค้าที่ต้องผลิต ต้องตรงกับ sku ใน PC_Products" },
+        { "field_name": "product_name", "description": "ชื่อสินค้าที่ผลิต เก็บไว้เพื่อให้อ่านแผนและการแจ้งเตือนได้ง่าย" },
+        { "field_name": "reason", "description": "เหตุผลที่สร้างแผนผลิต เช่น เติมสต็อกขั้นต่ำ รองรับ Order หรือสร้างด้วยมือ" },
+        { "field_name": "order_shortage_qty", "description": "จำนวนสินค้าที่ Order ต้องการเกินจากสต็อกพร้อมขาย ณ ตอนสร้างแผน" },
+        { "field_name": "recommended_qty", "description": "จำนวนที่ระบบแนะนำให้ผลิตจาก stock_on_hand min_stock target_stock และแผนที่มีอยู่" },
+        { "field_name": "planned_qty", "description": "จำนวนที่ยืนยันว่าจะผลิตในแผนนี้ ใช้คำนวณความต้องการวัตถุดิบ" },
+        { "field_name": "actual_qty", "description": "จำนวนที่ผลิตเสร็จจริงและรับเข้าสต็อก บันทึกตอนปิดงานผลิต" },
+        { "field_name": "material_check_status", "description": "ผลตรวจวัตถุดิบของแผน ได้แก่ SUFFICIENT INSUFFICIENT หรือ BOM_MISSING ระบบคำนวณจาก BOM และสต็อก" },
+        { "field_name": "production_status", "description": "สถานะแผนผลิต ได้แก่ RECOMMENDED APPROVED BLOCKED_MATERIAL IN_PROGRESS COMPLETED หรือ CANCELLED" },
+        { "field_name": "material_requirement_summary", "description": "สรุปรายการและจำนวนวัตถุดิบที่แผนนี้ต้องใช้ คำนวณจาก BOM" },
+        { "field_name": "material_risk_summary", "description": "สรุปวัตถุดิบที่ขาด สูตรที่ไม่ครบ หรือความเสี่ยงที่ทำให้เริ่มหรือปิดงานผลิตไม่ได้" },
+        { "field_name": "due_date", "description": "วันที่คาดว่าแผนผลิตควรเสร็จ คำนวณจากวันสร้างแผนและ production_lead_days" },
+        { "field_name": "inventory_posted", "description": "ระบุว่ารอบผลิตนี้หักวัตถุดิบและเพิ่มสินค้าสำเร็จรูปเข้าสต็อกแล้ว ใช้ป้องกันการ Post ซ้ำ" },
+        { "field_name": "inventory_posting_state_json", "description": "สถานะเทคนิคสำหรับ Idempotency และกู้คืนกรณีเขียนสต็อกค้างกลางทาง ไม่ควรแก้ด้วยมือ" },
+        { "field_name": "created_at", "description": "วันและเวลาที่สร้างแผนผลิต" },
+        { "field_name": "completed_at", "description": "วันและเวลาที่ผลิตเสร็จและรับสินค้าเข้าสต็อกเรียบร้อย" },
+        { "field_name": "owner", "description": "ผู้รับผิดชอบหรือผู้อนุมัติแผนผลิตล่าสุด" },
+        { "field_name": "notes", "description": "หมายเหตุเพิ่มเติมของแผนผลิต เช่น เงื่อนไข งานแก้ หรือข้อมูลติดตาม" }
+      ]
+    }
+  ]
+}
