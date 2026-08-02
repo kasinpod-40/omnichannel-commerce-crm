@@ -24,7 +24,12 @@ function isAllowedRequestOrigin(
         return true;
     }
 
-    return getAllowedOrigins(env).has(origin);
+    try {
+        return getAllowedOrigins(env).has(origin);
+    } catch {
+        // หากรายการ Origin ภายนอกตั้งค่าไม่ครบ ให้ปฏิเสธแบบ fail-closed
+        return false;
+    }
 }
 
 /**
@@ -55,16 +60,7 @@ export function addAuthCorsHeaders(
         return response;
     }
 
-    let allowed = false;
-
-    try {
-        allowed = isAllowedRequestOrigin(request, env, origin);
-    } catch {
-        // หาก Config ยังไม่ครบ ให้คง Response เดิมแทนการทำ Error ซ้อนในขั้นตอนแนบ CORS
-        return response;
-    }
-
-    if (!allowed) {
+    if (!isAllowedRequestOrigin(request, env, origin)) {
         return response;
     }
 
