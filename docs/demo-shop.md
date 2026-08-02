@@ -6,14 +6,26 @@
 
 ```text
 เปิด /demo-shop
-→ เลือกสินค้าและจำนวน
+→ เลือกแบบสินค้า
+→ เลือกไซซ์และดู Stock ของ Variant นั้น
+→ เลือกจำนวน
 → กดสั่งซื้อสินค้า
 → สร้าง Customer / Pipeline / Order สาธิต
 → ยืนยันการชำระเงินด้วย Payment lifecycle เดิม
-→ Reconcile Order กับ Stock
+→ Reconcile Order กับ Stock ตาม SKU ที่เลือก
 → สร้างหรือปรับ Production recommendation เมื่อจำเป็น
 → แสดง Stock ก่อน–หลังและผลลัพธ์บนหน้า Web
 ```
+
+## Product variant contract
+
+- สินค้าแบบเดียวกันและสีเดียวกันจะแสดงเป็นการ์ดเดียว
+- การจัดกลุ่มใช้ `style_code` เป็นหลัก และใช้ชื่อสินค้าที่ตัดคำลงท้าย `ไซซ์ ...` เป็น fallback
+- สีและหมวดหมู่ยังแยกเป็นคนละการ์ดเพื่อไม่รวม Variant คนละสินค้า
+- ปุ่มไซซ์แต่ละปุ่มผูกกับ SKU จริงของ `PC_Products`
+- เมื่อเปลี่ยนไซซ์ หน้า Web ต้องเปลี่ยน SKU, ราคา, สถานะ Stock และจำนวนคงเหลือตาม Variant ที่เลือก
+- Order API รับ SKU ของไซซ์ที่เลือก จึงยังใช้ Business Flow เดิมโดยไม่แก้ Stock ตรงจาก Browser
+- ไซซ์ที่ Stock เป็นศูนย์ยังเลือกได้เพื่อสาธิต Shortage / Production recommendation แต่ UI แสดงสถานะสินค้าหมดอย่างชัดเจน
 
 ## ข้อมูลจริงและข้อมูลสาธิต
 
@@ -60,7 +72,7 @@
 
 ## UI
 
-หน้าถูกออกแบบเป็น Luxury minimal สำหรับแบรนด์เสื้อผ้า โดยไม่พึ่ง External font, image หรือ script มี Loading, Empty, Authentication, Error, Pending และ Success state พร้อม Responsive layout และ Reduced-motion support.
+หน้าถูกออกแบบเป็น Luxury minimal สำหรับแบรนด์เสื้อผ้า โดยไม่พึ่ง External font, image หรือ script ชุดฟอนต์ใช้เฉพาะ System fonts ที่รองรับภาษาไทย มี Loading, Empty, Authentication, Error, Pending และ Success state พร้อม Responsive layout และ Reduced-motion support.
 
 ## Deployment state
 
