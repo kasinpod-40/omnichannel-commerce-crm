@@ -6,11 +6,30 @@ import { notifyPcExceptionOnce } from "./pc.alerts";
 import { getPcOverview } from "./pc.service";
 import type { PcOrderInventoryState } from "./pc.types";
 
-const DEFAULT_STATE_READ_DELAYS_MS = [0, 100, 250, 500] as const;
+const DEFAULT_STATE_READ_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 4_000] as const;
+
+export type PcLowStockNotificationResult = {
+    state_ready: boolean;
+    matched: number;
+    dispatched: number;
+    failed: number;
+    errors: string[];
+};
 
 type LowStockReadOptions = {
     retryDelaysMs?: readonly number[];
+    inventoryState?: PcOrderInventoryState | null;
 };
+
+function emptyResult(stateReady: boolean): PcLowStockNotificationResult {
+    return {
+        state_ready: stateReady,
+        matched: 0,
+        dispatched: 0,
+        failed: 0,
+        errors: [],
+    };
+}
 
 function parseOrderInventoryState(value: unknown): PcOrderInventoryState | null {
     const text = getLarkText(value, "").trim();
@@ -41,6 +60,23 @@ function waitForState(delayMs: number): Promise<void> {
     }
 
     return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function validProvidedState(
+    state: PcOrderInventoryState | null | undefined,
+    orderRecordId: string
+): PcOrderInventoryState | null {
+    if (
+        !state ||
+        state.version !== 1 ||
+        state.phase !== "applied" ||
+        state.order_record_id !== orderRecordId ||
+        !Array.isArray(state.transitions)
+    ) {
+        return null;
+    }
+
+    return state;
 }
 
 async function readAppliedInventoryState(
@@ -89,25 +125,32 @@ function formatQuantity(value: number): string {
 /**
  * แจ้งเตือนเมื่อ Order ทำให้ Stock ข้ามจากเหนือ Min Stock ลงมาอยู่ที่หรือต่ำกว่า Min Stock.
  * Event ID ผูกกับ Order fingerprint และ SKU เพื่อให้ Queue retry ได้โดยไม่ยิงซ้ำ.
- * อ่าน Inventory state แบบ bounded retry เพราะ Lark อาจยังคืน Record รุ่นก่อนหน้าทันทีหลัง update.
+ * Caller ที่มี Inventory state หลัง Reconcile แล้วควรส่งเข้ามาโดยตรง เพื่อไม่พึ่ง
+ * read-after-write consistency ของ Lark. เส้นทางอื่นยังมี bounded retry เป็น fallback.
  */
 export async function notifyLowStockAfterOrderOnce(
     env: Env,
     orderRecordId: string,
     options: LowStockReadOptions = {}
-): Promise<number> {
+): Promise<PcLowStockNotificationResult> {
+    const providedState = validProvidedState(
+        options.inventoryState,
+        orderRecordId
+    );
     const retryDelaysMs =
         options.retryDelaysMs?.length
             ? options.retryDelaysMs
             : DEFAULT_STATE_READ_DELAYS_MS;
-    const state = await readAppliedInventoryState(
-        env,
-        orderRecordId,
-        retryDelaysMs
-    );
+    const state =
+        providedState ??
+        (await readAppliedInventoryState(
+            env,
+            orderRecordId,
+            retryDelaysMs
+        ));
 
     if (!state) {
-        return 0;
+        return emptyResult(false);
     }
 
     const overview = await getPcOverview(env);
@@ -117,7 +160,7 @@ export async function notifyLowStockAfterOrderOnce(
             product,
         ])
     );
-    let notifications = 0;
+    const result = emptyResult(true);
 
     for (const transition of state.transitions) {
         const product = productBySku.get(
@@ -137,6 +180,7 @@ export async function notifyLowStockAfterOrderOnce(
             continue;
         }
 
+        result.matched += 1;
         const stockLabel =
             transition.new_stock_on_hand <= 0
                 ? "สินค้าหมด"
@@ -147,8 +191,7 @@ export async function notifyLowStockAfterOrderOnce(
         const productLabel = [product.product_name, variant]
             .filter(Boolean)
             .join(" · ");
-
-        await notifyPcExceptionOnce(env, {
+        const dispatched = await notifyPcExceptionOnce(env, {
             event_id: [
                 "pc",
                 "low-stock",
@@ -162,8 +205,17 @@ export async function notifyLowStockAfterOrderOnce(
             detail: `${stockLabel}: ${productLabel} (${product.sku}) คงเหลือ ${formatQuantity(transition.new_stock_on_hand)} ชิ้น จากขั้นต่ำ ${formatQuantity(product.min_stock)} ชิ้น`,
             next_action: `ตรวจสอบแผนผลิตอัตโนมัติและเติม Stock ให้ถึงเป้าหมาย ${formatQuantity(product.target_stock)} ชิ้น`,
         });
-        notifications += 1;
+
+        if (dispatched) {
+            result.dispatched += 1;
+            continue;
+        }
+
+        result.failed += 1;
+        result.errors.push(
+            `ไม่สามารถสร้างหรือส่ง Notification สำหรับ SKU ${product.sku}`
+        );
     }
 
-    return notifications;
+    return result;
 }
