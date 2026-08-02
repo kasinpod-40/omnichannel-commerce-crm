@@ -44,7 +44,35 @@ describe("Demo Shop HTML", () => {
         }
     });
 
-    it("serializes the dashboard URL for the login handoff", () => {
+    it("uses actual stock for availability and limits orders to the remaining quantity", () => {
+        const html = renderDemoShopHtml({
+            dashboardUrl: "https://dashboard.example.com",
+            nonce: "abc",
+        });
+
+        expect(html).toContain('nextLabel = "สินค้าใกล้หมด"');
+        expect(html).toContain('nextLabel = "สินค้าหมด"');
+        expect(html).toContain("quantity > stock");
+        expect(html).toContain("selectedQuantity(card) >= stock");
+        expect(html).toContain("สินค้าคงเหลือ \" + stock + \" ชิ้น");
+    });
+
+    it("changes the unauthenticated handoff to direct Lark login and returns to Demo Shop", () => {
+        const html = renderDemoShopHtml({
+            dashboardUrl: "https://dashboard.example.com",
+            nonce: "abc",
+        });
+
+        expect(html).toContain("เข้าสู่ระบบด้วย Lark");
+        expect(html).toContain(
+            "/auth/lark/login?return_to=%2Fdemo-shop"
+        );
+        expect(html).toContain(
+            "ระบบจะกลับมาที่ Demo Shop อัตโนมัติ"
+        );
+    });
+
+    it("serializes the dashboard URL for the legacy login handoff safely", () => {
         const html = renderDemoShopHtml({
             dashboardUrl: "https://dashboard.example.com",
             nonce: "abc",
