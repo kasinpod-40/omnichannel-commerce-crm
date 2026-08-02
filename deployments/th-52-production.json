@@ -1,0 +1,21 @@
+{
+  "contract_version": "cloudflare_worker_deploy_receipt_v1",
+  "release": "TH-52",
+  "result": "failure",
+  "source_sha": "1a13a2d34590103052758018f40d3209200b6b27",
+  "expected_source_sha": "1a13a2d34590103052758018f40d3209200b6b27",
+  "health_version_expected": "live-pc-low-stock-demo-th-52",
+  "health": null,
+  "demo_shop_get_status": null,
+  "smoke_test": {
+    "method": "GET_ONLY",
+    "order_created": false,
+    "notification_created": false,
+    "stock_mutated": false
+  },
+  "failed_stage": "cloudflare_deploy",
+  "error_class": "cloudflare_credentials_or_permission",
+  "deploy_log_tail": "\n ⛅️ wrangler 4.114.0 (update available 4.118.0)\n───────────────────────────────────────────────\n\n\u001b[31m✘ \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mIn a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN environment variable for wrangler to work. Please go to https://developers.cloudflare.com/fundamentals/api/get-started/create-token/ for instructions on how to create an api token, and assign its value to CLOUDFLARE_API_TOKEN.\u001b[0m\n\n  \n  To continue without logging in, rerun this command with `--temporary`. Wrangler will use a temporary account and print a claim URL.\n\n\n🪵  Logs were written to \"/home/runner/.config/.wrangler/logs/[REDACTED].log\"",
+  "started_at": "2026-08-02T04:00:12Z",
+  "completed_at": "2026-08-02T04:00:49Z"
+}
