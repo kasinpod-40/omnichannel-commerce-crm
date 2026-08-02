@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import {
+    buildFieldDescription,
     buildFieldUpdatePayload,
     normalizeFieldDescription,
     summarizeFieldUpdatePayload,
@@ -14,10 +15,18 @@ const primaryText = {
     property: {},
 };
 
+assert.deepEqual(buildFieldDescription("  รหัสสินค้า  "), {
+    disable_sync: false,
+    text: "รหัสสินค้า",
+});
+
 assert.deepEqual(buildFieldUpdatePayload(primaryText, "รหัสสินค้า"), {
     field_name: "sku",
     type: 1,
-    description: "รหัสสินค้า",
+    description: {
+        disable_sync: false,
+        text: "รหัสสินค้า",
+    },
 });
 
 const number = {
@@ -31,7 +40,10 @@ const number = {
 assert.deepEqual(buildFieldUpdatePayload(number, "จำนวนคงเหลือ"), {
     field_name: "stock_on_hand",
     type: 2,
-    description: "จำนวนคงเหลือ",
+    description: {
+        disable_sync: false,
+        text: "จำนวนคงเหลือ",
+    },
     property: { formatter: "0.0" },
 });
 
@@ -64,17 +76,31 @@ const currency = {
 assert.deepEqual(buildFieldUpdatePayload(currency, "ราคาขาย"), {
     field_name: "sales_price_thb",
     type: 2,
-    description: "ราคาขาย",
+    description: {
+        disable_sync: false,
+        text: "ราคาขาย",
+    },
     ui_type: "Currency",
     property: { formatter: "0.00", currency_code: "THB" },
 });
 
 assert.equal(normalizeFieldDescription("  คำอธิบาย  "), "คำอธิบาย");
 assert.equal(
-    normalizeFieldDescription({ text: "  คำอธิบายจาก API  " }),
+    normalizeFieldDescription({
+        disable_sync: true,
+        text: "  คำอธิบายจาก API  ",
+    }),
     "คำอธิบายจาก API"
 );
+assert.equal(
+    normalizeFieldDescription([
+        { text: "ส่วนแรก", type: "text" },
+        { text: " ส่วนที่สอง ", type: "text" },
+    ]),
+    "ส่วนแรก ส่วนที่สอง"
+);
 
+assert.throws(() => buildFieldDescription("   "), /description is empty/);
 assert.throws(
     () =>
         buildFieldUpdatePayload(
@@ -92,7 +118,10 @@ assert.deepEqual(
     summarizeFieldUpdatePayload(primaryText, {
         field_name: "sku",
         type: 1,
-        description: "รหัสสินค้า",
+        description: {
+            disable_sync: false,
+            text: "รหัสสินค้า",
+        },
     }),
     {
         field_name: "sku",
@@ -101,8 +130,19 @@ assert.deepEqual(
         ui_type: null,
         payload_keys: ["description", "field_name", "type"],
         property_keys: [],
+        description_shape: "object",
+        description_keys: ["disable_sync", "text"],
         description_length: 10,
     }
+);
+
+assert.equal(
+    summarizeFieldUpdatePayload(primaryText, {
+        field_name: "sku",
+        type: 1,
+        description: "invalid-string",
+    }).description_shape,
+    "invalid"
 );
 
 console.log("PC field-description payload tests passed.");
