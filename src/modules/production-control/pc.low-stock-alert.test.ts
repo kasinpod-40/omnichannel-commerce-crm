@@ -243,6 +243,46 @@ describe("PC low stock notification", () => {
         expect(mocks.notifyPcExceptionOnce).not.toHaveBeenCalled();
     });
 
+    it("manually recovers an alert when stock after the Order is low even if it was already below Min", async () => {
+        mocks.getPcOverview.mockResolvedValue({
+            summary: {},
+            products: [product({ min_stock: 10 })],
+            materials: [],
+            production: [],
+        });
+
+        const result = await notifyLowStockAfterOrderOnce(
+            {} as Env,
+            "order-rec-1",
+            {
+                inventoryState: orderState({ oldStock: 7, newStock: 5 }),
+                evaluationMode: "current_low_stock_recovery",
+            }
+        );
+
+        expect(result).toMatchObject({
+            state_ready: true,
+            matched: 1,
+            dispatched: 1,
+            failed: 0,
+            diagnostics: [
+                expect.objectContaining({
+                    reason: "RECOVERY_CURRENT_LOW_STOCK",
+                    old_stock_on_hand: 7,
+                    new_stock_on_hand: 5,
+                    min_stock: 10,
+                }),
+            ],
+        });
+        expect(mocks.notifyPcExceptionOnce).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({
+                event_id: expect.stringContaining("pc:low-stock-recovery:"),
+                detail: expect.stringContaining("ส่งซ้ำจาก Order เดิม"),
+            })
+        );
+    });
+
     it("fails visibly when the Product cannot be resolved", async () => {
         mocks.getPcOverview.mockResolvedValue({
             summary: {},
