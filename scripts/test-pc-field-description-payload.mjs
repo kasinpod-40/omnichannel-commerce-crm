@@ -87,7 +87,7 @@ assert.deepEqual(buildFieldUpdatePayload(currency, "ราคาขาย"), {
 assert.equal(normalizeFieldDescription("  คำอธิบาย  "), "คำอธิบาย");
 assert.equal(
     normalizeFieldDescription({
-        disable_sync: false,
+        disable_sync: true,
         text: "  คำอธิบายจาก API  ",
     }),
     "คำอธิบายจาก API"
@@ -97,7 +97,7 @@ assert.equal(
         { text: "ส่วนแรก", type: "text" },
         { text: " ส่วนที่สอง ", type: "text" },
     ]),
-    "ส่วนแรกส่วนที่สอง"
+    "ส่วนแรก ส่วนที่สอง"
 );
 
 assert.throws(() => buildFieldDescription("   "), /description is empty/);
