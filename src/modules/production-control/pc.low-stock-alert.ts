@@ -4,9 +4,27 @@ import { getLarkText } from "../../utils/lark-field-value";
 import { getOrderByRecordId } from "../orders/order.repository";
 import { notifyPcExceptionOnce } from "./pc.alerts";
 import { getPcOverview } from "./pc.service";
-import type { PcOrderInventoryState } from "./pc.types";
+import type { PcOrderInventoryState, PcProduct } from "./pc.types";
 
 const DEFAULT_STATE_READ_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 4_000] as const;
+
+export type PcLowStockDiagnosticReason =
+    | "MATCHED"
+    | "PRODUCT_NOT_FOUND"
+    | "STOCK_NOT_DECREASED"
+    | "ALREADY_AT_OR_BELOW_MIN"
+    | "STILL_ABOVE_MIN";
+
+export type PcLowStockDiagnostic = {
+    transition_record_id: string;
+    transition_sku: string;
+    resolved_sku: string | null;
+    old_stock_on_hand: number;
+    new_stock_on_hand: number;
+    min_stock: number | null;
+    reason: PcLowStockDiagnosticReason;
+    message: string;
+};
 
 export type PcLowStockNotificationResult = {
     state_ready: boolean;
@@ -14,6 +32,7 @@ export type PcLowStockNotificationResult = {
     dispatched: number;
     failed: number;
     errors: string[];
+    diagnostics: PcLowStockDiagnostic[];
 };
 
 type LowStockReadOptions = {
@@ -28,6 +47,7 @@ function emptyResult(stateReady: boolean): PcLowStockNotificationResult {
         dispatched: 0,
         failed: 0,
         errors: [],
+        diagnostics: [],
     };
 }
 
@@ -70,13 +90,19 @@ function validProvidedState(
         !state ||
         state.version !== 1 ||
         state.phase !== "applied" ||
-        state.order_record_id !== orderRecordId ||
         !Array.isArray(state.transitions)
     ) {
         return null;
     }
 
-    return state;
+    // Caller ของ recovery ยืนยัน Order จาก record จริงแล้ว จึงซ่อม metadata เก่าที่
+    // อาจไม่มี/มี order_record_id ไม่ตรง โดยไม่แตะ allocations หรือ Stock transition.
+    return state.order_record_id === orderRecordId
+        ? state
+        : {
+              ...state,
+              order_record_id: orderRecordId,
+          };
 }
 
 async function readAppliedInventoryState(
@@ -101,7 +127,7 @@ async function readAppliedInventoryState(
         }
 
         if (state.phase === "applied") {
-            return state;
+            return validProvidedState(state, orderRecordId);
         }
 
         if (state.phase !== "prepared") {
@@ -120,6 +146,90 @@ function formatQuantity(value: number): string {
     return new Intl.NumberFormat("th-TH", {
         maximumFractionDigits: 2,
     }).format(value);
+}
+
+function normalizeProductKey(value: string): string {
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/[()\[\]{}._\-/]+/g, " ")
+        .replace(/\s+/g, " ");
+}
+
+function resolveTransitionProduct(
+    productsByRecordId: Map<string, PcProduct>,
+    productsBySku: Map<string, PcProduct>,
+    transition: PcOrderInventoryState["transitions"][number]
+): PcProduct | null {
+    return (
+        productsByRecordId.get(transition.record_id) ??
+        productsBySku.get(normalizeProductKey(transition.sku)) ??
+        null
+    );
+}
+
+function diagnosticForTransition(input: {
+    transition: PcOrderInventoryState["transitions"][number];
+    product: PcProduct | null;
+}): PcLowStockDiagnostic {
+    const { transition, product } = input;
+    const base = {
+        transition_record_id: transition.record_id,
+        transition_sku: transition.sku,
+        resolved_sku: product?.sku ?? null,
+        old_stock_on_hand: transition.old_stock_on_hand,
+        new_stock_on_hand: transition.new_stock_on_hand,
+        min_stock: product?.min_stock ?? null,
+    };
+
+    if (!product) {
+        return {
+            ...base,
+            reason: "PRODUCT_NOT_FOUND",
+            message:
+                `หา Product ของ SKU ${transition.sku || "ไม่ระบุ"} ไม่พบ ` +
+                `(record ${transition.record_id || "ไม่ระบุ"})`,
+        };
+    }
+
+    if (transition.new_stock_on_hand >= transition.old_stock_on_hand) {
+        return {
+            ...base,
+            reason: "STOCK_NOT_DECREASED",
+            message:
+                `SKU ${product.sku}: Stock ไม่ได้ลดลง ` +
+                `(${formatQuantity(transition.old_stock_on_hand)} → ${formatQuantity(transition.new_stock_on_hand)})`,
+        };
+    }
+
+    if (transition.old_stock_on_hand <= product.min_stock) {
+        return {
+            ...base,
+            reason: "ALREADY_AT_OR_BELOW_MIN",
+            message:
+                `SKU ${product.sku}: ก่อน Order มี Stock ${formatQuantity(transition.old_stock_on_hand)} ` +
+                `ซึ่งเท่ากับหรือต่ำกว่า Min ${formatQuantity(product.min_stock)} อยู่แล้ว`,
+        };
+    }
+
+    if (transition.new_stock_on_hand > product.min_stock) {
+        return {
+            ...base,
+            reason: "STILL_ABOVE_MIN",
+            message:
+                `SKU ${product.sku}: หลัง Order ยังเหลือ ${formatQuantity(transition.new_stock_on_hand)} ` +
+                `มากกว่า Min ${formatQuantity(product.min_stock)}`,
+        };
+    }
+
+    return {
+        ...base,
+        reason: "MATCHED",
+        message:
+            `SKU ${product.sku}: Stock ข้ามเกณฑ์ ` +
+            `${formatQuantity(transition.old_stock_on_hand)} → ${formatQuantity(transition.new_stock_on_hand)} ` +
+            `(Min ${formatQuantity(product.min_stock)})`,
+    };
 }
 
 /**
@@ -150,33 +260,42 @@ export async function notifyLowStockAfterOrderOnce(
         ));
 
     if (!state) {
-        return emptyResult(false);
+        const result = emptyResult(false);
+        result.failed = 1;
+        result.errors.push(
+            "ไม่พบ Inventory state แบบ applied ของ Order สำหรับประเมินแจ้งเตือน"
+        );
+        return result;
     }
 
     const overview = await getPcOverview(env);
-    const productBySku = new Map(
+    const productsByRecordId = new Map(
+        overview.products.map((product) => [product.record_id, product])
+    );
+    const productsBySku = new Map(
         overview.products.map((product) => [
-            product.sku.trim().toLowerCase(),
+            normalizeProductKey(product.sku),
             product,
         ])
     );
     const result = emptyResult(true);
 
     for (const transition of state.transitions) {
-        const product = productBySku.get(
-            transition.sku.trim().toLowerCase()
+        const product = resolveTransitionProduct(
+            productsByRecordId,
+            productsBySku,
+            transition
         );
+        const diagnostic = diagnosticForTransition({ transition, product });
+        result.diagnostics.push(diagnostic);
 
         if (!product) {
+            result.failed += 1;
+            result.errors.push(diagnostic.message);
             continue;
         }
 
-        const crossedLowStockThreshold =
-            transition.new_stock_on_hand < transition.old_stock_on_hand &&
-            transition.old_stock_on_hand > product.min_stock &&
-            transition.new_stock_on_hand <= product.min_stock;
-
-        if (!crossedLowStockThreshold) {
+        if (diagnostic.reason !== "MATCHED") {
             continue;
         }
 
