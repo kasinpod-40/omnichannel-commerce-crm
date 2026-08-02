@@ -4,10 +4,8 @@ import {
     verifyPcWorkflowActionToken,
     type PcWorkflowAction,
 } from "../../modules/production-control/pc.action-token";
-import {
-    markPcProductionBlocked,
-    refreshPcMaterialPlan,
-} from "../../modules/production-control/pc.service";
+import { refreshPcDerivedState } from "../../modules/production-control/pc.derived-state";
+import { markPcProductionBlocked } from "../../modules/production-control/pc.service";
 import { runPcWorkflowAction } from "../../modules/production-control/pc.workflow.service";
 import { OperationalError } from "../../utils/errors";
 import { assertDashboardSession } from "../shared/dashboard-api";
@@ -192,9 +190,9 @@ async function handleCompletionMaterialShortage(input: {
     production_record_id: string;
     error: OperationalError;
 }): Promise<Response> {
-    // คำนวณ planned_requirement / projected_stock / shortage_qty ใน PC_Materials
-    // ก่อนสร้าง Card เพื่อให้ Dashboard และข้อความ Lark อ่านเหตุการณ์เดียวกัน
-    await refreshPcMaterialPlan(input.env);
+    // คำนวณ Material Plan และ Reconcile สถานะอนุพันธ์ก่อนสร้าง Card
+    // เพื่อให้ Dashboard, Product และ Production อ่านเหตุการณ์เดียวกัน
+    await refreshPcDerivedState(input.env);
     await markPcProductionBlocked(input.env, {
         production_record_id: input.production_record_id,
         code: input.error.code,
@@ -275,9 +273,9 @@ export async function handlePcWorkflowActionPage(
         assertSameOriginPost(request);
         const session = await requireOperator(request, env);
         if (action === "approve-production") {
-            // ใช้แผนที่มีอยู่ใน Lark มาคำนวณ PC_Materials ก่อนอนุมัติ
-            // เพื่อให้ Dashboard พร้อมก่อนเส้นทาง Production ส่ง Card วัตถุดิบขาด
-            await refreshPcMaterialPlan(env);
+            // คำนวณ Material Plan ด้วย Business key กลางและซ่อมสถานะเก่าก่อนอนุมัติ
+            // เพื่อให้ Dashboard, Product และ Production ตรงกันก่อนส่ง Card
+            await refreshPcDerivedState(env);
         }
         const result = await runPcWorkflowAction(env, {
             action,
