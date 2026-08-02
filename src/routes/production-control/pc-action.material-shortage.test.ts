@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     verifyPcWorkflowActionToken: vi.fn(),
     runPcWorkflowAction: vi.fn(),
     markPcProductionBlocked: vi.fn(),
+    refreshPcMaterialPlan: vi.fn(),
     assertDashboardSession: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("../../modules/production-control/pc.workflow.service", () => ({
 
 vi.mock("../../modules/production-control/pc.service", () => ({
     markPcProductionBlocked: mocks.markPcProductionBlocked,
+    refreshPcMaterialPlan: mocks.refreshPcMaterialPlan,
 }));
 
 vi.mock("../shared/dashboard-api", () => ({
@@ -58,10 +60,15 @@ describe("Production completion material-shortage handling", () => {
                 role: "manager",
             },
         });
+        mocks.refreshPcMaterialPlan.mockResolvedValue({
+            materials_updated: 1,
+            production_updated: 1,
+            critical_materials: 1,
+        });
         mocks.markPcProductionBlocked.mockResolvedValue(undefined);
     });
 
-    it("blocks the batch, sends the existing Lark shortage workflow and keeps stock unposted", async () => {
+    it("refreshes PC_Materials before blocking and sending the Lark shortage workflow", async () => {
         const shortage = new OperationalError(
             "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
             "วัตถุดิบ FAB-TWEED-IVORY ไม่พอ ขาด 3.8 เมตร",
@@ -78,17 +85,23 @@ describe("Production completion material-shortage handling", () => {
         const html = await response.text();
 
         expect(response.status).toBe(200);
+        expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledWith(env());
         expect(mocks.markPcProductionBlocked).toHaveBeenCalledWith(env(), {
             production_record_id: "production-rec-1",
             code: "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
             message: "วัตถุดิบ FAB-TWEED-IVORY ไม่พอ ขาด 3.8 เมตร",
         });
+        expect(
+            mocks.refreshPcMaterialPlan.mock.invocationCallOrder[0]
+        ).toBeLessThan(
+            mocks.markPcProductionBlocked.mock.invocationCallOrder[0]
+        );
         expect(html).toContain("ยังรับสินค้าเข้าสต็อกไม่ได้");
-        expect(html).toContain("ส่งแจ้งเตือนไปยังกลุ่ม Lark");
+        expect(html).toContain("อัปเดต Dashboard");
         expect(html).toContain("Stock สินค้าสำเร็จรูปยังไม่เพิ่ม");
     });
 
-    it("does not convert unrelated completion errors into material-shortage alerts", async () => {
+    it("does not refresh material planning for unrelated completion errors", async () => {
         mocks.runPcWorkflowAction.mockRejectedValue(
             new OperationalError(
                 "PC_PRODUCTION_STATUS_INVALID",
@@ -106,6 +119,7 @@ describe("Production completion material-shortage handling", () => {
         const html = await response.text();
 
         expect(response.status).toBe(409);
+        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
         expect(mocks.markPcProductionBlocked).not.toHaveBeenCalled();
         expect(html).toContain("สถานะนี้ยังปิดงานผลิตไม่ได้");
     });
