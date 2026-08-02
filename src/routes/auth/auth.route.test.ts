@@ -66,6 +66,20 @@ describe("authentication routes", () => {
         );
     });
 
+    it("กลับเข้า Production action เดิมบน Worker พร้อม token หลัง Lark OAuth", () => {
+        const location = createBrowserReturnUrl(
+            new Request(
+                "https://worker.example.com/auth/lark/callback?code=test"
+            ),
+            env,
+            "/pc/actions/production-rec-1/approve-production?token=signed"
+        );
+
+        expect(location).toBe(
+            "https://worker.example.com/pc/actions/production-rec-1/approve-production?token=signed"
+        );
+    });
+
     it("ยังส่ง Dashboard route กลับไปที่ Dashboard origin และกัน open redirect", () => {
         expect(
             createBrowserReturnUrl(

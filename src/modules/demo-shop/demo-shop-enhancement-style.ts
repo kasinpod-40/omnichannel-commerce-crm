@@ -41,6 +41,32 @@ export const DEMO_SHOP_ENHANCEMENT_STYLE = `
       letter-spacing: -0.045em;
     }
 
+    .production-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      margin-top: 10px;
+      padding: 5px 10px;
+      border: 1px solid rgba(49, 95, 73, .20);
+      border-radius: 999px;
+      background: rgba(49, 95, 73, .09);
+      color: #315f49;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .production-badge[data-status="BLOCKED_MATERIAL"] {
+      border-color: rgba(139, 93, 39, .24);
+      background: rgba(139, 93, 39, .10);
+      color: #8b5d27;
+    }
+
+    .production-badge[data-status="RECOMMENDED"] {
+      border-color: rgba(116, 109, 102, .20);
+      background: rgba(116, 109, 102, .08);
+      color: #625b54;
+    }
+
     body.processing-lock {
       overflow: hidden;
     }

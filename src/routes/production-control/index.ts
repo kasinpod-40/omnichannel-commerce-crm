@@ -1,5 +1,7 @@
 import type { Env } from "../../config/env";
+import type { PcWorkflowAction } from "../../modules/production-control/pc.action-token";
 import { dashboardPreflight } from "../shared/dashboard-api";
+import { handlePcWorkflowActionPage } from "./pc-action.route";
 import {
     handlePcMaterialRefresh,
     handlePcOrderReconcile,
@@ -16,6 +18,18 @@ export async function handleProductionControlRoutes(
 ): Promise<Response | null> {
     if (pathname !== "/pc" && !pathname.startsWith("/pc/")) {
         return null;
+    }
+
+    const actionPageMatch = pathname.match(
+        /^\/pc\/actions\/([^/]+)\/(approve-production|purchase-materials|complete-production)$/
+    );
+    if (actionPageMatch?.[1] && actionPageMatch[2]) {
+        return await handlePcWorkflowActionPage(
+            request,
+            env,
+            actionPageMatch[1],
+            actionPageMatch[2] as PcWorkflowAction
+        );
     }
 
     if (request.method === "OPTIONS") {
