@@ -1,10 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../config/env";
 import { OperationalError } from "../utils/errors";
-import type {
-    QueueBatchLike,
-    QueueMessageLike,
-} from "./line-event.types";
+import type { QueueMessageLike } from "./line-event.types";
 import type { MarketplaceEventQueueMessage } from "./marketplace-event.types";
 
 const mocks = vi.hoisted(() => ({
