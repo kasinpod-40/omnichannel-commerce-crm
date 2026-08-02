@@ -229,7 +229,17 @@ describe("PC alert delivery", () => {
         expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
     });
 
-    it("defers an automatic material-plan alert until it can be linked to an approved production batch", async () => {
+    it("always defers automatic material-plan alerts to the production-specific workflow", async () => {
+        mocks.buildPcNotificationActionCard.mockResolvedValue({
+            title: "🧵 วัตถุดิบไม่เพียงพอ",
+            markdown: "FAB-IV ขาด 6 m",
+            actions: [
+                {
+                    text: "อนุมัติสั่งซื้อวัตถุดิบ",
+                    url: "https://worker.example.com/purchase",
+                },
+            ],
+        });
         const materialInput = {
             event_id: "pc:material:FAB-IV:18:24",
             type: "PC_MATERIAL_SHORTAGE" as const,
@@ -243,7 +253,7 @@ describe("PC alert delivery", () => {
             notifyPcExceptionOnce({} as Env, materialInput)
         ).resolves.toBe(true);
 
-        expect(mocks.buildPcNotificationActionCard).toHaveBeenCalledTimes(1);
+        expect(mocks.buildPcNotificationActionCard).not.toHaveBeenCalled();
         expect(mocks.recordNotificationOnce).not.toHaveBeenCalled();
         expect(mocks.sendPcLarkActionCard).not.toHaveBeenCalled();
         expect(mocks.sendLarkGroupText).not.toHaveBeenCalled();
