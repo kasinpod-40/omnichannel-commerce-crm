@@ -1,0 +1,187 @@
+name: Deploy Live PC Low Stock TH-52
+
+on:
+  push:
+    branches:
+      - ops/deploy-live-pc-low-stock-th-52
+    paths:
+      - .github/workflows/deploy-live-pc-low-stock-th-52.yml
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      EXPECTED_SOURCE_SHA: 1a13a2d34590103052758018f40d3209200b6b27
+      EXPECTED_HEALTH_VERSION: live-pc-low-stock-demo-th-52
+      PRODUCTION_BASE_URL: https://omnichannel-commerce-crm.kasinpod40.workers.dev
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+      CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+
+    steps:
+      - name: Checkout exact TH-52 source
+        uses: actions/checkout@v4
+        with:
+          ref: 1a13a2d34590103052758018f40d3209200b6b27
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate, deploy and write receipt
+        shell: bash
+        run: |
+          set +e
+
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          RESULT="failure"
+          FAILED_STAGE="source_verification"
+          ERROR_CLASS="unknown"
+          HEALTH_JSON=""
+          DEMO_STATUS=""
+          EXIT_CODE=1
+
+          if [ "$SOURCE_SHA" != "$EXPECTED_SOURCE_SHA" ]; then
+            ERROR_CLASS="source_sha_mismatch"
+          else
+            FAILED_STAGE="npm_ci"
+            npm ci >/tmp/th52-npm-ci.log 2>&1
+            EXIT_CODE=$?
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              FAILED_STAGE="dependency_audit"
+              npm audit --audit-level=high >/tmp/th52-audit.log 2>&1
+              EXIT_CODE=$?
+            fi
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              FAILED_STAGE="full_validation"
+              npm run check >/tmp/th52-check.log 2>&1
+              EXIT_CODE=$?
+            fi
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              FAILED_STAGE="cloudflare_deploy"
+
+              [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || unset CLOUDFLARE_API_TOKEN
+              [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || unset CLOUDFLARE_ACCOUNT_ID
+              [ -n "${CLOUDFLARE_API_KEY:-}" ] || unset CLOUDFLARE_API_KEY
+              [ -n "${CLOUDFLARE_EMAIL:-}" ] || unset CLOUDFLARE_EMAIL
+
+              npx wrangler deploy >/tmp/th52-deploy.log 2>&1
+              EXIT_CODE=$?
+
+              if [ "$EXIT_CODE" -ne 0 ]; then
+                if grep -Eqi "auth|credential|api token|not logged|permission" /tmp/th52-deploy.log; then
+                  ERROR_CLASS="cloudflare_credentials_or_permission"
+                else
+                  ERROR_CLASS="cloudflare_deploy_failed"
+                fi
+              fi
+            fi
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              FAILED_STAGE="health_verification"
+              HEALTH_JSON="$(curl --silent --show-error --fail --retry 8 --retry-delay 2 "$PRODUCTION_BASE_URL/health")"
+              EXIT_CODE=$?
+
+              if [ "$EXIT_CODE" -eq 0 ]; then
+                HEALTH_JSON="$HEALTH_JSON" node <<'NODE'
+          const payload = JSON.parse(process.env.HEALTH_JSON || "{}");
+          if (payload.ok !== true || payload.version !== process.env.EXPECTED_HEALTH_VERSION) {
+            console.error("Unexpected health payload", payload);
+            process.exit(1);
+          }
+          NODE
+                EXIT_CODE=$?
+              fi
+
+              if [ "$EXIT_CODE" -ne 0 ]; then
+                ERROR_CLASS="health_version_mismatch"
+              fi
+            fi
+
+            if [ "$EXIT_CODE" -eq 0 ]; then
+              FAILED_STAGE="demo_shop_get_verification"
+              DEMO_STATUS="$(curl --silent --show-error --output /tmp/th52-demo-shop.html --write-out '%{http_code}' "$PRODUCTION_BASE_URL/demo-shop")"
+
+              if [ "$DEMO_STATUS" != "200" ] || ! grep -q "Demo Shop" /tmp/th52-demo-shop.html; then
+                EXIT_CODE=1
+                ERROR_CLASS="demo_shop_get_failed"
+              else
+                EXIT_CODE=0
+              fi
+            fi
+          fi
+
+          if [ "$EXIT_CODE" -eq 0 ]; then
+            RESULT="success"
+            FAILED_STAGE=""
+            ERROR_CLASS=""
+          fi
+
+          COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export SOURCE_SHA STARTED_AT COMPLETED_AT RESULT FAILED_STAGE ERROR_CLASS HEALTH_JSON DEMO_STATUS
+
+          cp /tmp/th52-deploy.log /tmp/th52-deploy-redacted.log 2>/dev/null || true
+          sed -E -i 's/[A-Za-z0-9_=-]{32,}/[REDACTED]/g' /tmp/th52-deploy-redacted.log 2>/dev/null || true
+          DEPLOY_LOG_TAIL="$(tail -n 12 /tmp/th52-deploy-redacted.log 2>/dev/null || true)"
+          export DEPLOY_LOG_TAIL
+
+          git fetch origin ops/deploy-live-pc-low-stock-th-52
+          git checkout -B ops/deploy-live-pc-low-stock-th-52 origin/ops/deploy-live-pc-low-stock-th-52
+          mkdir -p deployments
+
+          node <<'NODE'
+          const fs = require("node:fs");
+          let health = null;
+          try {
+            health = process.env.HEALTH_JSON ? JSON.parse(process.env.HEALTH_JSON) : null;
+          } catch {
+            health = null;
+          }
+          const receipt = {
+            contract_version: "cloudflare_worker_deploy_receipt_v1",
+            release: "TH-52",
+            result: process.env.RESULT,
+            source_sha: process.env.SOURCE_SHA,
+            expected_source_sha: process.env.EXPECTED_SOURCE_SHA,
+            health_version_expected: process.env.EXPECTED_HEALTH_VERSION,
+            health,
+            demo_shop_get_status: process.env.DEMO_STATUS || null,
+            smoke_test: {
+              method: "GET_ONLY",
+              order_created: false,
+              notification_created: false,
+              stock_mutated: false
+            },
+            failed_stage: process.env.FAILED_STAGE || null,
+            error_class: process.env.ERROR_CLASS || null,
+            deploy_log_tail: process.env.DEPLOY_LOG_TAIL || null,
+            started_at: process.env.STARTED_AT,
+            completed_at: process.env.COMPLETED_AT
+          };
+          fs.writeFileSync(
+            "deployments/th-52-production.json",
+            `${JSON.stringify(receipt, null, 2)}\n`
+          );
+          NODE
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deployments/th-52-production.json
+          git commit -m "ops: record TH-52 production deploy" || true
+          git push origin HEAD:ops/deploy-live-pc-low-stock-th-52
+
+          if [ "$RESULT" != "success" ]; then
+            exit 1
+          fi
