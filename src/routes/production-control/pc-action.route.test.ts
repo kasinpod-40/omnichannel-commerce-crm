@@ -39,7 +39,7 @@ function session(role: "admin" | "manager" | "viewer" = "manager") {
 
 function request(
     method: "GET" | "POST",
-    origin = "https://worker.example.com"
+    headers?: HeadersInit
 ): Request {
     return new Request(
         "https://worker.example.com/pc/actions/production-rec-1/approve-production?token=signed",
@@ -47,8 +47,8 @@ function request(
             method,
             headers:
                 method === "POST"
-                    ? { Origin: origin }
-                    : undefined,
+                    ? headers ?? { Origin: "https://worker.example.com" }
+                    : headers,
         }
     );
 }
@@ -148,7 +148,7 @@ describe("Production workflow action page", () => {
 
     it("rejects a cross-origin POST", async () => {
         const response = await handlePcWorkflowActionPage(
-            request("POST", "https://evil.example.com"),
+            request("POST", { Origin: "https://evil.example.com" }),
             env(),
             "production-rec-1",
             "approve-production"
@@ -157,6 +157,46 @@ describe("Production workflow action page", () => {
         expect(response.status).toBe(403);
         expect(mocks.assertDashboardSession).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
+    });
+
+    it("rejects a POST without any verifiable same-origin browser signal", async () => {
+        const response = await handlePcWorkflowActionPage(
+            request("POST", {}),
+            env(),
+            "production-rec-1",
+            "approve-production"
+        );
+
+        expect(response.status).toBe(403);
+        expect(mocks.assertDashboardSession).not.toHaveBeenCalled();
+        expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
+    });
+
+    it("accepts a same-origin browser form POST without Origin using Sec-Fetch-Site", async () => {
+        const response = await handlePcWorkflowActionPage(
+            request("POST", { "Sec-Fetch-Site": "same-origin" }),
+            env(),
+            "production-rec-1",
+            "approve-production"
+        );
+
+        expect(response.status).toBe(200);
+        expect(mocks.runPcWorkflowAction).toHaveBeenCalledTimes(1);
+    });
+
+    it("accepts a same-origin Referer fallback when Origin is omitted", async () => {
+        const response = await handlePcWorkflowActionPage(
+            request("POST", {
+                Referer:
+                    "https://worker.example.com/pc/actions/production-rec-1/approve-production?token=signed",
+            }),
+            env(),
+            "production-rec-1",
+            "approve-production"
+        );
+
+        expect(response.status).toBe(200);
+        expect(mocks.runPcWorkflowAction).toHaveBeenCalledTimes(1);
     });
 
     it("runs an authorized same-origin action and shows the resulting status", async () => {
