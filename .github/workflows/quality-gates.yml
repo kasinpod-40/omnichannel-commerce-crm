@@ -32,6 +32,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Audit production dependency surface
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Run full quality gate
         run: npm run check
 
