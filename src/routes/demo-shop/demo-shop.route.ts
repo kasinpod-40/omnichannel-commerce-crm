@@ -7,6 +7,8 @@ import {
 import { createDemoShopShopeeOrder } from "../../modules/demo-shop/demo-shop-shopee.service";
 import { retryDemoShopLowStockNotification } from "../../modules/demo-shop/demo-shop-low-stock-retry.service";
 import { renderDemoShopHtml } from "../../modules/demo-shop/demo-shop-html";
+import { getPcOverview } from "../../modules/production-control/pc.service";
+import type { PcProductionBatch } from "../../modules/production-control/pc.types";
 import { OperationalError } from "../../utils/errors";
 import {
     addAuthCorsHeaders,
@@ -19,6 +21,13 @@ import {
     dashboardJson,
     dashboardMethodNotAllowed,
 } from "../shared/dashboard-api";
+
+const ACTIVE_PRODUCTION = new Set([
+    "RECOMMENDED",
+    "APPROVED",
+    "IN_PROGRESS",
+    "BLOCKED_MATERIAL",
+]);
 
 function demoShopErrorResponse(
     request: Request,
@@ -47,6 +56,40 @@ function demoShopCatalogEnv(env: Env): Env {
         ...env,
         PC_INVENTORY_ENABLED: "false",
     };
+}
+
+function normalizeKey(value: string): string {
+    return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function productionRank(batch: PcProductionBatch): number {
+    if (batch.production_status === "IN_PROGRESS") return 4;
+    if (batch.production_status === "APPROVED") return 3;
+    if (batch.production_status === "BLOCKED_MATERIAL") return 2;
+    return 1;
+}
+
+function activeProductionBySku(
+    production: PcProductionBatch[]
+): Map<string, PcProductionBatch> {
+    const result = new Map<string, PcProductionBatch>();
+
+    for (const batch of production) {
+        if (!ACTIVE_PRODUCTION.has(batch.production_status)) continue;
+        const key = normalizeKey(batch.product_sku);
+        const current = result.get(key);
+
+        if (
+            !current ||
+            productionRank(batch) > productionRank(current) ||
+            (productionRank(batch) === productionRank(current) &&
+                batch.created_at > current.created_at)
+        ) {
+            result.set(key, batch);
+        }
+    }
+
+    return result;
 }
 
 function htmlResponse(html: string, nonce: string): Response {
@@ -93,7 +136,6 @@ async function assertDemoStockAvailable(
     const normalizedSku = sku.trim().toLowerCase();
     const requestedQuantity = Number(quantity);
 
-    // ปล่อยให้ Service หลักคืน validation error สำหรับรูปแบบจำนวนที่ไม่ถูกต้อง
     if (
         !normalizedSku ||
         !Number.isInteger(requestedQuantity) ||
@@ -172,10 +214,33 @@ export async function handleDemoShopProducts(
 
     try {
         await assertDashboardSession(request, env);
+        const catalogEnv = demoShopCatalogEnv(env);
+        const [catalog, overview] = await Promise.all([
+            getDemoShopCatalog(catalogEnv),
+            getPcOverview(catalogEnv),
+        ]);
+        const productionBySku = activeProductionBySku(overview.production);
+
         return addAuthCorsHeaders(
-            dashboardJson(
-                await getDemoShopCatalog(demoShopCatalogEnv(env))
-            ),
+            dashboardJson({
+                ...catalog,
+                products: catalog.products.map((product) => {
+                    const batch = productionBySku.get(
+                        normalizeKey(product.sku)
+                    );
+                    return {
+                        ...product,
+                        production_status: batch?.production_status ?? null,
+                        production_qty: batch
+                            ? Math.max(
+                                  0,
+                                  batch.planned_qty || batch.recommended_qty
+                              )
+                            : 0,
+                        production_id: batch?.production_id ?? "",
+                    };
+                }),
+            }),
             request,
             env
         );
@@ -219,7 +284,6 @@ export async function handleDemoShopOrderCreate(
     }
 }
 
-/** ส่ง Notification ซ้ำจาก Order เดิมโดยไม่ Reconcile และไม่แก้ Stock */
 export async function handleDemoShopLowStockRetry(
     request: Request,
     env: Env
