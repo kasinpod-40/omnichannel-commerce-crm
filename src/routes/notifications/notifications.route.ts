@@ -25,6 +25,8 @@ const TYPES = new Set<NotificationType>([
     "SALE_WON",
     "SALE_LOST",
     "PAYMENT_OVERDUE",
+    "PC_STOCK_EXCEPTION",
+    "PC_MATERIAL_SHORTAGE",
 ]);
 const READ_FILTERS = new Set<NotificationReadFilter>(["all", "unread", "read"]);
 
