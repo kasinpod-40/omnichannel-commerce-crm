@@ -1,5 +1,6 @@
 import type { Env } from "../config/env";
 import { processLazadaMarketplaceEvent } from "../modules/marketplace/lazada/lazada.webhook-processor";
+import { notifyLowStockAfterOrderOnce } from "../modules/production-control/pc.low-stock-alert";
 import {
     completePcProduction,
     markPcProductionBlocked,
@@ -113,7 +114,17 @@ async function processPcMessage(
     const body = message.body;
 
     if (body.kind === "pc_order_sync") {
-        await reconcileOrderInventory(env, body.order_record_id);
+        const result = await reconcileOrderInventory(
+            env,
+            body.order_record_id
+        );
+
+        if (result.status === "APPLIED") {
+            await notifyLowStockAfterOrderOnce(
+                env,
+                body.order_record_id
+            );
+        }
         return;
     }
 

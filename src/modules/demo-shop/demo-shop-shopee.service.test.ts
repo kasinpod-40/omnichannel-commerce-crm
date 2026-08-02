@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     getOrderByRecordId: vi.fn(),
     getPcOverview: vi.fn(),
     reconcileOrderInventory: vi.fn(),
+    notifyLowStockAfterOrderOnce: vi.fn(),
 }));
 
 vi.mock("./demo-shop.service", () => ({
@@ -23,6 +24,10 @@ vi.mock("../orders/order.repository", () => ({
     getOrderByRecordId: mocks.getOrderByRecordId,
 }));
 
+vi.mock("../production-control/pc.low-stock-alert", () => ({
+    notifyLowStockAfterOrderOnce: mocks.notifyLowStockAfterOrderOnce,
+}));
+
 vi.mock("../production-control/pc.service", () => ({
     getPcOverview: mocks.getPcOverview,
     reconcileOrderInventory: mocks.reconcileOrderInventory,
@@ -32,7 +37,7 @@ import { createDemoShopShopeeOrder } from "./demo-shop-shopee.service";
 
 function env(): Env {
     return {
-        PC_INVENTORY_ENABLED: "false",
+        PC_INVENTORY_ENABLED: "true",
         PC_DEMO_SHOP_ENABLED: "true",
     } as unknown as Env;
 }
@@ -63,14 +68,15 @@ function product(overrides: Partial<PcProduct> = {}): PcProduct {
 describe("Demo Shop Shopee order service", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue(0);
     });
 
-    it("uses the existing Shopee marketplace flow before scoped stock reconciliation", async () => {
+    it("keeps Marketplace queue disabled only for Demo Shop, then reconciles and checks low stock", async () => {
         const before = product();
         const after = product({
-            stock_on_hand: 6,
+            stock_on_hand: 5,
             stock_status: "LOW_STOCK",
-            recommended_production_qty: 12,
+            recommended_production_qty: 13,
         });
         const inventoryState = {
             version: 1,
@@ -78,16 +84,16 @@ describe("Demo Shop Shopee order service", () => {
             fingerprint: "fp-1",
             order_record_id: "order-rec-1",
             order_number: "SHP-DEMO-1",
-            allocations: [{ sku: before.sku, quantity: 2 }],
+            allocations: [{ sku: before.sku, quantity: 3 }],
             transitions: [
                 {
                     record_id: before.record_id,
                     sku: before.sku,
                     previous_allocated_qty: 0,
-                    target_allocated_qty: 2,
-                    delta_allocated_qty: 2,
+                    target_allocated_qty: 3,
+                    delta_allocated_qty: 3,
                     old_stock_on_hand: 8,
-                    new_stock_on_hand: 6,
+                    new_stock_on_hand: 5,
                 },
             ],
             prepared_at: Date.now(),
@@ -118,8 +124,8 @@ describe("Demo Shop Shopee order service", () => {
                         source_order_id: "order-rec-1",
                         production_id: "PROD-001",
                         production_status: "RECOMMENDED",
-                        recommended_qty: 12,
-                        planned_qty: 12,
+                        recommended_qty: 13,
+                        planned_qty: 13,
                         material_check_status: "SUFFICIENT",
                         material_risk_summary: "",
                     },
@@ -139,14 +145,14 @@ describe("Demo Shop Shopee order service", () => {
             status: "APPLIED",
             order_record_id: "order-rec-1",
             fingerprint: "fp-1",
-            allocations: [{ sku: before.sku, quantity: 2 }],
+            allocations: [{ sku: before.sku, quantity: 3 }],
             production_ids: ["PROD-001"],
             duplicate: false,
         });
 
         const result = await createDemoShopShopeeOrder(env(), {
             sku: before.sku,
-            quantity: 2,
+            quantity: 3,
             idempotency_key: "demo-shop-request-001",
         });
 
@@ -162,7 +168,7 @@ describe("Demo Shop Shopee order service", () => {
                 items: [
                     expect.objectContaining({
                         sku: "BNK-LUNA-IV-M",
-                        quantity: 2,
+                        quantity: 3,
                     }),
                 ],
             })
@@ -174,12 +180,16 @@ describe("Demo Shop Shopee order service", () => {
             }),
             "order-rec-1"
         );
+        expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
+            expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
+            "order-rec-1"
+        );
         expect(result).toMatchObject({
             duplicate: false,
             inventory: {
                 stock_before: 8,
-                stock_after: 6,
-                stock_delta: -2,
+                stock_after: 5,
+                stock_delta: -3,
             },
             production: {
                 created_or_updated: true,
@@ -188,8 +198,8 @@ describe("Demo Shop Shopee order service", () => {
         });
     });
 
-    it("keeps the same Marketplace event and Order on an idempotent retry", async () => {
-        const selected = product({ stock_on_hand: 6 });
+    it("keeps the same Marketplace event, Order and low-stock event on an idempotent retry", async () => {
+        const selected = product({ stock_on_hand: 5 });
         const order = {
             record_id: "order-rec-1",
             fields: {
@@ -238,5 +248,6 @@ describe("Demo Shop Shopee order service", () => {
         expect(result.duplicate).toBe(true);
         expect(mocks.upsertMarketplaceOrder).toHaveBeenCalledTimes(1);
         expect(mocks.reconcileOrderInventory).toHaveBeenCalledTimes(1);
+        expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledTimes(1);
     });
 });

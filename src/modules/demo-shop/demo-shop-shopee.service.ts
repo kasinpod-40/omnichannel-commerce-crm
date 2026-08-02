@@ -2,6 +2,7 @@ import type { Env } from "../../config/env";
 import { ORDER_FIELDS } from "../../core/lark-fields";
 import { upsertMarketplaceOrder } from "../marketplace/marketplace.service";
 import { getOrderByRecordId } from "../orders/order.repository";
+import { notifyLowStockAfterOrderOnce } from "../production-control/pc.low-stock-alert";
 import {
     getPcOverview,
     reconcileOrderInventory,
@@ -78,6 +79,13 @@ function demoExternalOrderId(idempotencyKey: string): string {
         .toUpperCase();
 
     return `DEMO-SHP-${safeKey}`;
+}
+
+function demoSafeEnv(env: Env): Env {
+    return {
+        ...env,
+        PC_INVENTORY_ENABLED: "false",
+    };
 }
 
 function demoPcEnv(env: Env): Env {
@@ -183,7 +191,8 @@ function resultFromState(input: {
 
 /**
  * สร้าง Order สาธิตผ่าน Marketplace service เดิม เพื่อให้ Activity และ
- * Notification ใช้เส้นทางเดียวกับ Shopee Order จริง โดยยังคงปิด Global PC flag.
+ * Notification ใช้เส้นทางเดียวกับ Shopee Order จริง โดยแยก Queue automation
+ * ของ Demo Shop ออกจาก Global PC flag และ Reconcile แบบ synchronous เฉพาะ Demo Order.
  */
 export async function createDemoShopShopeeOrder(
     env: Env,
@@ -193,7 +202,8 @@ export async function createDemoShopShopeeOrder(
         idempotency_key: string;
     }
 ): Promise<DemoShopOrderResult> {
-    assertDemoShopSafeMode(env);
+    const safeEnv = demoSafeEnv(env);
+    assertDemoShopSafeMode(safeEnv);
     const idempotencyKey = normalizeIdempotencyKey(
         input.idempotency_key
     );
@@ -218,10 +228,10 @@ export async function createDemoShopShopeeOrder(
     const now = Date.now();
 
     /*
-     * ใช้ env จริงที่ PC_INVENTORY_ENABLED=false ใน Marketplace upsert เพื่อไม่ส่ง
-     * Queue ซ้ำ จากนั้นค่อย Reconcile แบบ synchronous เฉพาะ Demo Order ด้านล่าง.
+     * บังคับ PC_INVENTORY_ENABLED=false เฉพาะ Marketplace upsert ของ Demo Shop
+     * เพื่อไม่ส่ง Queue ซ้ำ จากนั้น Reconcile แบบ synchronous ด้านล่าง.
      */
-    const marketplace = await upsertMarketplaceOrder(env, {
+    const marketplace = await upsertMarketplaceOrder(safeEnv, {
         channel: DEMO_CHANNEL,
         event_id: eventId,
         store_id: DEMO_STORE_ID,
@@ -267,10 +277,16 @@ export async function createDemoShopShopeeOrder(
         );
     }
 
+    const pcEnv = demoPcEnv(env);
     const inventory = await reconcileOrderInventory(
-        demoPcEnv(env),
+        pcEnv,
         order.record_id
     );
+
+    if (inventory.status === "APPLIED") {
+        await notifyLowStockAfterOrderOnce(pcEnv, order.record_id);
+    }
+
     const afterOverview = await getPcOverview(env);
     const productAfter = findSelectedProduct(
         afterOverview.products,

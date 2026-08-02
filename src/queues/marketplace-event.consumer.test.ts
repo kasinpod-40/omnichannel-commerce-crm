@@ -13,18 +13,24 @@ const {
     completePcProduction,
     refreshPcMaterialPlan,
     markPcProductionBlocked,
+    notifyLowStockAfterOrderOnce,
 } = vi.hoisted(() => ({
     processLazadaMarketplaceEvent: vi.fn(),
     reconcileOrderInventory: vi.fn(),
     completePcProduction: vi.fn(),
     refreshPcMaterialPlan: vi.fn(),
     markPcProductionBlocked: vi.fn(),
+    notifyLowStockAfterOrderOnce: vi.fn(),
 }));
 
 vi.mock(
     "../modules/marketplace/lazada/lazada.webhook-processor",
     () => ({ processLazadaMarketplaceEvent })
 );
+
+vi.mock("../modules/production-control/pc.low-stock-alert", () => ({
+    notifyLowStockAfterOrderOnce,
+}));
 
 vi.mock("../modules/production-control/pc.service", () => ({
     reconcileOrderInventory,
@@ -126,6 +132,7 @@ function pcQueueMessage(
 describe("marketplace event queue consumer", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        notifyLowStockAfterOrderOnce.mockResolvedValue(0);
     });
 
     it("coalesces a burst of Lazada item events into one order sync", async () => {
@@ -204,7 +211,7 @@ describe("marketplace event queue consumer", () => {
         expect(messages[1]?.ack).not.toHaveBeenCalled();
     });
 
-    it("processes PC stock messages sequentially and acknowledges each success", async () => {
+    it("processes PC stock messages sequentially, checks low stock and acknowledges each success", async () => {
         reconcileOrderInventory.mockResolvedValue({ status: "APPLIED" });
         completePcProduction.mockResolvedValue({ inventory_posted: true });
         refreshPcMaterialPlan.mockResolvedValue({ materials_updated: 1 });
@@ -232,6 +239,10 @@ describe("marketplace event queue consumer", () => {
             expect.anything(),
             "order-rec-1"
         );
+        expect(notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
+            expect.anything(),
+            "order-rec-1"
+        );
         expect(completePcProduction).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
@@ -245,6 +256,25 @@ describe("marketplace event queue consumer", () => {
             expect(message.ack).toHaveBeenCalledOnce();
             expect(message.retry).not.toHaveBeenCalled();
         }
+    });
+
+    it("does not run the low stock check when inventory was released", async () => {
+        reconcileOrderInventory.mockResolvedValue({ status: "RELEASED" });
+        const message = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [message],
+            },
+            {} as Env
+        );
+
+        expect(notifyLowStockAfterOrderOnce).not.toHaveBeenCalled();
+        expect(message.ack).toHaveBeenCalledOnce();
     });
 
     it("retries a transient PC failure without acknowledging it", async () => {
@@ -268,6 +298,30 @@ describe("marketplace event queue consumer", () => {
         expect(message.ack).not.toHaveBeenCalled();
     });
 
+    it("retries the order message when the low stock check fails after an idempotent reconcile", async () => {
+        reconcileOrderInventory.mockResolvedValue({
+            status: "APPLIED",
+            duplicate: true,
+        });
+        notifyLowStockAfterOrderOnce.mockRejectedValue(
+            new Error("temporary notification read failure")
+        );
+        const message = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            {
+                queue: "crm-marketplace-events",
+                messages: [message],
+            },
+            {} as Env
+        );
+
+        expect(message.retry).toHaveBeenCalledOnce();
+        expect(message.ack).not.toHaveBeenCalled();
+    });
 
     it("acknowledges a disabled completion without changing the Production record", async () => {
         completePcProduction.mockRejectedValue(
@@ -331,5 +385,4 @@ describe("marketplace event queue consumer", () => {
         expect(message.ack).toHaveBeenCalledOnce();
         expect(message.retry).not.toHaveBeenCalled();
     });
-
 });
