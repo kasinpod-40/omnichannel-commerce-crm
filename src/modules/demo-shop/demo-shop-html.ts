@@ -1,5 +1,7 @@
 import { renderDemoShopScript } from "./demo-shop-script";
 import { DEMO_SHOP_STYLE } from "./demo-shop-style";
+import { DEMO_SHOP_ENHANCEMENT_STYLE } from "./demo-shop-enhancement-style";
+import { DEMO_SHOP_ENHANCEMENT_SCRIPT } from "./demo-shop-enhancement-script";
 
 function escapeHtml(value: string): string {
     return value
@@ -24,13 +26,14 @@ export function renderDemoShopHtml(input: {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#171513" />
   <title>Demo Shop</title>
-  <style nonce="${nonce}">${DEMO_SHOP_STYLE}</style>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" />
+  <style nonce="${nonce}">${DEMO_SHOP_STYLE}${DEMO_SHOP_ENHANCEMENT_STYLE}</style>
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark">DS</span><span>พื้นที่สาธิตส่วนตัว</span></div>
-      <div class="environment"><span class="environment-dot"></span><span>สภาพแวดล้อมสาธิต · ใช้กระบวนการจริง</span></div>
+      <div class="environment"><span class="environment-dot"></span><span>ช่องทางจำลอง Shopee · ใช้ Business Flow เดิม</span></div>
     </header>
 
     <section class="hero" aria-labelledby="page-title">
@@ -39,8 +42,8 @@ export function renderDemoShopHtml(input: {
         <h1 id="page-title">Demo Shop</h1>
       </div>
       <p class="hero-copy">
-        เลือกแบบ เลือกไซซ์ และสั่งซื้อ เพื่อสาธิตเส้นทาง คำสั่งซื้อ → สต็อก → แผนผลิต ผ่านกระบวนการจริงของระบบ
-        <span class="hero-note">ข้อมูลลูกค้า ที่อยู่ ช่องทาง และการชำระเงินจะถูกสร้างเป็นข้อมูลสาธิตให้อัตโนมัติ</span>
+        เลือกแบบ เลือกไซซ์ และสั่งซื้อ เพื่อสาธิตเส้นทาง Shopee Order → Notification → Stock → แผนผลิต ผ่านกระบวนการจริงของระบบ
+        <span class="hero-note">ข้อมูลลูกค้า ร้านค้า การชำระเงิน และสถานะ Marketplace จะถูกสร้างเป็นข้อมูลสาธิตให้อัตโนมัติ</span>
       </p>
     </section>
 
@@ -77,7 +80,20 @@ export function renderDemoShopHtml(input: {
 
   <div class="toast" id="toast" role="status"></div>
 
+  <div class="processing-overlay" id="processing-overlay" aria-hidden="true">
+    <section class="processing-card" role="dialog" aria-modal="true" aria-labelledby="processing-title" aria-describedby="processing-message">
+      <div class="processing-spinner" aria-hidden="true"></div>
+      <p class="processing-kicker">Shopee Order Simulation</p>
+      <h2 class="processing-title" id="processing-title">กำลังดำเนินการ</h2>
+      <p class="processing-message" id="processing-message">กำลังส่งคำสั่งซื้อเข้าสู่ระบบ</p>
+      <div class="processing-flow" aria-hidden="true">
+        <strong>Order</strong><span>→</span><strong>Notification</strong><span>→</span><strong>Stock</strong><span>→</span><strong>Production</strong>
+      </div>
+    </section>
+  </div>
+
   <script nonce="${nonce}">${script}</script>
+  <script nonce="${nonce}">${DEMO_SHOP_ENHANCEMENT_SCRIPT}</script>
 </body>
 </html>`;
 }

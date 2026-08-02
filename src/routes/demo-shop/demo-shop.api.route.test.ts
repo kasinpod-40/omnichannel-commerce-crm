@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => ({
     dashboardMethodNotAllowed: vi.fn(() =>
         Response.json({ ok: false }, { status: 405 })
     ),
-    createDemoShopOrder: vi.fn(),
+    createDemoShopShopeeOrder: vi.fn(),
     getDemoShopCatalog: vi.fn(),
     isDemoShopEnabled: vi.fn(() => true),
 }));
@@ -50,9 +50,12 @@ vi.mock("../shared/dashboard-api", () => ({
 }));
 
 vi.mock("../../modules/demo-shop/demo-shop.service", () => ({
-    createDemoShopOrder: mocks.createDemoShopOrder,
     getDemoShopCatalog: mocks.getDemoShopCatalog,
     isDemoShopEnabled: mocks.isDemoShopEnabled,
+}));
+
+vi.mock("../../modules/demo-shop/demo-shop-shopee.service", () => ({
+    createDemoShopShopeeOrder: mocks.createDemoShopShopeeOrder,
 }));
 
 import {
@@ -100,11 +103,12 @@ describe("Demo Shop API route", () => {
         expect(mocks.getDemoShopCatalog).toHaveBeenCalledTimes(1);
     });
 
-    it("checks Origin, role and Idempotency-Key before creating an Order", async () => {
-        mocks.createDemoShopOrder.mockResolvedValue({
+    it("checks Origin, role and Idempotency-Key before creating a Shopee Demo Order", async () => {
+        mocks.createDemoShopShopeeOrder.mockResolvedValue({
             ok: true,
             duplicate: false,
-            order_number: "DEMO-ORDER-1",
+            channel: "Shopee",
+            order_number: "SHP-DEMO-1",
         });
 
         const response = await handleDemoShopOrderCreate(
@@ -126,7 +130,7 @@ describe("Demo Shop API route", () => {
         expect(response.status).toBe(201);
         expect(mocks.assertAllowedOrigin).toHaveBeenCalledTimes(1);
         expect(mocks.assertDashboardSession).toHaveBeenCalledTimes(1);
-        expect(mocks.createDemoShopOrder).toHaveBeenCalledWith(
+        expect(mocks.createDemoShopShopeeOrder).toHaveBeenCalledWith(
             expect.anything(),
             {
                 sku: "BNK-LUNA-IV-M",
@@ -136,7 +140,7 @@ describe("Demo Shop API route", () => {
         );
     });
 
-    it("rejects a viewer before running the Demo Order service", async () => {
+    it("rejects a viewer before running the Shopee Demo Order service", async () => {
         mocks.assertDashboardSession.mockResolvedValue(session("viewer"));
 
         const response = await handleDemoShopOrderCreate(
@@ -156,6 +160,6 @@ describe("Demo Shop API route", () => {
         );
 
         expect(response.status).toBe(403);
-        expect(mocks.createDemoShopOrder).not.toHaveBeenCalled();
+        expect(mocks.createDemoShopShopeeOrder).not.toHaveBeenCalled();
     });
 });

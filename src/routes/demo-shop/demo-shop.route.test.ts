@@ -10,7 +10,7 @@ function env(enabled = "true"): Env {
 }
 
 describe("Demo Shop page route", () => {
-    it("serves the page with strict security headers when enabled", async () => {
+    it("serves the page with strict headers and only the approved Kanit hosts", async () => {
         const response = handleDemoShopPage(
             new Request("https://worker.example.com/demo-shop"),
             env()
@@ -18,9 +18,11 @@ describe("Demo Shop page route", () => {
 
         expect(response.status).toBe(200);
         expect(response.headers.get("Content-Type")).toContain("text/html");
-        expect(response.headers.get("Content-Security-Policy")).toContain(
-            "default-src 'none'"
-        );
+        const csp = response.headers.get("Content-Security-Policy") ?? "";
+        expect(csp).toContain("default-src 'none'");
+        expect(csp).toContain("https://fonts.googleapis.com");
+        expect(csp).toContain("font-src https://fonts.gstatic.com");
+        expect(csp).toContain("connect-src 'self'");
         expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
         await expect(response.text()).resolves.toContain("<title>Demo Shop</title>");
     });
