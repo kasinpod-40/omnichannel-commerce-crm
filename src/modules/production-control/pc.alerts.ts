@@ -19,6 +19,10 @@ import type {
 import { sendPcLarkActionCard } from "./pc.lark-card";
 import { buildPcNotificationActionCard } from "./pc.workflow-card";
 
+type PcActionCard = Awaited<
+    ReturnType<typeof buildPcNotificationActionCard>
+>;
+
 async function enqueuePcNotification(
     env: Env,
     input: {
@@ -166,7 +170,7 @@ async function sendReadablePcCard(
         duplicate: boolean;
         fields: Record<string, unknown>;
         text_fallback: string;
-        card: Awaited<ReturnType<typeof buildPcNotificationActionCard>>;
+        card: PcActionCard;
     }
 ): Promise<boolean> {
     if (!input.card) return false;
@@ -224,6 +228,21 @@ function readableFallback(input: {
     return "";
 }
 
+function logCardBuildFailure(input: {
+    event_id: string;
+    reference_id: string;
+    error: unknown;
+}): void {
+    console.error("PC_ACTION_CARD_BUILD_FAILED", {
+        event_id: input.event_id,
+        reference_id: input.reference_id,
+        error:
+            input.error instanceof Error
+                ? input.error.message
+                : String(input.error),
+    });
+}
+
 export async function notifyPcExceptionOnce(
     env: Env,
     input: {
@@ -240,6 +259,43 @@ export async function notifyPcExceptionOnce(
     }
 ): Promise<boolean> {
     const readableText = readableFallback(input);
+    let prebuiltCard: PcActionCard | undefined;
+
+    /*
+     * refreshPcMaterialPlan อาจพบวัตถุดิบ Critical ตั้งแต่ตอนสร้างแผนแนะนำ
+     * จาก Order แต่ Flow ที่ผู้ใช้อนุมัติไว้ต้องเริ่มจากปุ่มอนุมัติผลิตก่อน
+     * จึงไม่ส่ง Alert ระดับ material SKU ที่ยังผูกกับ Production batch ไม่ได้
+     * ข้อมูลความเสี่ยงยังถูกบันทึกใน PC_Materials/PC_Production ตามเดิม และ
+     * updatePcProductionStatus จะส่ง Alert แบบมีปุ่มสั่งซื้อเมื่ออนุมัติแล้วไม่พอจริง
+     */
+    if (
+        input.type === "PC_MATERIAL_SHORTAGE" &&
+        input.event_id.startsWith("pc:material:") &&
+        !input.lark_text?.trim()
+    ) {
+        try {
+            prebuiltCard = await buildPcNotificationActionCard(env, {
+                notification_type: input.type,
+                reference_id: input.reference_id,
+                fallback_text: readableText,
+            });
+
+            if (!prebuiltCard) {
+                console.info("PC_MATERIAL_ALERT_DEFERRED_UNTIL_APPROVAL", {
+                    event_id: input.event_id,
+                    reference_id: input.reference_id,
+                });
+                return true;
+            }
+        } catch (error) {
+            logCardBuildFailure({
+                event_id: input.event_id,
+                reference_id: input.reference_id,
+                error,
+            });
+        }
+    }
+
     const payload: NotificationSnapshot = {
         version: 1,
         captured_at: Date.now(),
@@ -269,31 +325,31 @@ export async function notifyPcExceptionOnce(
         });
 
         if (readableText) {
-            try {
-                const card = await buildPcNotificationActionCard(env, {
-                    notification_type: input.type,
-                    reference_id: input.reference_id,
-                    fallback_text: readableText,
-                });
-
-                if (card) {
-                    return await sendReadablePcCard(env, {
+            let card = prebuiltCard;
+            if (card === undefined) {
+                try {
+                    card = await buildPcNotificationActionCard(env, {
+                        notification_type: input.type,
+                        reference_id: input.reference_id,
+                        fallback_text: readableText,
+                    });
+                } catch (error) {
+                    logCardBuildFailure({
                         event_id: input.event_id,
-                        notification_record_id: recorded.record.record_id,
-                        duplicate: recorded.duplicate,
-                        fields: recorded.record.fields,
-                        text_fallback: readableText,
-                        card,
+                        reference_id: input.reference_id,
+                        error,
                     });
                 }
-            } catch (cardError) {
-                console.error("PC_ACTION_CARD_BUILD_FAILED", {
+            }
+
+            if (card) {
+                return await sendReadablePcCard(env, {
                     event_id: input.event_id,
-                    reference_id: input.reference_id,
-                    error:
-                        cardError instanceof Error
-                            ? cardError.message
-                            : String(cardError),
+                    notification_record_id: recorded.record.record_id,
+                    duplicate: recorded.duplicate,
+                    fields: recorded.record.fields,
+                    text_fallback: readableText,
+                    card,
                 });
             }
 
