@@ -1,10 +1,10 @@
 import type { Env } from "../../config/env";
 import { AuthError } from "../../modules/auth/auth.error";
 import {
-    createDemoShopOrder,
     getDemoShopCatalog,
     isDemoShopEnabled,
 } from "../../modules/demo-shop/demo-shop.service";
+import { createDemoShopShopeeOrder } from "../../modules/demo-shop/demo-shop-shopee.service";
 import { renderDemoShopHtml } from "../../modules/demo-shop/demo-shop-html";
 import { OperationalError } from "../../utils/errors";
 import {
@@ -49,11 +49,11 @@ function htmlResponse(html: string, nonce: string): Response {
             "Content-Type": "text/html; charset=utf-8",
             "Content-Security-Policy": [
                 "default-src 'none'",
-                `style-src 'nonce-${nonce}'`,
+                `style-src 'nonce-${nonce}' https://fonts.googleapis.com`,
                 `script-src 'nonce-${nonce}'`,
                 "connect-src 'self'",
                 "img-src 'self' data:",
-                "font-src 'self'",
+                "font-src https://fonts.gstatic.com",
                 "base-uri 'none'",
                 "form-action 'none'",
                 "frame-ancestors 'self'",
@@ -135,7 +135,7 @@ export async function handleDemoShopOrderCreate(
         const body = await readJsonObject(request);
         const idempotencyKey =
             request.headers.get("Idempotency-Key")?.trim() || "";
-        const result = await createDemoShopOrder(env, {
+        const result = await createDemoShopShopeeOrder(env, {
             sku: typeof body.sku === "string" ? body.sku : "",
             quantity: body.quantity,
             idempotency_key: idempotencyKey,

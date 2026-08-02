@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "demo-shop-size-variants-th-50",
+            version: "demo-shop-shopee-notification-th-51",
         });
     });
 
