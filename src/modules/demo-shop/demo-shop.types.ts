@@ -48,5 +48,12 @@ export type DemoShopOrderResult = {
             material_risk_summary: string;
         }>;
     };
+    notification: {
+        status: "NOT_REQUIRED" | "QUEUED" | "FAILED";
+        threshold_crossed: boolean;
+        dispatched: number;
+        failed: number;
+        error_messages: string[];
+    };
     completed_at: string;
 };
