@@ -44,7 +44,7 @@ describe("Demo Shop HTML", () => {
         }
     });
 
-    it("uses actual stock and each SKU Min Stock for the availability label", () => {
+    it("uses each SKU Min Stock internally but hides the threshold from demo users", () => {
         const html = renderDemoShopHtml({
             dashboardUrl: "https://dashboard.example.com",
             nonce: "abc",
@@ -55,10 +55,28 @@ describe("Demo Shop HTML", () => {
         expect(html).toContain("stock <= minStock");
         expect(html).toContain('nextLabel = "สินค้าใกล้หมด"');
         expect(html).toContain('nextLabel = "สินค้าหมด"');
-        expect(html).toContain("ขั้นต่ำ \" + minStock + \" ชิ้น");
+        expect(html).toContain(
+            'setText(stockText, "คงเหลือ " + stock + " ชิ้น")'
+        );
+        expect(html).not.toContain(
+            '"คงเหลือ " + stock + " ชิ้น · ขั้นต่ำ " + minStock + " ชิ้น"'
+        );
         expect(html).not.toContain(
             'currentStatus === "LOW_STOCK" || currentStatus === "OUT_OF_STOCK"'
         );
+    });
+
+    it("shows active production progress for the selected SKU", () => {
+        const html = renderDemoShopHtml({
+            dashboardUrl: "https://dashboard.example.com",
+            nonce: "abc",
+        });
+
+        expect(html).toContain("productionBySku");
+        expect(html).toContain("product.production_status");
+        expect(html).toContain("production-badge");
+        expect(html).toContain('return "กำลังผลิต" + suffix');
+        expect(html).toContain('return "รอวัตถุดิบสำหรับผลิต" + suffix');
     });
 
     it("limits orders to the actual remaining quantity", () => {
