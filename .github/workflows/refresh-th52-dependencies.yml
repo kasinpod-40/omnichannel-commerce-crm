@@ -1,0 +1,55 @@
+name: Refresh TH-52 Dependencies
+
+on:
+  push:
+    branches:
+      - hotfix/enable-live-pc-low-stock-th-52
+    paths:
+      - .github/workflows/refresh-th52-dependencies.yml
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: hotfix/enable-live-pc-low-stock-th-52
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Upgrade vulnerable Cloudflare tooling
+        run: npm install --save-dev @cloudflare/vitest-pool-workers@0.20.1 wrangler@4.114.0
+
+      - name: Apply compatible audit fixes
+        run: npm audit fix
+
+      - name: Verify dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Run full validation gate
+        run: npm run check
+
+      - name: Commit regenerated lockfile
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "No dependency changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: update secure Cloudflare tooling"
+          git push origin HEAD:hotfix/enable-live-pc-low-stock-th-52
