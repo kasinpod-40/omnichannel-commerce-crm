@@ -5,6 +5,7 @@ import {
     isDemoShopEnabled,
 } from "../../modules/demo-shop/demo-shop.service";
 import { createDemoShopShopeeOrder } from "../../modules/demo-shop/demo-shop-shopee.service";
+import { retryDemoShopLowStockNotification } from "../../modules/demo-shop/demo-shop-low-stock-retry.service";
 import { renderDemoShopHtml } from "../../modules/demo-shop/demo-shop-html";
 import { OperationalError } from "../../utils/errors";
 import {
@@ -74,6 +75,16 @@ function htmlResponse(html: string, nonce: string): Response {
     });
 }
 
+function assertDemoOperator(role: string): void {
+    if (role !== "admin" && role !== "manager") {
+        throw new AuthError(
+            "DEMO_SHOP_PERMISSION_DENIED",
+            "This account cannot operate Demo Shop orders",
+            403
+        );
+    }
+}
+
 export function handleDemoShopPage(
     request: Request,
     env: Env
@@ -132,15 +143,7 @@ export async function handleDemoShopOrderCreate(
     try {
         assertAllowedOrigin(request, env);
         const session = await assertDashboardSession(request, env);
-
-        if (session.user.role !== "admin" && session.user.role !== "manager") {
-            throw new AuthError(
-                "DEMO_SHOP_PERMISSION_DENIED",
-                "This account cannot create Demo Shop orders",
-                403
-            );
-        }
-
+        assertDemoOperator(session.user.role);
         const body = await readJsonObject(request);
         const idempotencyKey =
             request.headers.get("Idempotency-Key")?.trim() || "";
@@ -152,6 +155,37 @@ export async function handleDemoShopOrderCreate(
 
         return addAuthCorsHeaders(
             dashboardJson(result, result.duplicate ? 200 : 201),
+            request,
+            env
+        );
+    } catch (error) {
+        return demoShopErrorResponse(request, env, error);
+    }
+}
+
+/** ส่ง Notification ซ้ำจาก Order เดิมโดยไม่ Reconcile และไม่แก้ Stock */
+export async function handleDemoShopLowStockRetry(
+    request: Request,
+    env: Env
+): Promise<Response> {
+    if (request.method !== "POST") {
+        return dashboardMethodNotAllowed(request, env);
+    }
+
+    try {
+        assertAllowedOrigin(request, env);
+        const session = await assertDashboardSession(request, env);
+        assertDemoOperator(session.user.role);
+        const body = await readJsonObject(request);
+        const result = await retryDemoShopLowStockNotification(
+            env,
+            typeof body.order_number === "string"
+                ? body.order_number
+                : ""
+        );
+
+        return addAuthCorsHeaders(
+            dashboardJson(result),
             request,
             env
         );
