@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "demo-shop-order-simulator-th-49",
+            version: "demo-shop-size-variants-th-50",
         });
     });
 
@@ -50,6 +50,7 @@ describe("Omnichannel Commerce CRM worker", () => {
             path: "/unknown-route",
         });
     });
+
     it("preserves the Lazada webhook health route after route grouping", async () => {
         const response = await SELF.fetch(
             "https://example.com/webhooks/lazada"
