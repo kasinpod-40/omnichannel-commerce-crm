@@ -124,18 +124,24 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         return Math.max(1, Number(value && value.textContent) || 1);
       }
 
+      function setText(element, value) {
+        if (element && element.textContent !== value) element.textContent = value;
+      }
+
       function syncLoginLink() {
         const link = document.querySelector(".login-link");
         if (!link) return;
-        link.textContent = "เข้าสู่ระบบด้วย Lark";
-        link.href = "/auth/lark/login?return_to=%2Fdemo-shop";
-        link.target = "_self";
+        setText(link, "เข้าสู่ระบบด้วย Lark");
+        const loginHref = "/auth/lark/login?return_to=%2Fdemo-shop";
+        if (link.getAttribute("href") !== loginHref) link.setAttribute("href", loginHref);
+        if (link.getAttribute("target") !== "_self") link.setAttribute("target", "_self");
         link.removeAttribute("rel");
 
         const description = link.parentElement && link.parentElement.querySelector("p");
-        if (description) {
-          description.textContent = "ลงชื่อเข้าใช้ด้วยบัญชี Lark แล้วระบบจะกลับมาที่ Demo Shop อัตโนมัติ";
-        }
+        setText(
+          description,
+          "ลงชื่อเข้าใช้ด้วยบัญชี Lark แล้วระบบจะกลับมาที่ Demo Shop อัตโนมัติ"
+        );
       }
 
       function syncProductCard(card) {
@@ -148,34 +154,40 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         const quantityValue = card.querySelector(".quantity-value");
         const quantityButtons = card.querySelectorAll(".quantity-control button");
         const currentStatus = String(pill && pill.dataset.status || "");
+        let nextStatus = "NORMAL";
+        let nextLabel = "พร้อมจำหน่าย";
+
+        if (stock <= 0) {
+          nextStatus = "OUT_OF_STOCK";
+          nextLabel = "สินค้าหมด";
+        } else if (currentStatus === "LOW_STOCK" || currentStatus === "OUT_OF_STOCK") {
+          nextStatus = "LOW_STOCK";
+          nextLabel = "สินค้าใกล้หมด";
+        }
 
         if (pill) {
-          if (stock <= 0) {
-            pill.textContent = "สินค้าหมด";
-            pill.dataset.status = "OUT_OF_STOCK";
-          } else if (currentStatus === "LOW_STOCK" || currentStatus === "OUT_OF_STOCK") {
-            pill.textContent = "สินค้าใกล้หมด";
-            pill.dataset.status = "LOW_STOCK";
-          } else {
-            pill.textContent = "พร้อมจำหน่าย";
-            pill.dataset.status = "NORMAL";
-          }
+          setText(pill, nextLabel);
+          if (pill.dataset.status !== nextStatus) pill.dataset.status = nextStatus;
         }
 
         if (quantityValue && selectedQuantity(card) > stock && stock > 0) {
-          quantityValue.textContent = String(stock);
+          setText(quantityValue, String(stock));
         }
 
         quantityButtons.forEach((button) => {
           const isPlus = String(button.textContent || "").trim() === "+";
-          button.disabled = stock <= 0 || (isPlus && selectedQuantity(card) >= stock);
+          const shouldDisable = stock <= 0 || (isPlus && selectedQuantity(card) >= stock);
+          if (button.disabled !== shouldDisable) button.disabled = shouldDisable;
         });
 
         if (buy) {
-          buy.dataset.stockUnavailable = stock <= 0 ? "true" : "false";
-          buy.disabled = stock <= 0;
-          buy.textContent = stock <= 0 ? "สินค้าหมด" : "สั่งซื้อสินค้า";
-          buy.setAttribute("aria-disabled", stock <= 0 ? "true" : "false");
+          const unavailable = stock <= 0;
+          if (buy.dataset.stockUnavailable !== String(unavailable)) {
+            buy.dataset.stockUnavailable = String(unavailable);
+          }
+          if (buy.disabled !== unavailable) buy.disabled = unavailable;
+          setText(buy, unavailable ? "สินค้าหมด" : "สั่งซื้อสินค้า");
+          buy.setAttribute("aria-disabled", unavailable ? "true" : "false");
         }
       }
 
@@ -279,6 +291,12 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
       document.addEventListener("click", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLButtonElement)) return;
+
+        if (target.classList.contains("size-option")) {
+          window.setTimeout(syncDemoShopUi, 0);
+          return;
+        }
+
         if (String(target.textContent || "").trim() !== "+") return;
         const card = target.closest(".product-card");
         const stock = stockFromCard(card);
@@ -318,15 +336,9 @@ export const DEMO_SHOP_ENHANCEMENT_SCRIPT = `    (() => {
         }
       };
 
-      const observer = new MutationObserver(() => syncDemoShopUi());
       if (grid) {
-        observer.observe(grid, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ["data-status", "data-buy-sku"],
-        });
+        const observer = new MutationObserver(() => syncDemoShopUi());
+        observer.observe(grid, { childList: true });
       }
 
       installRetryButton();
