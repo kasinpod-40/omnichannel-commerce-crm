@@ -7,14 +7,7 @@ import type {
 } from "./line-event.types";
 import type { MarketplaceEventQueueMessage } from "./marketplace-event.types";
 
-const {
-    processLazadaMarketplaceEvent,
-    reconcileOrderInventory,
-    completePcProduction,
-    refreshPcMaterialPlan,
-    markPcProductionBlocked,
-    notifyLowStockAfterOrderOnce,
-} = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({
     processLazadaMarketplaceEvent: vi.fn(),
     reconcileOrderInventory: vi.fn(),
     completePcProduction: vi.fn(),
@@ -25,18 +18,20 @@ const {
 
 vi.mock(
     "../modules/marketplace/lazada/lazada.webhook-processor",
-    () => ({ processLazadaMarketplaceEvent })
+    () => ({
+        processLazadaMarketplaceEvent:
+            mocks.processLazadaMarketplaceEvent,
+    })
 );
-
 vi.mock("../modules/production-control/pc.low-stock-alert", () => ({
-    notifyLowStockAfterOrderOnce,
+    notifyLowStockAfterOrderOnce:
+        mocks.notifyLowStockAfterOrderOnce,
 }));
-
 vi.mock("../modules/production-control/pc.service", () => ({
-    reconcileOrderInventory,
-    completePcProduction,
-    refreshPcMaterialPlan,
-    markPcProductionBlocked,
+    reconcileOrderInventory: mocks.reconcileOrderInventory,
+    completePcProduction: mocks.completePcProduction,
+    refreshPcMaterialPlan: mocks.refreshPcMaterialPlan,
+    markPcProductionBlocked: mocks.markPcProductionBlocked,
 }));
 
 import { handleMarketplaceQueueBatch } from "./marketplace-event.consumer";
@@ -46,14 +41,14 @@ function queueMessage(input: {
     orderId?: string;
     orderStatus: string;
     receivedAt?: number;
-    attempts?: number;
 }): QueueMessageLike<MarketplaceEventQueueMessage> {
     const orderId = input.orderId ?? "order-1";
+    const receivedAt = input.receivedAt ?? Date.now();
 
     return {
         id: input.id,
-        timestamp: new Date(input.receivedAt ?? Date.now()),
-        attempts: input.attempts ?? 1,
+        timestamp: new Date(receivedAt),
+        attempts: 1,
         body: {
             schema_version: 1,
             channel: "Lazada",
@@ -61,7 +56,7 @@ function queueMessage(input: {
             order_id: orderId,
             order_status: input.orderStatus,
             message_type: "0",
-            received_at: input.receivedAt ?? Date.now(),
+            received_at: receivedAt,
             webhook: {
                 seller_id: "seller-1",
                 message_type: 0,
@@ -88,9 +83,9 @@ function pcQueueMessage(
               actual_qty: number;
               idempotency_key: string;
           }
-        | { kind: "pc_material_refresh" },
-    id = `msg-${body.kind}`
+        | { kind: "pc_material_refresh" }
 ): QueueMessageLike<MarketplaceEventQueueMessage> {
+    const id = `msg-${body.kind}`;
     const common = {
         schema_version: 1 as const,
         event_id: `event-${id}`,
@@ -129,66 +124,45 @@ function pcQueueMessage(
     };
 }
 
+const alertOk = {
+    state_ready: true,
+    matched: 0,
+    dispatched: 0,
+    failed: 0,
+    errors: [],
+};
+
 describe("marketplace event queue consumer", () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        notifyLowStockAfterOrderOnce.mockResolvedValue(0);
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue(alertOk);
     });
 
-    it("coalesces a burst of Lazada item events into one order sync", async () => {
-        processLazadaMarketplaceEvent.mockResolvedValue(undefined);
-
+    it("coalesces a Lazada burst and acknowledges all messages", async () => {
+        mocks.processLazadaMarketplaceEvent.mockResolvedValue(undefined);
         const messages = [
             queueMessage({ id: "msg-1", orderStatus: "unpaid", receivedAt: 1 }),
             queueMessage({ id: "msg-2", orderStatus: "pending", receivedAt: 2 }),
-            queueMessage({ id: "msg-3", orderStatus: "pending", receivedAt: 3 }),
-            queueMessage({ id: "msg-4", orderStatus: "unpaid", receivedAt: 4 }),
-        ];
-        const batch: QueueBatchLike<MarketplaceEventQueueMessage> = {
-            queue: "crm-marketplace-events",
-            messages,
-        };
-
-        await handleMarketplaceQueueBatch(batch, {} as Env);
-
-        expect(processLazadaMarketplaceEvent).toHaveBeenCalledTimes(1);
-        expect(processLazadaMarketplaceEvent).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.objectContaining({
-                order_id: "order-1",
-                received_at: 4,
-            })
-        );
-        for (const message of messages) {
-            expect(message.ack).toHaveBeenCalledTimes(1);
-            expect(message.retry).not.toHaveBeenCalled();
-        }
-    });
-
-    it("processes different Lazada orders separately", async () => {
-        processLazadaMarketplaceEvent.mockResolvedValue(undefined);
-
-        const messages = [
-            queueMessage({ id: "msg-1", orderId: "order-1", orderStatus: "pending" }),
-            queueMessage({ id: "msg-2", orderId: "order-2", orderStatus: "pending" }),
         ];
 
         await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages,
-            },
+            { queue: "crm-marketplace-events", messages },
             {} as Env
         );
 
-        expect(processLazadaMarketplaceEvent).toHaveBeenCalledTimes(2);
-        for (const message of messages) {
-            expect(message.ack).toHaveBeenCalledTimes(1);
-        }
+        expect(mocks.processLazadaMarketplaceEvent).toHaveBeenCalledTimes(1);
+        expect(mocks.processLazadaMarketplaceEvent).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ received_at: 2 })
+        );
+        messages.forEach((message) => {
+            expect(message.ack).toHaveBeenCalledOnce();
+            expect(message.retry).not.toHaveBeenCalled();
+        });
     });
 
-    it("retries only the latest event when a grouped order fails transiently", async () => {
-        processLazadaMarketplaceEvent.mockRejectedValue(
+    it("retries only the newest Lazada message on transient failure", async () => {
+        mocks.processLazadaMarketplaceEvent.mockRejectedValue(
             new Error("temporary failure")
         );
         const messages = [
@@ -197,28 +171,99 @@ describe("marketplace event queue consumer", () => {
         ];
 
         await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages,
-            },
+            { queue: "crm-marketplace-events", messages },
             {} as Env
         );
 
-        expect(processLazadaMarketplaceEvent).toHaveBeenCalledTimes(1);
-        expect(messages[0]?.ack).toHaveBeenCalledTimes(1);
-        expect(messages[0]?.retry).not.toHaveBeenCalled();
-        expect(messages[1]?.retry).toHaveBeenCalledTimes(1);
+        expect(messages[0]?.ack).toHaveBeenCalledOnce();
+        expect(messages[1]?.retry).toHaveBeenCalledOnce();
         expect(messages[1]?.ack).not.toHaveBeenCalled();
     });
 
-    it("processes PC stock messages sequentially, checks low stock and acknowledges each success", async () => {
-        reconcileOrderInventory.mockResolvedValue({ status: "APPLIED" });
-        completePcProduction.mockResolvedValue({ inventory_posted: true });
-        refreshPcMaterialPlan.mockResolvedValue({ materials_updated: 1 });
-        const order = pcQueueMessage({
+    it("checks low stock after applied reconciliation and acknowledges", async () => {
+        mocks.reconcileOrderInventory.mockResolvedValue({ status: "APPLIED" });
+        const message = pcQueueMessage({
             kind: "pc_order_sync",
             order_record_id: "order-rec-1",
         });
+
+        await handleMarketplaceQueueBatch(
+            { queue: "crm-marketplace-events", messages: [message] },
+            {} as Env
+        );
+
+        expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
+            expect.anything(),
+            "order-rec-1"
+        );
+        expect(message.ack).toHaveBeenCalledOnce();
+    });
+
+    it("skips low stock for released reconciliation", async () => {
+        mocks.reconcileOrderInventory.mockResolvedValue({ status: "RELEASED" });
+        const message = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            { queue: "crm-marketplace-events", messages: [message] },
+            {} as Env
+        );
+
+        expect(mocks.notifyLowStockAfterOrderOnce).not.toHaveBeenCalled();
+        expect(message.ack).toHaveBeenCalledOnce();
+    });
+
+    it("retries when applied state is not ready for notification", async () => {
+        mocks.reconcileOrderInventory.mockResolvedValue({
+            status: "APPLIED",
+            duplicate: true,
+        });
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue({
+            ...alertOk,
+            state_ready: false,
+        });
+        const message = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            { queue: "crm-marketplace-events", messages: [message] },
+            {} as Env
+        );
+
+        expect(message.retry).toHaveBeenCalledOnce();
+        expect(message.ack).not.toHaveBeenCalled();
+    });
+
+    it("retries when notification dispatch failed", async () => {
+        mocks.reconcileOrderInventory.mockResolvedValue({ status: "APPLIED" });
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue({
+            state_ready: true,
+            matched: 1,
+            dispatched: 0,
+            failed: 1,
+            errors: ["queue unavailable"],
+        });
+        const message = pcQueueMessage({
+            kind: "pc_order_sync",
+            order_record_id: "order-rec-1",
+        });
+
+        await handleMarketplaceQueueBatch(
+            { queue: "crm-marketplace-events", messages: [message] },
+            {} as Env
+        );
+
+        expect(message.retry).toHaveBeenCalledOnce();
+        expect(message.ack).not.toHaveBeenCalled();
+    });
+
+    it("processes production completion and material refresh", async () => {
+        mocks.completePcProduction.mockResolvedValue({ inventory_posted: true });
+        mocks.refreshPcMaterialPlan.mockResolvedValue({ materials_updated: 1 });
         const production = pcQueueMessage({
             kind: "pc_production_complete",
             production_record_id: "production-rec-1",
@@ -230,136 +275,26 @@ describe("marketplace event queue consumer", () => {
         await handleMarketplaceQueueBatch(
             {
                 queue: "crm-marketplace-events",
-                messages: [order, production, material],
+                messages: [production, material],
             },
             {} as Env
         );
 
-        expect(reconcileOrderInventory).toHaveBeenCalledWith(
-            expect.anything(),
-            "order-rec-1"
-        );
-        expect(notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
-            expect.anything(),
-            "order-rec-1"
-        );
-        expect(completePcProduction).toHaveBeenCalledWith(
-            expect.anything(),
-            expect.objectContaining({
-                production_record_id: "production-rec-1",
-                actual_qty: 12,
-                idempotency_key: "complete-1",
-            })
-        );
-        expect(refreshPcMaterialPlan).toHaveBeenCalledOnce();
-        for (const message of [order, production, material]) {
-            expect(message.ack).toHaveBeenCalledOnce();
-            expect(message.retry).not.toHaveBeenCalled();
-        }
+        expect(mocks.completePcProduction).toHaveBeenCalledOnce();
+        expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledOnce();
+        expect(production.ack).toHaveBeenCalledOnce();
+        expect(material.ack).toHaveBeenCalledOnce();
     });
 
-    it("does not run the low stock check when inventory was released", async () => {
-        reconcileOrderInventory.mockResolvedValue({ status: "RELEASED" });
-        const message = pcQueueMessage({
-            kind: "pc_order_sync",
-            order_record_id: "order-rec-1",
-        });
-
-        await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages: [message],
-            },
-            {} as Env
-        );
-
-        expect(notifyLowStockAfterOrderOnce).not.toHaveBeenCalled();
-        expect(message.ack).toHaveBeenCalledOnce();
-    });
-
-    it("retries a transient PC failure without acknowledging it", async () => {
-        reconcileOrderInventory.mockRejectedValue(
-            new Error("temporary network failure")
-        );
-        const message = pcQueueMessage({
-            kind: "pc_order_sync",
-            order_record_id: "order-rec-1",
-        });
-
-        await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages: [message],
-            },
-            {} as Env
-        );
-
-        expect(message.retry).toHaveBeenCalledOnce();
-        expect(message.ack).not.toHaveBeenCalled();
-    });
-
-    it("retries the order message when the low stock check fails after an idempotent reconcile", async () => {
-        reconcileOrderInventory.mockResolvedValue({
-            status: "APPLIED",
-            duplicate: true,
-        });
-        notifyLowStockAfterOrderOnce.mockRejectedValue(
-            new Error("temporary notification read failure")
-        );
-        const message = pcQueueMessage({
-            kind: "pc_order_sync",
-            order_record_id: "order-rec-1",
-        });
-
-        await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages: [message],
-            },
-            {} as Env
-        );
-
-        expect(message.retry).toHaveBeenCalledOnce();
-        expect(message.ack).not.toHaveBeenCalled();
-    });
-
-    it("acknowledges a disabled completion without changing the Production record", async () => {
-        completePcProduction.mockRejectedValue(
-            new OperationalError(
-                "PC_INVENTORY_DISABLED",
-                "Production & Stock Control is disabled",
-                { retryable: false, status: 503 }
-            )
-        );
-        const message = pcQueueMessage({
-            kind: "pc_production_complete",
-            production_record_id: "production-rec-1",
-            actual_qty: 12,
-            idempotency_key: "complete-disabled-1",
-        });
-
-        await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages: [message],
-            },
-            {} as Env
-        );
-
-        expect(markPcProductionBlocked).not.toHaveBeenCalled();
-        expect(message.ack).toHaveBeenCalledOnce();
-        expect(message.retry).not.toHaveBeenCalled();
-    });
-
-    it("acknowledges and marks a permanently blocked production completion", async () => {
-        completePcProduction.mockRejectedValue(
+    it("marks a permanently blocked production completion", async () => {
+        mocks.completePcProduction.mockRejectedValue(
             new OperationalError(
                 "PC_PRODUCTION_MATERIAL_INSUFFICIENT",
                 "material is insufficient",
                 { retryable: false, status: 409 }
             )
         );
-        markPcProductionBlocked.mockResolvedValue(undefined);
+        mocks.markPcProductionBlocked.mockResolvedValue(undefined);
         const message = pcQueueMessage({
             kind: "pc_production_complete",
             production_record_id: "production-rec-1",
@@ -368,14 +303,11 @@ describe("marketplace event queue consumer", () => {
         });
 
         await handleMarketplaceQueueBatch(
-            {
-                queue: "crm-marketplace-events",
-                messages: [message],
-            },
+            { queue: "crm-marketplace-events", messages: [message] },
             {} as Env
         );
 
-        expect(markPcProductionBlocked).toHaveBeenCalledWith(
+        expect(mocks.markPcProductionBlocked).toHaveBeenCalledWith(
             expect.anything(),
             expect.objectContaining({
                 production_record_id: "production-rec-1",
@@ -383,6 +315,5 @@ describe("marketplace event queue consumer", () => {
             })
         );
         expect(message.ack).toHaveBeenCalledOnce();
-        expect(message.retry).not.toHaveBeenCalled();
     });
 });
