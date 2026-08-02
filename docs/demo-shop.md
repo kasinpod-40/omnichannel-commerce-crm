@@ -14,20 +14,30 @@
 → สร้าง Shopee Marketplace Order สาธิต
 → บันทึก Activity และส่ง Order notification ผ่าน Flow เดิม
 → Reconcile Order กับ Stock ตาม SKU ที่เลือก
+→ ตรวจ Threshold และส่ง Low-stock notification เมื่อ Stock ข้ามลงถึง Min Stock
 → สร้างหรือปรับ Production recommendation เมื่อจำเป็น
 → แสดง Stock ก่อน–หลังและผลลัพธ์บนหน้า Web
 ```
 
 ## Shopee simulation contract
 
-- Demo Shop ส่ง Order ผ่าน `upsertMarketplaceOrder` เดิม ไม่สร้าง Notification Flow ซ้ำ
+- Demo Shop ส่ง Order ผ่าน `upsertMarketplaceOrder` เดิม ไม่สร้าง Order notification flow ซ้ำ
 - Channel เป็น `Shopee`
 - Marketplace status เป็น `READY_TO_SHIP`
 - Marketplace payment status เป็น `PAID`
 - Order จึงเข้าสู่ Activity และ `MARKETPLACE_ORDER_CREATED` notification แบบเดียวกับ Shopee Order จริง
-- Global `PC_INVENTORY_ENABLED=false` ยังคงเดิม เพื่อไม่เปิด Marketplace/Order automation ทั้งระบบ
-- หลัง Marketplace upsert สำเร็จ Demo Shop เรียก Stock reconciliation แบบ synchronous และ scoped เฉพาะ Demo Order
-- Retry ด้วย `Idempotency-Key` เดิมต้องได้ Marketplace Event และ Order เดิม ไม่สร้าง Order หรือตัด Stock ซ้ำ
+- Global `PC_INVENTORY_ENABLED=true` เปิด Marketplace/Order stock automation สำหรับการใช้งานจริง
+- เฉพาะ Demo Shop จะบังคับ `PC_INVENTORY_ENABLED=false` ระหว่าง Marketplace upsert เพื่อไม่ enqueue งานซ้ำ แล้ว Reconcile แบบ synchronous ด้วย PC env ที่เปิดใช้งาน
+- หลัง Reconcile สำเร็จ Demo Shop ใช้ Low-stock checker ตัวเดียวกับ Queue flow จริง
+- Retry ด้วย `Idempotency-Key` เดิมต้องได้ Marketplace Event, Order, Stock transition และ Low-stock event เดิม ไม่สร้าง Order หรือตัด Stock ซ้ำ
+
+## Low-stock notification contract
+
+- แจ้งเตือนเมื่อ Stock ลดจากค่าที่มากกว่า `min_stock` ลงมาอยู่ที่หรือต่ำกว่า `min_stock`
+- ไม่ยิงซ้ำทุก Order ขณะที่สินค้าอยู่ต่ำกว่า Threshold อยู่แล้ว
+- Event ID ผูกกับ Order, inventory fingerprint และ SKU เพื่อให้ Queue retry ได้อย่าง idempotent
+- ข้อความแจ้ง SKU, ชื่อสินค้า/Variant, Stock คงเหลือ, Min Stock และ Target Stock
+- ใช้ Notification pipeline เดิมและประเภท `PC_STOCK_EXCEPTION` เพื่อไม่เพิ่ม Lark schema option ใหม่ระหว่าง Hotfix
 
 ## Product variant contract
 
@@ -50,6 +60,7 @@
 - ไซซ์
 - ราคา
 - Stock ปัจจุบัน
+- Min Stock และ Target Stock
 - สถานะ Stock
 
 ข้อมูลที่ระบบสร้างให้อัตโนมัติ:
@@ -73,8 +84,9 @@
 ## Safety contract
 
 - `PC_DEMO_SHOP_ENABLED=true` ใช้เปิดหน้าและ API สาธิต
-- `PC_INVENTORY_ENABLED=false` ต้องคงอยู่
-- Demo Shop จะหยุดทันทีหากพบว่า `PC_INVENTORY_ENABLED=true`
+- `PC_INVENTORY_ENABLED=true` ใช้เปิด Stock automation ของ Order จริง
+- Demo Shop mask Global PC flag เฉพาะตอนอ่าน Catalog ผ่าน Safe Mode และตอน Marketplace upsert
+- Demo Shop Reconcile แบบ synchronous เฉพาะ Order ของตัวเอง จึงไม่สร้าง Queue งานซ้ำ
 - Quantity จำกัด 1–20 ชิ้นต่อ Order
 - API ไม่ส่ง Table ID, Lark record ID หรือ BOM ไปยัง Browser
 - `ENABLE_TEST_ROUTES=false` คงเดิม
@@ -88,4 +100,4 @@
 
 ## Deployment state
 
-การเพิ่ม Source code ไม่ได้หมายถึงเปิดใช้งานทันที ต้องผ่าน Full Gate, Review, Merge และ Deploy Exact SHA ก่อนจึงเข้าใช้งานที่ `/demo-shop` ได้
+Source branch สำหรับ TH-52 ต้องผ่าน TypeScript, Unit/Worker/Integration tests และ Wrangler dry-run ก่อน Deploy Exact SHA. หลัง Deploy ให้ตรวจ `/health`, Demo Shop catalog, Demo Order, Stock ก่อน–หลัง, Production recommendation และ Notification record/Lark Group โดยใช้ SKU ทดสอบที่ Stock อยู่เหนือ Min Stock เล็กน้อย.
