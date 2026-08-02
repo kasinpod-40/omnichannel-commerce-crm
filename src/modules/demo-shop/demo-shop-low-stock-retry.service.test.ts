@@ -1,0 +1,128 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Env } from "../../config/env";
+import { ORDER_FIELDS } from "../../core/lark-fields";
+
+const mocks = vi.hoisted(() => ({
+    listOrders: vi.fn(),
+    notifyLowStockAfterOrderOnce: vi.fn(),
+    assertDemoShopSafeMode: vi.fn(),
+}));
+
+vi.mock("../orders/order.repository", () => ({
+    listOrders: mocks.listOrders,
+}));
+vi.mock("../production-control/pc.low-stock-alert", () => ({
+    notifyLowStockAfterOrderOnce:
+        mocks.notifyLowStockAfterOrderOnce,
+}));
+vi.mock("./demo-shop.service", () => ({
+    assertDemoShopSafeMode: mocks.assertDemoShopSafeMode,
+}));
+
+import { retryDemoShopLowStockNotification } from "./demo-shop-low-stock-retry.service";
+
+function appliedState() {
+    return {
+        version: 1,
+        phase: "applied",
+        fingerprint: "fp-1",
+        order_record_id: "order-rec-1",
+        order_number: "SP-DEMO-SHP-001",
+        allocations: [{ sku: "BNK-LUNA-IV-M", quantity: 2 }],
+        transitions: [
+            {
+                record_id: "product-rec-1",
+                sku: "BNK-LUNA-IV-M",
+                previous_allocated_qty: 0,
+                target_allocated_qty: 2,
+                delta_allocated_qty: 2,
+                old_stock_on_hand: 7,
+                new_stock_on_hand: 5,
+            },
+        ],
+        prepared_at: 1,
+        completed_at: 2,
+    };
+}
+
+describe("Demo Shop low-stock retry", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mocks.notifyLowStockAfterOrderOnce.mockResolvedValue({
+            state_ready: true,
+            matched: 1,
+            dispatched: 1,
+            failed: 0,
+            errors: [],
+        });
+    });
+
+    it("replays an applied Demo Order without reconciling stock", async () => {
+        const state = appliedState();
+        mocks.listOrders.mockResolvedValue([
+            {
+                record_id: "order-rec-1",
+                fields: {
+                    [ORDER_FIELDS.ORDER_NUMBER]: "SP-DEMO-SHP-001",
+                    [ORDER_FIELDS.CHANNEL]: "Shopee",
+                    [ORDER_FIELDS.MARKETPLACE_STORE_ID]:
+                        "demo-shop-shopee-th",
+                    [ORDER_FIELDS.EXTERNAL_ORDER_ID]: "DEMO-SHP-001",
+                    [ORDER_FIELDS.PC_INVENTORY_STATE_JSON]:
+                        JSON.stringify(state),
+                },
+            },
+        ]);
+
+        const result = await retryDemoShopLowStockNotification(
+            { PC_INVENTORY_ENABLED: "true" } as Env,
+            "SP-DEMO-SHP-001"
+        );
+
+        expect(mocks.assertDemoShopSafeMode).toHaveBeenCalledWith(
+            expect.objectContaining({ PC_INVENTORY_ENABLED: "false" })
+        );
+        expect(mocks.notifyLowStockAfterOrderOnce).toHaveBeenCalledWith(
+            expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
+            "order-rec-1",
+            { inventoryState: state }
+        );
+        expect(result).toEqual({
+            ok: true,
+            order_number: "SP-DEMO-SHP-001",
+            stock_unchanged: true,
+            notification: {
+                status: "QUEUED",
+                threshold_crossed: true,
+                dispatched: 1,
+                failed: 0,
+                error_messages: [],
+            },
+        });
+    });
+
+    it("rejects a non-Demo Shop order", async () => {
+        mocks.listOrders.mockResolvedValue([
+            {
+                record_id: "order-rec-1",
+                fields: {
+                    [ORDER_FIELDS.ORDER_NUMBER]: "SP-REAL-001",
+                    [ORDER_FIELDS.CHANNEL]: "Shopee",
+                    [ORDER_FIELDS.MARKETPLACE_STORE_ID]: "customer-store",
+                    [ORDER_FIELDS.EXTERNAL_ORDER_ID]: "REAL-001",
+                    [ORDER_FIELDS.PC_INVENTORY_STATE_JSON]:
+                        JSON.stringify(appliedState()),
+                },
+            },
+        ]);
+
+        await expect(
+            retryDemoShopLowStockNotification(
+                {} as Env,
+                "SP-REAL-001"
+            )
+        ).rejects.toThrow("ไม่พบ Shopee Demo Order");
+
+        expect(mocks.notifyLowStockAfterOrderOnce).not.toHaveBeenCalled();
+    });
+});
