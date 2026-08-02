@@ -80,6 +80,26 @@ function session(role: "admin" | "manager" | "viewer") {
     };
 }
 
+function catalog(stockOnHand = 3) {
+    return {
+        products: [
+            {
+                sku: "BNK-LUNA-IV-M",
+                product_name: "Luna",
+                category: "Dress",
+                style_code: "LUNA",
+                color: "Ivory",
+                size: "M",
+                price_thb: 1590,
+                stock_on_hand: stockOnHand,
+                stock_status:
+                    stockOnHand <= 0 ? "OUT_OF_STOCK" : "LOW_STOCK",
+            },
+        ],
+        updated_at: "2026-08-02T00:00:00.000Z",
+    };
+}
+
 describe("Demo Shop API route", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -88,6 +108,7 @@ describe("Demo Shop API route", () => {
             sku: "BNK-LUNA-IV-M",
             quantity: 2,
         });
+        mocks.getDemoShopCatalog.mockResolvedValue(catalog(3));
     });
 
     it("requires a Dashboard session and masks the global inventory flag before returning products", async () => {
@@ -109,6 +130,92 @@ describe("Demo Shop API route", () => {
                 PC_DEMO_SHOP_ENABLED: "true",
             })
         );
+    });
+
+    it("allows ordering every remaining unit while stock is low but above zero", async () => {
+        mocks.readJsonObject.mockResolvedValue({
+            sku: "BNK-LUNA-IV-M",
+            quantity: 3,
+        });
+        mocks.createDemoShopShopeeOrder.mockResolvedValue({
+            ok: true,
+            duplicate: false,
+            channel: "Shopee",
+            order_number: "SHP-DEMO-1",
+        });
+
+        const response = await handleDemoShopOrderCreate(
+            new Request("https://worker.example.com/demo-shop/api/orders", {
+                method: "POST",
+                headers: {
+                    Origin: "https://worker.example.com",
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": "demo-shop-request-001",
+                },
+                body: JSON.stringify({
+                    sku: "BNK-LUNA-IV-M",
+                    quantity: 3,
+                }),
+            }),
+            env()
+        );
+
+        expect(response.status).toBe(201);
+        expect(mocks.createDemoShopShopeeOrder).toHaveBeenCalledWith(
+            expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
+            {
+                sku: "BNK-LUNA-IV-M",
+                quantity: 3,
+                idempotency_key: "demo-shop-request-001",
+            }
+        );
+    });
+
+    it("rejects a quantity greater than the current stock before creating an Order", async () => {
+        mocks.readJsonObject.mockResolvedValue({
+            sku: "BNK-LUNA-IV-M",
+            quantity: 4,
+        });
+
+        const response = await handleDemoShopOrderCreate(
+            new Request("https://worker.example.com/demo-shop/api/orders", {
+                method: "POST",
+                headers: {
+                    Origin: "https://worker.example.com",
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": "demo-shop-request-002",
+                },
+            }),
+            env()
+        );
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "สินค้าคงเหลือ 3 ชิ้น กรุณาลดจำนวนที่สั่ง",
+        });
+        expect(mocks.createDemoShopShopeeOrder).not.toHaveBeenCalled();
+    });
+
+    it("rejects an Order after stock reaches zero", async () => {
+        mocks.getDemoShopCatalog.mockResolvedValue(catalog(0));
+
+        const response = await handleDemoShopOrderCreate(
+            new Request("https://worker.example.com/demo-shop/api/orders", {
+                method: "POST",
+                headers: {
+                    Origin: "https://worker.example.com",
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": "demo-shop-request-003",
+                },
+            }),
+            env()
+        );
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({
+            message: "สินค้านี้หมดแล้ว กรุณาเลือกสินค้า หรือไซซ์อื่น",
+        });
+        expect(mocks.createDemoShopShopeeOrder).not.toHaveBeenCalled();
     });
 
     it("checks Origin, role and Idempotency-Key before creating a Shopee Demo Order", async () => {
@@ -138,14 +245,6 @@ describe("Demo Shop API route", () => {
         expect(response.status).toBe(201);
         expect(mocks.assertAllowedOrigin).toHaveBeenCalledTimes(1);
         expect(mocks.assertDashboardSession).toHaveBeenCalledTimes(1);
-        expect(mocks.createDemoShopShopeeOrder).toHaveBeenCalledWith(
-            expect.objectContaining({ PC_INVENTORY_ENABLED: "true" }),
-            {
-                sku: "BNK-LUNA-IV-M",
-                quantity: 2,
-                idempotency_key: "demo-shop-request-001",
-            }
-        );
     });
 
     it("rejects a viewer before running the Shopee Demo Order service", async () => {
@@ -168,6 +267,7 @@ describe("Demo Shop API route", () => {
         );
 
         expect(response.status).toBe(403);
+        expect(mocks.getDemoShopCatalog).not.toHaveBeenCalled();
         expect(mocks.createDemoShopShopeeOrder).not.toHaveBeenCalled();
     });
 });
