@@ -5,7 +5,7 @@ import { AuthError } from "../../modules/auth/auth.error";
 const mocks = vi.hoisted(() => ({
     verifyPcWorkflowActionToken: vi.fn(),
     runPcWorkflowAction: vi.fn(),
-    refreshPcMaterialPlan: vi.fn(),
+    refreshPcDerivedState: vi.fn(),
     markPcProductionBlocked: vi.fn(),
     assertDashboardSession: vi.fn(),
 }));
@@ -14,8 +14,11 @@ vi.mock("../../modules/production-control/pc.action-token", () => ({
     verifyPcWorkflowActionToken: mocks.verifyPcWorkflowActionToken,
 }));
 
+vi.mock("../../modules/production-control/pc.derived-state", () => ({
+    refreshPcDerivedState: mocks.refreshPcDerivedState,
+}));
+
 vi.mock("../../modules/production-control/pc.service", () => ({
-    refreshPcMaterialPlan: mocks.refreshPcMaterialPlan,
     markPcProductionBlocked: mocks.markPcProductionBlocked,
 }));
 
@@ -70,10 +73,11 @@ describe("Production workflow action page", () => {
             expires_at: Math.floor(Date.now() / 1000) + 60,
         });
         mocks.assertDashboardSession.mockResolvedValue(session());
-        mocks.refreshPcMaterialPlan.mockResolvedValue({
-            materials_updated: 1,
-            production_updated: 1,
-            critical_materials: 1,
+        mocks.refreshPcDerivedState.mockResolvedValue({
+            materials_updated: 23,
+            material_critical_count: 4,
+            products_reconciled: 2,
+            production_reconciled: 1,
         });
         mocks.runPcWorkflowAction.mockResolvedValue({
             ok: true,
@@ -101,7 +105,7 @@ describe("Production workflow action page", () => {
 
         expect(response.status).toBe(500);
         expect(mocks.assertDashboardSession).not.toHaveBeenCalled();
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
@@ -127,7 +131,7 @@ describe("Production workflow action page", () => {
         expect(location.searchParams.get("return_to")).toBe(
             "/pc/actions/production-rec-1/approve-production?token=signed"
         );
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
@@ -143,7 +147,7 @@ describe("Production workflow action page", () => {
         expect(response.status).toBe(200);
         expect(html).toContain("อนุมัติผลิตสินค้า");
         expect(html).toContain("form.requestSubmit()");
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
@@ -158,7 +162,7 @@ describe("Production workflow action page", () => {
         );
 
         expect(response.status).toBe(403);
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
@@ -172,7 +176,7 @@ describe("Production workflow action page", () => {
 
         expect(response.status).toBe(403);
         expect(mocks.assertDashboardSession).not.toHaveBeenCalled();
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
@@ -186,7 +190,7 @@ describe("Production workflow action page", () => {
 
         expect(response.status).toBe(403);
         expect(mocks.assertDashboardSession).not.toHaveBeenCalled();
-        expect(mocks.refreshPcMaterialPlan).not.toHaveBeenCalled();
+        expect(mocks.refreshPcDerivedState).not.toHaveBeenCalled();
         expect(mocks.runPcWorkflowAction).not.toHaveBeenCalled();
     });
 
@@ -199,7 +203,7 @@ describe("Production workflow action page", () => {
         );
 
         expect(response.status).toBe(200);
-        expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledTimes(1);
+        expect(mocks.refreshPcDerivedState).toHaveBeenCalledTimes(1);
         expect(mocks.runPcWorkflowAction).toHaveBeenCalledTimes(1);
     });
 
@@ -215,11 +219,11 @@ describe("Production workflow action page", () => {
         );
 
         expect(response.status).toBe(200);
-        expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledTimes(1);
+        expect(mocks.refreshPcDerivedState).toHaveBeenCalledTimes(1);
         expect(mocks.runPcWorkflowAction).toHaveBeenCalledTimes(1);
     });
 
-    it("refreshes the material dashboard before running an authorized approval action", async () => {
+    it("reconciles all derived PC state before running an authorized approval action", async () => {
         const response = await handlePcWorkflowActionPage(
             request("POST"),
             env(),
@@ -229,9 +233,9 @@ describe("Production workflow action page", () => {
         const html = await response.text();
 
         expect(response.status).toBe(200);
-        expect(mocks.refreshPcMaterialPlan).toHaveBeenCalledWith(env());
+        expect(mocks.refreshPcDerivedState).toHaveBeenCalledWith(env());
         expect(
-            mocks.refreshPcMaterialPlan.mock.invocationCallOrder[0]
+            mocks.refreshPcDerivedState.mock.invocationCallOrder[0]
         ).toBeLessThan(mocks.runPcWorkflowAction.mock.invocationCallOrder[0]);
         expect(mocks.runPcWorkflowAction).toHaveBeenCalledWith(env(), {
             action: "approve-production",

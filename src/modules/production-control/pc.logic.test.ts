@@ -8,6 +8,7 @@ import {
     deriveMaterialInventory,
     deriveProductInventory,
     normalizeAllocations,
+    normalizePcBusinessKey,
     parseBom,
     productionMaterialRequirements,
 } from "./pc.logic";
@@ -302,8 +303,12 @@ describe("Production & Stock pure logic", () => {
             [product()]
         );
 
-        expect(requirements.get("fab-iv")).toBe(22.5);
-        expect(requirements.get("btn-wh")).toBe(60);
+        expect(
+            requirements.get(normalizePcBusinessKey("FAB-IV"))
+        ).toBe(22.5);
+        expect(
+            requirements.get(normalizePcBusinessKey("BTN-WH"))
+        ).toBe(60);
     });
 
     it("blocks a batch when the global material plan is short", () => {
