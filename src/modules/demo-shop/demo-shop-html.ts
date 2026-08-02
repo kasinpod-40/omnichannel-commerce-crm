@@ -36,10 +36,10 @@ export function renderDemoShopHtml(input: {
     <section class="hero" aria-labelledby="page-title">
       <div>
         <p class="eyebrow">ประสบการณ์สั่งซื้อที่ออกแบบอย่างพิถีพิถัน</p>
-        <h1 id="page-title">Demo<br />Shop</h1>
+        <h1 id="page-title">Demo Shop</h1>
       </div>
       <p class="hero-copy">
-        เลือกสินค้าและสั่งซื้อเพื่อสาธิตเส้นทาง คำสั่งซื้อ → สต็อก → แผนผลิต ผ่านกระบวนการจริงของระบบ
+        เลือกแบบ เลือกไซซ์ และสั่งซื้อ เพื่อสาธิตเส้นทาง คำสั่งซื้อ → สต็อก → แผนผลิต ผ่านกระบวนการจริงของระบบ
         <span class="hero-note">ข้อมูลลูกค้า ที่อยู่ ช่องทาง และการชำระเงินจะถูกสร้างเป็นข้อมูลสาธิตให้อัตโนมัติ</span>
       </p>
     </section>
