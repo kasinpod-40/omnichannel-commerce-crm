@@ -292,7 +292,7 @@ async function main() {
     const actions = [];
 
     for (const table of contract.tables) {
-        actions.push(...(await applyTable(token, table));
+        actions.push(...(await applyTable(token, table)));
     }
 
     const result = {
