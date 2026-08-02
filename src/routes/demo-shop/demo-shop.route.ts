@@ -85,6 +85,58 @@ function assertDemoOperator(role: string): void {
     }
 }
 
+async function assertDemoStockAvailable(
+    env: Env,
+    sku: string,
+    quantity: unknown
+): Promise<void> {
+    const normalizedSku = sku.trim().toLowerCase();
+    const requestedQuantity = Number(quantity);
+
+    // ปล่อยให้ Service หลักคืน validation error สำหรับรูปแบบจำนวนที่ไม่ถูกต้อง
+    if (
+        !normalizedSku ||
+        !Number.isInteger(requestedQuantity) ||
+        requestedQuantity <= 0
+    ) {
+        return;
+    }
+
+    const catalog = await getDemoShopCatalog(demoShopCatalogEnv(env));
+    const product = catalog.products.find(
+        (item) => item.sku.trim().toLowerCase() === normalizedSku
+    );
+
+    if (!product) {
+        throw new OperationalError(
+            "DEMO_SHOP_PRODUCT_NOT_FOUND",
+            "ไม่พบสินค้าที่เลือกใน Demo Shop",
+            { retryable: false, status: 404 }
+        );
+    }
+
+    const availableStock = Math.max(
+        0,
+        Math.floor(Number(product.stock_on_hand) || 0)
+    );
+
+    if (availableStock <= 0) {
+        throw new OperationalError(
+            "DEMO_SHOP_OUT_OF_STOCK",
+            "สินค้านี้หมดแล้ว กรุณาเลือกสินค้า หรือไซซ์อื่น",
+            { retryable: false, status: 409 }
+        );
+    }
+
+    if (requestedQuantity > availableStock) {
+        throw new OperationalError(
+            "DEMO_SHOP_INSUFFICIENT_STOCK",
+            `สินค้าคงเหลือ ${availableStock} ชิ้น กรุณาลดจำนวนที่สั่ง`,
+            { retryable: false, status: 409 }
+        );
+    }
+}
+
 export function handleDemoShopPage(
     request: Request,
     env: Env
@@ -147,8 +199,12 @@ export async function handleDemoShopOrderCreate(
         const body = await readJsonObject(request);
         const idempotencyKey =
             request.headers.get("Idempotency-Key")?.trim() || "";
+        const sku = typeof body.sku === "string" ? body.sku : "";
+
+        await assertDemoStockAvailable(env, sku, body.quantity);
+
         const result = await createDemoShopShopeeOrder(env, {
-            sku: typeof body.sku === "string" ? body.sku : "",
+            sku,
             quantity: body.quantity,
             idempotency_key: idempotencyKey,
         });
