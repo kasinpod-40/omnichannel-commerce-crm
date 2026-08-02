@@ -4,7 +4,10 @@ import {
     verifyPcWorkflowActionToken,
     type PcWorkflowAction,
 } from "../../modules/production-control/pc.action-token";
-import { markPcProductionBlocked } from "../../modules/production-control/pc.service";
+import {
+    markPcProductionBlocked,
+    refreshPcMaterialPlan,
+} from "../../modules/production-control/pc.service";
 import { runPcWorkflowAction } from "../../modules/production-control/pc.workflow.service";
 import { OperationalError } from "../../utils/errors";
 import { assertDashboardSession } from "../shared/dashboard-api";
@@ -189,6 +192,9 @@ async function handleCompletionMaterialShortage(input: {
     production_record_id: string;
     error: OperationalError;
 }): Promise<Response> {
+    // คำนวณ planned_requirement / projected_stock / shortage_qty ใน PC_Materials
+    // ก่อนสร้าง Card เพื่อให้ Dashboard และข้อความ Lark อ่านเหตุการณ์เดียวกัน
+    await refreshPcMaterialPlan(input.env);
     await markPcProductionBlocked(input.env, {
         production_record_id: input.production_record_id,
         code: input.error.code,
@@ -200,7 +206,7 @@ async function handleCompletionMaterialShortage(input: {
         [
             "<h1>ยังรับสินค้าเข้าสต็อกไม่ได้</h1>",
             `<div class="status">${escapeHtml(input.error.message)}</div>`,
-            "<p>ระบบเปลี่ยนแผนเป็นรอวัตถุดิบ และส่งแจ้งเตือนไปยังกลุ่ม Lark เพื่ออนุมัติสั่งซื้อแล้ว</p>",
+            "<p>ระบบเปลี่ยนแผนเป็นรอวัตถุดิบ อัปเดต Dashboard และส่งแจ้งเตือนไปยังกลุ่ม Lark เพื่ออนุมัติสั่งซื้อแล้ว</p>",
             "<p>Stock สินค้าสำเร็จรูปยังไม่เพิ่ม และวัตถุดิบยังไม่ถูกหัก</p>",
             '<a href="/demo-shop">กลับไป Demo Shop</a>',
         ].join("")
