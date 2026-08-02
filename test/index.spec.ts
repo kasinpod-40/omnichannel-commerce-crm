@@ -23,7 +23,7 @@ describe("Omnichannel Commerce CRM worker", () => {
         await expect(response.json()).resolves.toMatchObject({
             ok: true,
             service: "omnichannel-commerce-crm",
-            version: "pc-stock-production-flag-guard-th-48",
+            version: "demo-shop-order-simulator-th-49",
         });
     });
 
@@ -75,5 +75,4 @@ describe("Omnichannel Commerce CRM worker", () => {
             region: "TH",
         });
     });
-
 });

@@ -5,6 +5,7 @@ import { handleConversationRoutes } from "../routes/conversations";
 import { handleDashboardRoutes } from "../routes/dashboard";
 import { handleApiDocsRoutes } from "../routes/docs";
 import { handleDocumentRoutes } from "../routes/documents";
+import { handleDemoShopRoutes } from "../routes/demo-shop";
 import { handleHealthRoute } from "../routes/health.route";
 import { handleLarkOperationalRoutes } from "../routes/lark";
 import { handleLineRoutes } from "../routes/line";
@@ -43,6 +44,7 @@ export async function handleHttpRequest(
         () => handleOrderRoutes(request, env, pathname),
         () => handlePaymentReviewRoutes(request, env, pathname),
         () => handleProductionControlRoutes(request, env, pathname),
+        () => handleDemoShopRoutes(request, env, pathname),
         () => handleDocumentRoutes(request, env, pathname),
         () => handleMarketplaceRoutes(request, env, ctx, pathname),
         () => handleTestingRoutes(request, env, pathname),
