@@ -7,6 +7,7 @@ import type {
 } from "./pc.types";
 
 const mocks = vi.hoisted(() => ({
+    getPcProductionByRecordId: vi.fn(),
     listPcMaterials: vi.fn(),
     listPcProduction: vi.fn(),
     listPcProducts: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./pc.repository", () => ({
+    getPcProductionByRecordId: mocks.getPcProductionByRecordId,
     listPcMaterials: mocks.listPcMaterials,
     listPcProduction: mocks.listPcProduction,
     listPcProducts: mocks.listPcProducts,
@@ -118,6 +120,9 @@ function material(): PcMaterial {
 describe("Production workflow cards", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.getPcProductionByRecordId.mockResolvedValue(
+            batch("IN_PROGRESS")
+        );
         mocks.listPcProduction.mockResolvedValue([]);
         mocks.listPcProducts.mockResolvedValue([product()]);
         mocks.listPcMaterials.mockResolvedValue([material()]);
@@ -196,6 +201,43 @@ describe("Production workflow cards", () => {
                 },
             ],
         });
+        expect(card.markdown).toContain("**สินค้า:** Luna");
+        expect(card.markdown).toContain("**SKU:** BNK-LUNA-IV-M");
+        expect(card.markdown).toContain("**แผนผลิต:** PROD-1");
+    });
+
+    it("re-hydrates identity fields when Lark Update Record returns only changed fields", async () => {
+        const partialUpdate: PcProductionBatch = {
+            ...batch("IN_PROGRESS"),
+            production_id: "",
+            source_order_id: "",
+            product_sku: "",
+            product_name: "",
+            recommended_qty: 0,
+            planned_qty: 17,
+            material_requirement_summary: "",
+            material_risk_summary: "",
+            created_at: 0,
+            owner: "",
+        };
+        mocks.getPcProductionByRecordId.mockResolvedValue({
+            ...batch("IN_PROGRESS"),
+            planned_qty: 17,
+        });
+
+        const card = await buildProductionProgressCard(env(), partialUpdate);
+
+        expect(mocks.getPcProductionByRecordId).toHaveBeenCalledWith(
+            expect.anything(),
+            "production-rec-1"
+        );
+        expect(card.markdown).toContain("**สินค้า:** Luna");
+        expect(card.markdown).toContain("**SKU:** BNK-LUNA-IV-M");
+        expect(card.markdown).toContain("**แผนผลิต:** PROD-1");
+        expect(card.markdown).toContain("**จำนวนผลิต:** 17 ชิ้น");
+        expect(card.markdown).not.toContain("**สินค้า:** \n");
+        expect(card.markdown).not.toContain("**SKU:** \n");
+        expect(card.markdown).not.toContain("**แผนผลิต:** \n");
     });
 
     it("renders a terminal completion card without another action", () => {
