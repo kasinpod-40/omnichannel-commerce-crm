@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env";
 import type { NotificationType } from "../notifications/notification.types";
 import {
+    getPcProductionByRecordId,
     listPcMaterials,
     listPcProduction,
     listPcProducts,
@@ -126,6 +127,67 @@ function findProduct(
 ): PcProduct | null {
     const key = normalizeKey(batch.product_sku);
     return products.find((product) => normalizeKey(product.sku) === key) ?? null;
+}
+
+function hasCompleteCardIdentity(batch: PcProductionBatch): boolean {
+    return Boolean(
+        batch.production_id.trim() &&
+            batch.product_sku.trim() &&
+            batch.product_name.trim()
+    );
+}
+
+async function hydrateProgressCardBatch(
+    env: Env,
+    batch: PcProductionBatch
+): Promise<PcProductionBatch> {
+    if (hasCompleteCardIdentity(batch)) {
+        return batch;
+    }
+
+    // Lark Update Record may return only the fields changed by the PUT request.
+    // Re-read the full Production row before rendering a customer-facing Card,
+    // while preserving the just-written status and quantity from the update result.
+    const current = await getPcProductionByRecordId(env, batch.record_id);
+    if (!current) {
+        throw new Error(
+            `PC_PRODUCTION_CARD_IDENTITY_MISSING:record:${batch.record_id}`
+        );
+    }
+
+    const hydrated: PcProductionBatch = {
+        ...current,
+        production_status: batch.production_status,
+        planned_qty:
+            batch.planned_qty > 0 ? batch.planned_qty : current.planned_qty,
+        recommended_qty:
+            batch.recommended_qty > 0
+                ? batch.recommended_qty
+                : current.recommended_qty,
+    };
+
+    if (!hydrated.product_name.trim() && hydrated.product_sku.trim()) {
+        const product = findProduct(await listPcProducts(env), hydrated);
+        if (product?.product_name.trim()) {
+            hydrated.product_name = product.product_name.trim();
+        }
+    }
+
+    const missing = [
+        ["production_id", hydrated.production_id],
+        ["product_sku", hydrated.product_sku],
+        ["product_name", hydrated.product_name],
+    ]
+        .filter(([, value]) => !value.trim())
+        .map(([field]) => field);
+
+    if (missing.length > 0) {
+        throw new Error(
+            `PC_PRODUCTION_CARD_IDENTITY_MISSING:${missing.join(",")}:${batch.record_id}`
+        );
+    }
+
+    return hydrated;
 }
 
 function shortageLines(input: {
@@ -291,15 +353,17 @@ export async function buildProductionProgressCard(
     env: Env,
     batch: PcProductionBatch
 ): Promise<PcLarkActionCardInput> {
-    return await cardForBatch(env, batch, {
+    const hydrated = await hydrateProgressCardBatch(env, batch);
+
+    return await cardForBatch(env, hydrated, {
         title: "🏭 เริ่มผลิตสินค้าแล้ว",
         template: "green",
         markdown: [
-            `**สินค้า:** ${batch.product_name || batch.product_sku}`,
-            `**SKU:** ${batch.product_sku}`,
-            `**แผนผลิต:** ${batch.production_id}`,
-            `**จำนวนผลิต:** ${quantity(plannedQuantity(batch))} ชิ้น`,
-            `**สถานะ:** ${statusLabel(batch)}`,
+            `**สินค้า:** ${hydrated.product_name}`,
+            `**SKU:** ${hydrated.product_sku}`,
+            `**แผนผลิต:** ${hydrated.production_id}`,
+            `**จำนวนผลิต:** ${quantity(plannedQuantity(hydrated))} ชิ้น`,
+            `**สถานะ:** ${statusLabel(hydrated)}`,
             "",
             "เมื่อผลิตเสร็จ กดปุ่มด้านล่างเพื่อหักวัตถุดิบและรับสินค้าสำเร็จรูปเข้า Stock",
         ].join("\n"),
